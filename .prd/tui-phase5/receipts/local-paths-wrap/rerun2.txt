@@ -1,0 +1,15 @@
+LOCAL-PATHS-WRAP round 2 reruns, TMPDIR=<the harness scratch root>; test-capture and the mutants under the suite lock, the scan and the check (light) without
+== scripts/fxcap/test-capture.sh, in a git clone --no-local of a74a293b
+Ran 116 tests in 367.506s
+OK
+== the mutants: mutants.txt (Ran 26 tests each; 11 of 11 fail it, unmutated OK)
+runs that failed RootsRewrite: 12 (the base and the 11 mutants)
+unmutated                                exit 0, Ran 26 tests,   0 failed (sub)tests, first at -: none
+== scan.sh at a74a293b with this commit's receipt files staged: scan.txt
+== roots.py --check, the machine roots (7), captures-and-receipts (17814 files): exit 0, 0 file(s) refused
+== roots.py --check, the machine roots (7), rest (1098 files): exit 1, 3 file(s) refused
+== roots.py --check, the public roots (3), captures-and-receipts (17814 files): exit 1, 13 file(s) refused
+== roots.py --check, the public roots (3), rest (1098 files): exit 1, 4 file(s) refused
+rows that open behind a mark in tracked files: 213, in 143 file(s)
+== scripts/check-no-local-paths.sh, the same tree
+check-no-local-paths: ok (18912 tracked file(s) scanned; 8 marked fixture line(s), 82 placeholder line(s))

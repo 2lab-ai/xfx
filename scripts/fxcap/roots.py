@@ -43,7 +43,10 @@ its bytes:
   (`/pri\\e[1mvate/...`);
 - across a row's end: a root a terminal wrapped at its margin, or a binary
   broke onto its next row behind a gutter of spaces, tabs or box-drawing and
-  block characters (U+2500-U+259F), is one root;
+  block characters (U+2500-U+259F), or behind a continuation mark at the
+  next row's start (MARKS: xfx's approval goes on behind `↳ `, U+21B3; the
+  composer's first row shown below rows scrolled out opens with `┃↑`, its
+  rail and U+2191), is one root;
 - inside an OSC sequence's payload, by its bytes: an OSC 8 link's target.
 
 It ends where no path-name character follows it within its row
@@ -77,8 +80,27 @@ reading (`--check`). Conservative, on purpose: a root that ends in a gutter
 run is refused even where it stands whole inside a row (`/tmp/fxt ` before
 `/notes`), as its reading without the run ends whole there too, and the view
 cannot tell that from the run lost at a row's edge. A root with more than
-MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, `fxcap.` and six
-digits) anywhere at all: it names no other path, and a root a binary cut
+MAX_GUTTER_RUNS runs is refused outright. A continuation mark counts as a
+gutter character here: the view drops it at a row's start.
+
+**Behind a mark, a root's path-shaped end.** A row behind a mark that starts
+with a root's end -- its last byte or more, short of the whole, ending whole
+-- with a `/` in it or right after it (or its JSON-escaped `\\/`; the
+percent-encoded spelling keeps `/` as `/`) refuses the file too, its head
+rewritten or not: a partial rewrite (the head written as a shorter root's
+placeholder) leaves nothing else that tells such a tail from text. Behind a
+mark only: the same end behind a plain gutter passes, as does an end with no
+`/` at it (`↳ bun x.ts`, `┃↑work on it`), which reads as a word, and a
+position inside a placeholder the rewrite wrote, which is not text. The
+byte after the end is read in the joined view, across the row's end: `↳
+scenarios` closing its row is refused when the next row opens with `/`
+or `\\/`, the shape of a name broken at the margin. What passes by design:
+a root's end with nothing path-like after it -- HOME's last bytes closing a
+`┃↑` row, ending the file, or before a space or a quote; round 1 refused
+those, and neither check refuses them now.
+
+The run directory's own name (`--suffix`, `fxcap.` and six digits) refuses
+the file too, anywhere at all: it names no other path, and a root a binary cut
 short (`.../fxcap.123456/wo...`) or whose head scrolled off a frame keeps
 it. The file is named on standard error with what survived or why it was
 refused, by placeholder, never the root's path, and the exit status is 3. A fragment of a root above the run
@@ -107,8 +129,15 @@ CONTROL = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\
 # Ends a row: a newline, a carriage return, or a CSI that moves the cursor.
 CURSOR_MOVE = re.compile(rb"\x1b\[[0-?]*[HfABCDEGd]\Z")
 GUTTER_BYTES = (b" ", b"\t")
-# A run of gutter characters inside a root: spaces, tabs, U+2500-U+259F.
-GUTTER_RUN = re.compile(rb"(?:[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f]))+")
+# What a renderer leads a continued row with, at the row's start, after its
+# gutter (receipts/local-paths-wrap/marks.md): `↳` (src/tui/mcp_menu.rs
+# `ConfirmLine::Continued`) and `┃↑`, the rail with `↑` where its space was
+# (src/tui/shell.rs RAIL_HIDDEN_ABOVE, fx's input_presentation.zig:1021@481104fd).
+# A bare `↑` is text: `↑↓` key hints open rows.
+MARKS = (b"\xe2\x86\xb3", b"\xe2\x94\x83\xe2\x86\x91")
+# A run of gutter characters inside a root: spaces, tabs, U+2500-U+259F, and
+# `↳` and `↑`, which the view drops in a mark.
+GUTTER_RUN = re.compile(rb"(?:[ \t]|\xe2(?:[\x94\x95][\x80-\xbf]|\x96[\x80-\x9f]|\x86[\xb3\x91]))+")
 # The most runs of them a root may hold: each is read present and absent.
 MAX_GUTTER_RUNS = 6
 # Every placeholder, and every literal that reads like one, with the `!`s an
@@ -199,8 +228,11 @@ def _gutter_at(data, i, limit=None):
 
 
 class View:
-    """The visible text of `data` with each row's edge gutters dropped and its
-    rows joined: `text`, and for each of its runs where it came from."""
+    """The visible text of `data` with each row's edge gutters dropped, and a
+    continuation mark among its leading ones, and its rows joined: `text`, for
+    each of its runs where it came from, and `marked`, where each row that
+    opened with a mark and holds text starts in it -- unless that is inside a
+    placeholder the rewrite wrote (no `!`), whose letters are no text."""
 
     def __init__(self, data):
         self.data = data
@@ -215,9 +247,11 @@ class View:
             pos = m.end()
         self._visible(data, pos, len(data), rows, row)
         rows.append(row)
-        text, runs, ends = bytearray(), [], set()
+        text, runs, ends, self.marked = bytearray(), [], set(), []
         for row in rows:
-            row = self._trim(data, row)
+            row, marked = self._trim(data, row)
+            if marked and row:
+                self.marked.append(len(text))
             for start, end in row:
                 runs.append((len(text), start, end))
                 text += data[start:end]
@@ -225,6 +259,13 @@ class View:
         self.text = bytes(text)
         self.runs = runs
         self.row_ends = ends
+        # A second guard: a marked row that starts inside a placeholder the
+        # rewrite wrote starts in no text. Under the path-shape rule no such
+        # start can be a root's path-shaped end (a placeholder holds no `/`
+        # and is followed by `>`), so this changes no result today; it keeps
+        # the rewrite's own output from reading as a tail if the rule widens.
+        written = [m.span() for m in LITERAL.finditer(self.text) if not m.group(1)]
+        self.marked = [a for a in self.marked if not any(s < a < e for s, e in written)]
 
     @staticmethod
     def _visible(data, start, end, rows, row):
@@ -241,15 +282,31 @@ class View:
 
     @staticmethod
     def _trim(data, row):
-        """The row's runs without the gutter at either end."""
-        row = [list(r) for r in row]
+        """The row's runs without the gutter at either end, a MARKS among the
+        leading one; and whether there was one."""
+        row, marked = [list(r) for r in row], False
         while row:
-            n = _gutter_at(data, row[0][0], row[0][1])
+            # A mark is read in the row's visible bytes, across a colour
+            # change inside it (`ESC[2m┃ESC[0m ESC[1m↑`), each run's own bytes
+            # only; a gutter character within one run.
+            lead = bytearray()
+            for start, end in row:
+                lead += data[start : min(end, start + 6 - len(lead))]
+                if len(lead) >= 6:
+                    break
+            mark = next((m for m in MARKS if lead.startswith(m)), None)
+            if mark:
+                n, marked = len(mark), True
+            else:
+                n = _gutter_at(data, row[0][0], row[0][1])
             if not n:
                 break
-            row[0][0] += n
-            if row[0][0] >= row[0][1]:
-                row.pop(0)
+            while n:
+                take = min(n, row[0][1] - row[0][0])
+                row[0][0] += take
+                n -= take
+                if row[0][0] >= row[0][1]:
+                    row.pop(0)
         while row:
             start, end = row[-1]
             if data[end - 1 : end] in GUTTER_BYTES:
@@ -263,7 +320,7 @@ class View:
             row[-1][1] -= n
             if row[-1][1] <= row[-1][0]:
                 row.pop()
-        return [tuple(r) for r in row]
+        return [tuple(r) for r in row], marked
 
     def spans(self, a, b):
         """The bytes of `data` that text[a:b] came from, as (start, end)."""
@@ -279,6 +336,19 @@ class View:
 
     def ends_whole(self, e):
         return e >= len(self.text) or e in self.row_ends or not PATH_CHAR.match(self.text[e : e + 1])
+
+    def tail_behind_mark(self, needle):
+        """Whether a row behind a mark starts with `needle`'s end -- its last
+        byte or more, short of the whole -- ending whole, with a separator in
+        it or right after it: `/`, or the JSON-escaped `\\/` every root is
+        also spelled as (`spellings`; in the end itself `\\/` holds a `/`).
+        The percent-encoded spelling keeps `/` as it is (`quote(...,
+        safe="/~")`), so no `%2F` is ever a root's separator."""
+        return any(self.text.startswith(needle[-n:], a) and self.ends_whole(a + n)
+                   and (b"/" in needle[-n:]
+                        or self.text[a + n : a + n + 1] == b"/"
+                        or self.text[a + n : a + n + 2] == b"\\/")
+                   for a in self.marked for n in range(1, len(needle)))
 
 
 def _find(view, needle, taken):
@@ -404,6 +474,9 @@ def survivors(data, rules, suffix):
       end, reads without it). The rewrite refuses such a file before it
       edits it; this reads it as `--check` does. A sibling that reads like
       one (`/tmp/ab`) is refused too;
+    - a root's end -- its last byte or more, ending whole, with a `/` in it
+      or right after it -- at the start of a row behind a continuation mark
+      (MARKS), its head rewritten or not;
     - or the run directory's own name, anywhere.
 
     A root's bytes in the visible text are the view's to judge: it reads
@@ -420,7 +493,7 @@ def survivors(data, rules, suffix):
             for m in re.finditer(re.escape(needle) + rb"(?![" + EDGE + rb"])", data)
         )
         broken = any(_find(view, v, []) for v in _broken_at_gutters(needle))
-        if in_control or broken or _find(view, needle, []):
+        if in_control or broken or view.tail_behind_mark(needle) or _find(view, needle, []):
             found.append(name + (":real" if real else ""))
     if suffix and (suffix.encode() in data or suffix.encode() in view.text):
         found.append("the run directory's name")
