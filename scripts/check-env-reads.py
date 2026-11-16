@@ -160,6 +160,7 @@ COMPILE_TIME_NAMES = {
     "CARGO_PKG_NAME": "Cargo.toml's name",
     "CARGO_PKG_VERSION": "Cargo.toml's version",
     "CARGO_BIN_EXE_xfx": "cargo's: the xfx binary an integration test starts",
+    "CARGO": "cargo's: the cargo that builds an integration test binary, whose directory its clean copy puts first on PATH",
     "XFX_BUILD_ID": "build.rs's: the id the build is stamped with, its revision in it",
     "XFX_BUILD_CHANNEL": "build.rs's: the channel the build claims",
 }
@@ -223,6 +224,8 @@ EXCEPTIONS = [
     ("tests/support/isolated.rs", ("TMPDIR",)),
     ("tests/support/isolated.rs", ("RUST_BACKTRACE",)),
     ("tests/support/isolated.rs", ("RUST_TEST_THREADS",)),
+    # The copy's PATH, the cargo that built it in front (its module's doc).
+    ("tests/support/isolated.rs", ("PATH",)),
     ("tests/support/isolated.rs", (NAMES,)),
     ("tests/support/isolated.rs", ("HOME",)),
     # An ignored case the drawn-wider sweep runs, with its own two.
