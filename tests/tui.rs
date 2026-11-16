@@ -3604,18 +3604,29 @@ fn paste_with_pauses(
                     last_bytes(&text, 400)
                 )],
             };
-            eprintln!(
+            say(&format!(
                 "a timing-indeterminate session: the paste paused for {gap:?} \
                  (pauses of {pause:?}); \
-                 a second later the screen held:\n{}",
+                 a second later the screen held:\n{}\n",
                 screen.join("\n")
-            );
+            ));
             return Err(Rejected { gap, screen });
         }
     }
-    eprintln!("the paste's longest pause: {longest:?} (pauses of {pause:?})");
+    say(&format!(
+        "the paste's longest pause: {longest:?} (pauses of {pause:?})\n"
+    ));
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
+}
+
+/// Writes `line` to standard error in one write, so a parallel suite's other
+/// output cannot cut it: `eprintln!` writes its pieces one by one, and with
+/// `--nocapture` the harness's `test ... ok` lines landed inside them (a
+/// fifth of the paste diagnostics in CI-PTY-WAIT round 3's suite runs).
+fn say(line: &str) {
+    use std::io::Write;
+    let _ = std::io::stderr().lock().write_all(line.as_bytes());
 }
 
 /// At most the last `most` bytes of `text`, from a character's start: a
@@ -3783,28 +3794,29 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
 
 #[test]
 fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing() {
-    // The same, from a terminal that pauses 20 ms before four of its 4 KiB
+    // The same, from a terminal that pauses 12 ms before four of its 4 KiB
     // writes, the first right behind the part that carries the end marker:
     // longer than a turn of the loop (8 ms, `TICK`), so an idle TUI finds
-    // the input empty and waits there, and shorter than the quiet that ends
+    // the input empty and waits there, and well under the quiet that ends
     // the quarantine (`PASTE_QUIET`). An unpaced write's refill gaps are a
     // few milliseconds at idle, under one turn, so the loop never records a
     // quiet's start there (`burst` returns at its first empty check); these
     // pauses make it record one, at the seam this case guards: `burst`,
     // `end_delivery`, on the loop's own clock.
     //
-    // Four pauses, not one at every boundary: under load the writer
-    // oversleeps a 20 ms sleep by 15-30 ms, and a pause at all 255 had a
-    // fifth of its sessions rejected, twice the unpaced cases' share
-    // (CI-PTY-WAIT round 3, `round3/` in the receipt).
+    // Four 12 ms pauses, not 20 ms ones at every boundary: under load the
+    // writer oversleeps a 20 ms sleep by 10-30 ms, and 20 ms at all 255
+    // boundaries had a fifth of its sessions rejected, against an eighth of
+    // the unpaced cases'; 20 ms at four still had a fifth rejected inside a
+    // parallel suite (CI-PTY-WAIT round 3, `round3/` in the receipt).
     //
     // What it does not carry: the quarantine's threshold, which the lib
     // pins without a clock (`src/tui/input.rs:3549`, `:4148`); and proof
     // that the reader saw each pause -- acceptance is measured on the
-    // writer, and a starved reader can take two parts in one read. CI-PTY-WAIT
-    // round 2's quarantine mutants (any quiet, 5 ms, 20 ms) failed here 3/3
-    // each at idle; the 20 ms one only because the writer overslept its
-    // 20 ms sleep (gaps of 30-37 ms measured).
+    // writer, and a starved reader can take two parts in one read. A
+    // quarantine that ends at any quiet, or after 5 ms, fails here; one that
+    // ends after 20 ms does only when the writer oversleeps (CI-PTY-WAIT
+    // rounds 2 and 3, the receipt's quarantine mutants).
     //
     // A red here whose every pause was under 50 ms is not retried, and it
     // can be the known clock-after-poll defect rather than a regression: the
@@ -3813,7 +3825,7 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // `src/tui/input.rs:822`), so one reader stall there, with the quiet's
     // start already recorded at a pause, ends the quarantine early. The
     // queued PASTE-QUARANTINE-CLOCK unit fixes it.
-    hostile_paste_types_nothing(std::time::Duration::from_millis(20), &[1, 64, 128, 192]);
+    hostile_paste_types_nothing(std::time::Duration::from_millis(12), &[1, 64, 128, 192]);
 }
 
 /// The hostile paste at an empty composer, `pause` before each part in

@@ -18,6 +18,9 @@ import sys
 
 PACED = "a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing"
 out = sys.argv[1]
+# Keyed by (where, pause): `single` logs hold one test's output whole;
+# `suite` logs interleave a parallel suite's, so a diagnostic line there can
+# be cut by another test's and go uncounted (the `cut` line below).
 accepted = collections.defaultdict(list)
 rejected = collections.defaultdict(list)
 runs = collections.Counter()
@@ -35,19 +38,22 @@ for log in sorted(os.listdir(out)):
         continue
     label, name = log.split(".")[:2]
     text = open(os.path.join(out, log), errors="replace").read()
+    source = "suite" if name == "@suite" else "single"
     # `(parts X apart)` at 6acbcd7e, a pause before every part; `(pauses of
     # X)` since, a pause before four.
     for gap, *pause in re.findall(
             r"the paste's longest pause: (\S+) \((?:parts (\S+) apart|pauses of (\S+))\)", text):
-        accepted[pause[0] or pause[1]].append(ms(gap))
+        accepted[(source, pause[0] or pause[1])].append(ms(gap))
     for gap, *pause in re.findall(
             r"a timing-indeterminate session: the paste paused for (\S+)\s+"
             r"\((?:parts (\S+) apart|pauses of (\S+))\)", text):
-        rejected[pause[0] or pause[1]].append(ms(gap))
+        rejected[(source, pause[0] or pause[1])].append(ms(gap))
     if name == PACED:
         verdict = "ok" if "test result: ok." in text else "FAILED"
     elif name == "@suite":
-        m = re.search(rf"^test {PACED} \.\.\. (\w+)", text, re.M)
+        # Not anchored: with --nocapture another test's line can be cut
+        # around this one.
+        m = re.search(rf"test {PACED} \.\.\. (ok|FAILED)", text)
         verdict = m.group(1) if m else "not run"
         for failed in re.findall(r"^test (\S+) \.\.\. FAILED", text, re.M):
             if failed != PACED:
@@ -69,10 +75,11 @@ for log in sorted(os.listdir(out)):
 print("paced case runs (single = its own process, suite = inside a whole parallel tui suite):")
 for key, n in sorted(runs.items()):
     print(f"  {key}: {n}")
-for pause in sorted(set(accepted) | set(rejected)):
-    acc, rej = accepted[pause], rejected[pause]
+for source, pause in sorted(set(accepted) | set(rejected)):
+    acc, rej = accepted[(source, pause)], rejected[(source, pause)]
     total = len(acc) + len(rej)
-    line = f"sessions with parts {pause} apart: {total}, accepted {len(acc)}, rejected {len(rej)}"
+    line = (f"{source} runs, sessions with pauses of {pause}: {total}, "
+            f"accepted {len(acc)}, rejected {len(rej)}")
     if total:
         line += f" ({100 * len(rej) / total:.1f}% rejected)"
     if acc:
@@ -81,6 +88,14 @@ for pause in sorted(set(accepted) | set(rejected)):
     if rej:
         line += f"; rejected pauses: {', '.join(f'{g:.0f} ms' for g in sorted(rej))}"
     print(line)
+cut = 0
+for log in sorted(os.listdir(out)):
+    if log.endswith(".log"):
+        text = open(os.path.join(out, log), errors="replace").read()
+        cut += len(re.findall(r"the paste's longest pause: |a timing-indeterminate session: ", text)) - len(
+            re.findall(r"(the paste's longest pause: \S+ |a timing-indeterminate session: the paste paused for \S+\s+)"
+                       r"\((?:parts \S+ apart|pauses of \S+)\)", text))
+print(f"diagnostic lines another test's output cut (not counted above): {cut}")
 print("paced reds:" if reds else "paced reds: none")
 for red in reds:
     print("  " + red)
