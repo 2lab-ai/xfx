@@ -589,7 +589,7 @@ fn assert_raw(state: TerminalState) {
 ///
 /// Every other raw-mode assertion in this suite waits on a byte that the child
 /// writes *after* the `tcsetattr` in question -- the mode set, which `resume`
-/// emits only once raw mode is back (`src/tui/mod.rs:759-760`). That works
+/// emits only once raw mode is back (`src/tui/mod.rs:772-773`). That works
 /// whenever the wire says which mode set is which. After a stop whose timing
 /// the test does not control, it does not: a session stopped *after* it
 /// announced itself has already put one mode set on the wire, so waiting for
@@ -2718,7 +2718,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1809,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412` all clear the line
+    // (`tests/tui.rs:1930,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -9560,7 +9560,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:17529`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:17608`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
