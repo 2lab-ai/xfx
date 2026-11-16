@@ -24,12 +24,14 @@ Each reported call is refused unless it is one of:
 - a `process_env!` build arm (src/lib.rs): names computed by design, read
   from the process in a build and from the case's fake process in a unit
   test (src/test_env.rs);
-- an `env!` or `option_env!` of a literal name in COMPILE_TIME_NAMES;
+- an `env!` or `option_env!` of a literal name in COMPILE_TIME_NAMES, in
+  any file; or of one in COMPILE_TIME_SCOPED, in a file its entry names;
 - a call outside any macro listed in PLAIN, by file, path and count; one in
   tests/ only in a test binary that runs in a clean copy of itself.
 
 Beside clippy's reports: rustc's dep-info names every compile-time read of
-every crate built from this manifest, held to COMPILE_TIME_NAMES; clippy.toml
+every crate built from this manifest, held to COMPILE_TIME_NAMES and, for a
+crate whose root source its entry's prefix names, COMPILE_TIME_SCOPED; clippy.toml
 must hold every reader, start and macro listed here, and no .clippy.toml may
 shadow it; and every test executable cargo builds (TEST_BUILDS) is started,
 to show it refuses to run a case outside its clean copy
@@ -160,9 +162,23 @@ COMPILE_TIME_NAMES = {
     "CARGO_PKG_NAME": "Cargo.toml's name",
     "CARGO_PKG_VERSION": "Cargo.toml's version",
     "CARGO_BIN_EXE_xfx": "cargo's: the xfx binary an integration test starts",
-    "CARGO": "cargo's: the cargo that builds an integration test binary, whose directory its clean copy puts first on PATH",
     "XFX_BUILD_ID": "build.rs's: the id the build is stamped with, its revision in it",
     "XFX_BUILD_CHANNEL": "build.rs's: the channel the build claims",
+}
+
+# Compile-time names a file may read only where it is needed, each: name ->
+# (the files whose `env!` or `option_env!` may name it, the prefix of the
+# crates -- by root source, as rustc's dep-info is keyed -- whose
+# compilation may read it, why). `CARGO` is cargo's absolute path to
+# itself, the builder's: baked into a product binary it would carry a path
+# of one machine, so only the clean copy of an integration test binary
+# reads it, and every integration test binary compiles that file in.
+COMPILE_TIME_SCOPED = {
+    "CARGO": (
+        ("tests/support/isolated.rs",),
+        "tests/",
+        "cargo's: the cargo that builds an integration test binary, whose directory its clean copy puts first on PATH",
+    ),
 }
 
 # What clippy-driver itself records as read at compile time (its own
@@ -560,6 +576,12 @@ def classify(crate, messages, exception_file, process_env_file):
                 seen_at_compile_time[relative(record["target"]["src_path"], crate)].add(literal.group(1))
             if not literal:
                 problems.append((*at, f"a {path}! whose name is not a literal"))
+            elif literal.group(1) in COMPILE_TIME_SCOPED:
+                files = COMPILE_TIME_SCOPED[literal.group(1)][0]
+                if where["file_name"] in files:
+                    compile_time[literal.group(1)] += 1
+                else:
+                    problems.append((*at, f"a {path}! of {literal.group(1)}, a compile-time name only {', '.join(files)} may read"))
             elif literal.group(1) not in COMPILE_TIME_NAMES:
                 problems.append((*at, f"a {path}! of {literal.group(1)}, which is not a compile-time name"))
             else:
@@ -613,6 +635,11 @@ def compiled_problems(compiled):
         if NO_DEP_INFO in names:
             problems.append((source, 0, "built with no dep-info to say what it read at compile time"))
         for name in sorted(names - set(COMPILE_TIME_NAMES) - {NO_DEP_INFO}):
+            if name in COMPILE_TIME_SCOPED:
+                crates = COMPILE_TIME_SCOPED[name][1]
+                if not source.startswith(crates):
+                    problems.append((source, 0, f"compiled with {name} from the environment (rustc's dep-info), a compile-time name only crates under {crates} may read"))
+                continue
             problems.append((source, 0, f"compiled with {name} from the environment (rustc's dep-info), which is not a compile-time name"))
     return problems
 
@@ -1173,6 +1200,18 @@ FIXTURES = {
         '        assert!(option_env!("XFX_GATEWAY_KEY").is_none() || true);\n    }\n}',
         ["core::option_env! of XFX_GATEWAY_KEY", "compiled with XFX_GATEWAY_KEY"],
     ),
+    # COMPILE_TIME_SCOPED: CARGO in a src/ file (src/cargo_path.rs, a module
+    # of the fixtures' library) is refused by both checks; in the one file
+    # it is scoped to, compiled into an integration test, it is not.
+    "cargo_path_outside_its_place": (
+        "// The read is src/cargo_path.rs's, a module of the library.",
+        ["of CARGO, a compile-time name only tests/support/isolated.rs may read",
+         "compiled with CARGO from the environment (rustc's dep-info), a compile-time name only crates under tests/"],
+    ),
+    "cargo_path_in_its_place": (
+        '#[path = "support/isolated.rs"]\nmod isolated;\npub fn at() -> &\'static str {\n    isolated::CARGO_AT\n}',
+        [],
+    ),
     "env_inside_concat": (
         'pub const BY: &str = concat!("by ", env!("CARGO_PKG_AUTHORS"));',
         ["compiled with CARGO_PKG_AUTHORS"],
@@ -1334,6 +1373,8 @@ FIXTURE_FILES = {
     "gen/hidden.rs": HIDDEN,
     "linked_target/x.rs": HIDDEN,
     "../outside/y.rs": "pub fn outside() {}\n",
+    "src/cargo_path.rs": 'pub const CARGO_AT: &str = env!("CARGO");\n',
+    "tests/support/isolated.rs": 'pub const CARGO_AT: &str = env!("CARGO");\n',
 }
 # Which fixture a refusal in one of those files belongs to.
 FIXTURE_OWNS = {
@@ -1341,6 +1382,8 @@ FIXTURE_OWNS = {
     "include_outside_src_and_tests": ("gen/hidden.rs",),
     "under_a_linked_directory": ("tests/linked/x.rs",),
     "path_outside_the_repository": ("../outside/y.rs",),
+    "cargo_path_outside_its_place": ("src/cargo_path.rs", "src/lib.rs"),
+    "cargo_path_in_its_place": ("tests/support/isolated.rs",),
 }
 
 
@@ -1385,7 +1428,7 @@ def self_test():
         shutil.copy(os.path.join(ROOT, "Cargo.lock"), crate)
         macro = os.path.join(ROOT, ENV_EXCEPTION_FILE)
         with open(os.path.join(crate, "src", "lib.rs"), "w") as lib:
-            lib.write(f"#[macro_use]\n#[path = {json.dumps(macro)}]\nmod env_exception;\n")
+            lib.write(f"#[macro_use]\n#[path = {json.dumps(macro)}]\nmod env_exception;\npub mod cargo_path;\n")
         for name, (source, _) in FIXTURES.items():
             with open(os.path.join(crate, "tests", name + ".rs"), "w") as fixture:
                 fixture.write(source + "\n")
