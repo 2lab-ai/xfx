@@ -25,6 +25,15 @@
 //! `minimal_environment`). A directory of program files is no person's
 //! configuration, proxy or credential.
 //!
+//! A parent started with no `PATH` gives the copy none: there is nothing to
+//! put the toolchain in front of, and [`toolchain_first`] returns nothing.
+//! A command xfx runs then gets `minimal_environment`'s system default
+//! (`/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`), which holds no rustup
+//! toolchain, so a case that starts `cargo` fails there as it would for a
+//! person with no `PATH`. A `PATH` of the toolchain's directory alone would
+//! be worse: that function would take it as given, and every other program
+//! a case starts would be missing.
+//!
 //! The copy does not trust the marker. Before any case runs it confirms its
 //! environment holds those names and no other, and that `HOME` is, byte for
 //! byte, the path its parent made for that marker -- `TMPDIR` (else `/tmp`)
