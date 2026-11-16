@@ -16,7 +16,9 @@ A person's two presses, and two `ESC` bytes in one burst, stay two Escapes.
 | `adb740bd` | RED: a shell test at an approval's choice and a question's. Test only |
 | `d83ef4eb` | the stages' `meta`, `after_escape`, `in_csi`, `csi`, `prefixed`, `ss3`, `kitty_key`, `modifier`, the module doc |
 | `2fbe3e83`, `fbb2a50f` | `docs/parity.md`, the ledger's refs, a scenario comment; citations named in comments |
-| `47fccd97` | **the code head**: a quiet prefix flushes as two Escapes, correcting `c76e5a51` and `d83ef4eb`; the burst rows, the shell pins, the scenarios and the parity sentence to match |
+| `47fccd97` | the code: a quiet prefix flushes as two Escapes, correcting `c76e5a51` and `d83ef4eb`; the burst rows, the shell pins, the scenarios and the parity sentence to match |
+| `fd898fc5` | **round 2, the code head** (comments and tests only): the four timing schedules pinned; a control behind the prefix with a flush and a following byte; `ESC ESC [ ESC [ A`; leading zeros; the question's marker; the module doc, `modifier`'s doc, the `ss3` and `kitty_key` citations; row 237 |
+| `873328ab` | round 2: the ledger's refs re-pointed (review M1) |
 | the commits after | this folder; no `src/` change |
 
 **Corrected within the unit.** `c76e5a51`'s burst rows, and `d83ef4eb`'s
@@ -137,10 +139,46 @@ key decoder does (`terminalInputOwner`, `src/ui/input/runtime.zig:46-55`;
   one Escape there.
 
 **A report behind a second `ESC`.** The held `ESC` and the report's bytes
-are matched together, and the monitor keeps the background notification
-and an `OSC 11` reply (`theme_monitor.zig:96-105`, `:123-146`). The second
-`ESC` went to the decoder on its own, so the user's Escape in front of a
-report is the Escape key.
+are matched together. The monitor keeps three reports: the background
+notification, a primary device attributes reply (`classifyPrimaryDeviceAttributes`,
+`theme_protocol.zig:13-42`: `ESC [ ?`, digits and `;`, `c`) and an
+`OSC 11` reply (`theme_monitor.zig:96-121`, `:123-146`). The second `ESC`
+went to the decoder on its own, so the user's Escape in front of one of
+those is the Escape key. Anything else, an `OSC 0` say, is forwarded with
+the held `ESC` (`:147`), and fx's decoder reads `ESC ESC ]` as `.ignore`
+(`escape_parser.zig:556-559`) and the body as text.
+
+**What the monitor does not hold.** A held `ESC` and a byte that starts no
+report it keeps are forwarded together at once (`:106-121`, `:147`): `ESC`
+with a control byte, CR or `[ A` is invalid to `classifyPrimaryDeviceAttributes`
+(`theme_protocol.zig:19-20`). So in a burst `ESC ESC ^C` fx's decoder sees
+`ESC` (the second, at once), then `ESC ^C`: `ESC ESC ^C`, `.ignore` --
+read from the source, now that `theme_protocol.zig` is in `fx-src.txt`
+(round-1 review S3).
+
+**The timing, two stages in fx and one quiet in xfx.** fx's monitor holds a
+lone `ESC` 75 ms; its decoder resolves a stage 30 ms after the stage's last
+`ESC` (`main.zig:187`, `terminal_action_decoder.zig:135-139`), at a loop
+turn, which comes every 8 ms or less while nothing else is slow (the poll,
+`main.zig:174`, `:1115-1123`). xfx has one 50 ms quiet. Where the bytes
+are spaced, that reads different keys, in both directions:
+
+| schedule | fx | xfx (pinned) | fx's result rests on |
+|---|---|---|---|
+| `ESC ESC`, then `[ A` at 40 ms | Escape (the second, at ~30 ms), then Up (the held `ESC` with `[ A`) | `ParagraphUp` | the source and a loop turn between 30 and 40 ms: **inferred from the cadence** |
+| `ESC`, then `ESC [ A` at 60 ms | `paragraph_up` (the monitor still holds the first, `:85-88`, and forwards it with `[ A` behind the second) | Escape, Up | **the source** (`theme_monitor.zig:7`, `:85-93`, `:106-121`, `:147`) |
+| `ESC`, then CR at 60 ms | Alt-Enter, `insert_newline` (the held `ESC` with CR, `escape_parser.zig:515-520`) | Escape, Submit | **the source** |
+| `ESC ESC`, then Ctrl-C at 40 ms | Escape (at ~30 ms), then Escape and Cancel (the held `ESC` with Ctrl-C, a bare `ESC` and a control, `terminal_action_decoder.zig:92-101`) | `Ignore` | the source and a loop turn between 30 and 40 ms: **inferred from the cadence** |
+
+So xfx misses an Escape fx reads in rows 1 and 4 (an approval not
+cancelled, an interrupt not armed, a Ctrl-C swallowed), and reads one fx
+does not in rows 2 and 3. The base read rows 1 and 4 as fx does: it had no
+prefix, so `ESC ESC` was Escape and a new `ESC` at any gap (`red.txt` 0:
+the timing test fails on the base at row 1 with `[Escape, Up]`, and the
+control test's `ESC ESC ^C` gives `[Escape, Escape, Cancel]`). Rows 2 and 3
+are the base's too. All four are pinned as
+xfx reads them now (`the_quiet_is_one_50_ms_window_not_fxs_two_stages`), for
+**ESC-MONITOR-TIMING**, which copies the two stages, to flip.
 
 **The modifier field's bits, on every legacy CSI form.**
 - The field is a number that stops at 65535 (`appendCsiDigitSaturating`,
@@ -236,6 +274,18 @@ What fx shows:
 
 ## RED (`red.txt`, `red/`, `red-pairs.txt`)
 
+- `red.txt` 0, **round 2**: `fd898fc5`'s five new or changed tests over the
+  base's code, in a `--no-local` clone at `873328ab`. All five fail:
+  - the timing pins, at row 1: `[Escape, Up]` for `[ParagraphUp]` (the
+    base read it as fx does, above);
+  - leading zeros: `1;005C` `Ignore` for `WordRight` (the base took two
+    digits);
+  - `ESC ESC [ ESC [ A`: `[Escape, Ignore, Up]` for `[Ignore, Up]`;
+  - a control behind the prefix, with the flush and `x` after it:
+    `[Escape, Escape, Cancel, x]` for `[Ignore, x]`;
+  - the approval and question test, at its approval half (the question
+    half's new marker asserts are reached at the head only; mutant M25
+    shows they bite).
 - `red.txt` 1: the corrected tests (`47fccd97`'s) over the base's code. Six
   of ten fail:
   - the decoder: `ESC ESC b` gave `[Escape, AltB]` for `[AltB]`; `ESC ESC
@@ -272,14 +322,19 @@ What fx shows:
     xfx's row has the blank. The marker blinks (`docs/parity.md`, "The
     marker blinks every 500 ms"), so the two snaps caught it in different
     phases [inferred from the one cell; `mid`'s pair is identical].
-- `green.txt`: the unit's 10 tests at the code head, on both suites:
-  10 + 10 ok.
+- `green.txt`: the unit's 14 tests at `873328ab` (round 2's code head), on
+  both suites: 14 + 14 ok. Round 2 changed no code outside the tests --
+  `src/tui/input.rs` above its `mod tests`, comment lines left out, is the
+  same at `47fccd97` and `873328ab` (979 lines each) -- so the pairs above
+  and the sweep stand.
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-On a `--no-local` clone at `47fccd97` under the suite lock, one mutant at a
-time, each running `cargo test --lib -- tui::`: **22 of 22 killed**, the
-clone clean after the run.
+On a fresh `--no-local` clone at `873328ab` (round 2's code head) under
+the suite lock, one mutant at a time, each running `cargo test --lib --
+tui::`: **25 of 25 killed**, the clone clean after the run. M1-M22 are
+round 1's (killed 22 of 22 at `47fccd97` then; that run is superseded by
+this one), M23-M25 round 2's.
 
 | mutant | killed by |
 |---|---|
@@ -305,11 +360,14 @@ clone clean after the run.
 | M20 the modifier field takes two digits | the prefixed keys, the table |
 | M21 a field past 256 read for its low byte | the exact-shapes test, the table |
 | M22 a quiet prefix one Escape (fx's decoder alone, `c76e5a51`'s reading) | the burst, the running-turn shell test |
+| M23 the prefixed C0 arm leaves the stage pending (no `Ground` reset; review S1) | the control test (its flush and following `x`), the timing pins |
+| M24 a leading zero refused in a cursor key's modifier | the leading-zero test |
+| M25 a question's choice moves on a prefixed Down (`ParagraphDown`) | the approval and question test's marker asserts, and the held-arrow question test |
 
-M8's list also names `tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_o...`,
-a catalog-wait test (the known flake class); the table kills M8 on its own.
-The first run, at `2fbe3e83` (before the correction), killed its 21 of 21
-too; it is not kept, since its code is not the head's.
+In round 1's run M8 also named a catalog-wait test (the known flake class);
+this run's M8 is the table's alone. The first run, at `2fbe3e83` (before
+the correction), killed its 21 of 21 too; it is not kept, since its code is
+not the head's.
 
 ## Sweep (`sweep-base.md`, `sweep-head.md`, `sweep-compare.txt`)
 
@@ -368,8 +426,11 @@ GATE: dispatcher
 `refs.py` is COMPOSER-SUPER-ARROWS', with its paragraph re-pointed at this
 unit. It checks the ledger's refs into the files this unit changes, by
 content, against the base (`refs.py df45025c`). 6 of 16 had moved (the new
-shell tests sit above them), and `--fix` re-pointed them (`2fbe3e83`);
-`refs.txt` reads 16 checked, 0 wrong.
+shell tests sit above them), and `--fix` re-pointed them (`2fbe3e83`). They
+moved again with `47fccd97`'s and `fd898fc5`'s shell tests, which round 1
+missed (review M1: 6 wrong at `ff60d89b`); `--fix` at the round-2 code head,
+`873328ab`. `refs.txt` (its header names that commit) reads 16 checked, 0
+wrong, rerun at the end.
 
 ## Parity (`docs/parity.md`)
 
@@ -380,13 +441,19 @@ shell tests sit above them), and `--fix` re-pointed them (`2fbe3e83`);
   where `kittyUnicodeKeyAction` reads it, the tilde keys, the paste markers
   and Shift-Tab without it). A control byte behind it is one keystroke with
   no binding. A report behind it gives the first `ESC` back as the Escape
-  key. The pair with nothing behind it is two Escapes, as fx's theme
-  monitor delivers it. It names the one part **not copied**: the lengths of
-  the quiet (fx's monitor 75 ms, then its decoder 30 ms; here one 50 ms).
+  key; round 2 says that fx does so only for the three reports its monitor
+  keeps, and calls the rest a recorded deviation, kept. The pair with nothing
+  behind it is two Escapes, as fx's theme monitor delivers it.
+- **The same row, not copied** (rewritten in round 2): fx's two-stage
+  timing, with the four schedules above, what each side reads, which ones
+  rest on fx's source and which on its loop cadence, and the owner,
+  **ESC-MONITOR-TIMING** (queued).
 - **The same row, the cursor-key grammar sentence**: a modifier field is
   read for every bit a terminal sends, `1` to `256`, its four bits only;
-  any modifier is Shift-Tab; a field past 256 is no key, where fx reads
-  the low bits, as kitty's field is.
+  any modifier is Shift-Tab; a leading zero is the number, as in fx, within
+  three digits (round 2); a fourth digit and a field past 256 are no key,
+  kept differences. The grammar sentence's "one canonical decimal spelling
+  per field" now names this field as an exception.
 - **The `ask_user_question` row** and **the approval's "Not changed"
   sentence**: both said `ESC ESC [ D` (and `[ A`/`[ B` at a choice)
   cancelled the batch or the turn, owner META-PREFIX-DECODE (proposed). Both
@@ -405,20 +472,35 @@ shell tests sit above them), and `--fix` re-pointed them (`2fbe3e83`);
   binary's behaviour: the user sees the binary, and the capture is the
   oracle. This also keeps what the base did for a burst, so a person's
   double Escape is unchanged in every timing.
-- **The quiet stays 50 ms** (`Decoder::ESC_TIMEOUT`). fx's lone Escape
-  lands after about 105 ms (75 + 30). Copying that would slow every
-  Escape xfx resolves, and change a bound pty tests outside this unit rest
-  on. It is recorded as not copied in the parity row.
-- **A report behind the prefix gives the first `ESC` back** (an `OSC`, the
-  background notification). fx's monitor keeps the report and hands the
-  decoder a lone `ESC`, so the user's Escape survives there. Reading the
-  report as a prefixed key would lose it.
+- **The quiet stays 50 ms here; fx's two stages go to ESC-MONITOR-TIMING**
+  (the dispatcher's decision, round 2). The four schedules above are the
+  difference, in both directions, pinned as xfx reads them. Copying the two
+  stages touches the pty timing tests, so it is its own unit.
+- **A report behind the prefix gives the first `ESC` back, before any
+  `OSC`** and before the background notification. fx does so only for the
+  three reports its monitor keeps; another `OSC` behind a prefix is its
+  decoder's `.ignore` and the body as text. **A recorded deviation, kept**:
+  xfx reads no `OSC` body as keys, prefixed or not. A primary device
+  attributes reply behind a prefix is one `Ignore` here, the Escape with it;
+  xfx never asks for one.
 - **A control byte behind the prefix is one `Ignore`**, as fx's decoder
   reads `ESC ESC` and a control (`terminal_action_decoder.zig:92-101`).
-- **A modifier field stops at 256.** fx reads any number and uses the low
-  bits. 256 is every bit a terminal sends (kitty's eight), and the
-  cursor-key grammar is already stricter than fx's, one canonical spelling
-  per field, as `key_modifiers` is for kitty's field.
+- **A modifier field stops at 256, and at three digits.** fx reads any
+  number and uses the low bits. 256 is every bit a terminal sends (kitty's
+  eight).
+- **A leading zero in a cursor key's modifier is the number** (`1;005C` is
+  Ctrl-Right), as fx's `appendCsiDigitSaturating` reads it
+  (`escape_parser.zig:19-23`): fx does not reject it, so neither does this.
+  The base took one (`1;05C`) already. Kept differences: a fourth digit
+  (`1;0005C`) is no key here, where fx reads 5; kitty's field keeps its one
+  spelling (`decimal`). Pinned by
+  `a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits`.
+- **An `ESC` inside a prefixed CSI or SS3 starts a bare stage**, as fx's
+  does (`escape_parser.zig:492-498`): `ESC ESC [ ESC [ A` is Up. Here the
+  abandoned sequence is one `Ignore` before it (`intruded`), as it is
+  without the prefix; fx gives no event for it. No surface acts on an
+  `Ignore`, and no gesture counts it. Pinned by
+  `an_escape_inside_a_prefixed_sequence_starts_a_bare_one`.
 - **The prefix is Alt's bit for the cursor keys only** (`prefixed`). For a
   key report it is read branch by branch, as fx reads it. Mutant M15 shows
   that an Alt-bit shortcut there would make `ESC ESC [ 98 u` Alt-b.
@@ -428,14 +510,46 @@ shell tests sit above them), and `--fix` re-pointed them (`2fbe3e83`);
 
 ## Open
 
-- **The `ESC`-to-`ESC` gap at which fx's monitor still splits a pair** is
-  75 ms by its code (`theme_monitor.zig:85-88`). xfx's is 50 ms. Two
-  presses 50 to 75 ms apart are two Escapes on both: here because the first
-  has gone quiet, in fx because the monitor still holds it and hands the
-  second on. Not measured on the binary.
-- **A control byte behind the prefix**: fx's monitor hands `ESC` and the
-  control on together, so its decoder sees `ESC ESC ^C` and ignores it.
-  This is read from the code [inferred], not captured.
+- **ESC-MONITOR-TIMING** (queued): fx's two-stage timing, the four
+  schedules above. Rows 1 and 4 read fx from its loop's cadence, not a
+  capture; that unit's timed differential tests are where they get one.
+- **The gap at which a person's two presses become a prefix**: in fx a
+  second `ESC` within 75 ms of the first is handed on while the first is
+  held, and the decoder reads the two as two Escapes unless a key follows
+  within 30 ms; here, any gap under 50 ms makes a prefix, and the pair is
+  still two Escapes unless a key follows. Two lone presses are two Escapes
+  on both at every gap. Not measured on the binary.
 - **`a-meta-up`'s one-cell difference** (fx's `•` in front of
-  `Generating`) is read as the marker's blink phase [inferred]; not
-  reproduced.
+  `Generating`) is the marker's blink phase, which the sweep normalizes
+  (`sweep-compare.txt`: normalized-identical).
+- **Not changed** (round-1 review NIT 6, NIT 7): `!meta` on Ctrl-Enter and
+  the keypad Enter's `meta` are both Submit either way, so no mutant can
+  tell them apart; the launch probe's handed-back bytes run through the
+  same decoder, so an Escape and an arrow typed during the probe window
+  read as one prefixed key, as fx's would [inferred].
+
+## Round 2 (review M1, S1, S3, NIT 1-5; the timing narrowed)
+
+| item | where |
+|---|---|
+| M1 the ledger refs | `873328ab`: `--fix` at the code head; `refs.txt`, its header naming the commit: 16 checked, 0 wrong |
+| the timing, both directions | `src/tui/input.rs`'s module doc (the table under "The quiet is not fx's"); `docs/parity.md` row 237 ("Not copied: fx's two-stage timing"); this README's rule section and Open; pinned by `the_quiet_is_one_50_ms_window_not_fxs_two_stages`; owner ESC-MONITOR-TIMING |
+| S1 the prefixed C0 arm | `a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending`; M23 killed |
+| S3 `classifyPrimaryDeviceAttributes` | `fx_src.sh` (`theme_protocol.zig:11-42`, and the loop's poll `main.zig:1115-1145`); `fx-src.txt`; the control-byte item rechecked: read from the source now, moved out of Open |
+| NIT 1 the `OSC` deviation | the module doc, row 237, Decisions |
+| NIT 2 leading zeros | fx accepts them; kept within three digits; `modifier`'s doc, row 237, Decisions; `a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits`; M24 |
+| NIT 3 `ESC ESC [ ESC [ A` | `an_escape_inside_a_prefixed_sequence_starts_a_bare_one`; Decisions |
+| NIT 4 citations | `ss3`'s `escape_parser.zig:637-660@481104fd`; `kitty_key`'s `:185-266@481104fd` |
+| NIT 5 the question's marker | `a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape`; M25 |
+
+**Lost and redone.** Round 2 stopped on 2026-11-11 (an API rate limit)
+after `873328ab`, with this folder's edits uncommitted and a mutant run
+finished but unread; macOS's `/tmp` cleanup then removed its log, the
+throwaway clones and the built binaries. Redone on 2026-11-16 from the code:
+the nine items above checked in the committed code and tests; `fx-src.txt`
+regenerated byte-identical; the unit's 14 tests rerun at the head (14 ok);
+`refs.py` rerun (0 wrong); the 25 mutants rerun on a fresh clone, logged
+straight into this folder (`mutants.txt`); fmt and both clippy runs
+(`round2-checks.txt`). `red.txt` 0 is the run of 2026-11-11, taken into this
+folder then. The sweep and the capture pairs are round 1's: round 2 changed
+no code outside the tests (GREEN, above).

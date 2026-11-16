@@ -6,7 +6,9 @@ the clone must sit under `$TMPDIR/mut/`, and its build and temp files go
 beside it there. COMPOSER-SUPER-ARROWS' runner, with this unit's mutants:
 the second ESC an Escape again, or a third one, or the clock left at the
 first (M1-M3), or a quiet prefix one Escape, as fx's decoder alone would
-give it (M22); the prefix dropped at `[`, at `O`, in the cursor table, in
+give it (M22); round 2: the prefixed C0 arm leaving the stage pending
+(M23, review S1), a leading zero refused in a cursor key's modifier
+(M24), the question's choice moving on a prefixed Down (M25); the prefix dropped at `[`, at `O`, in the cursor table, in
 SS3, in the keypad and kitty arrows (M4-M9); the key report's prefixed
 branches undone one at a time, and the prefix read as Alt's bit there
 (M10-M15); the control replayed behind the prefix, and a report losing the
@@ -19,6 +21,11 @@ mut = os.path.join(os.environ["TMPDIR"].rstrip("/"), "mut")
 assert os.path.realpath(repo).startswith(os.path.realpath(mut) + os.sep), \
     "mutants run only in the throwaway clone under $TMPDIR/mut/"
 I = "src/tui/input.rs"
+Q = "src/tui/question.rs"
+C0_GROUND = ("            0x00..=0x1f if meta => {\n"
+             "                self.stage = Stage::Ground;\n"
+             "                out.push(Input::Action(Action::Ignore));\n")
+Q_DOWN = "            Action::Down => Some(Self::Down),\n"
 SECOND = ("            0x1b => {\n                self.stage = Stage::Esc {\n"
           "                    at: now,\n                    meta: true,\n                }\n            }\n")
 CSI = "                self.stage = Stage::Csi { meta };\n"
@@ -92,6 +99,13 @@ MUTANTS = [
      "    value.checked_sub(1).map(|mask| mask.to_le_bytes()[0])\n}\n")]),
     ("M22 a quiet prefix is one Escape (fx's decoder alone)", [(I, FLUSH,
      "                let _ = meta;\n                out.push(Input::Action(Action::Escape));\n")]),
+    ("M23 the prefixed C0 arm leaves the stage pending (no Ground reset)", [(I, C0_GROUND,
+     "            0x00..=0x1f if meta => {\n"
+     "                out.push(Input::Action(Action::Ignore));\n")]),
+    ("M24 a leading zero in a cursor key's modifier is refused", [(I, DIGITS,
+     "    if digits.is_empty() || digits.len() > 3 || digits.first() == Some(&b'0') || !digits.iter().all(u8::is_ascii_digit) {\n")]),
+    ("M25 a question's choice moves on a prefixed Down (ParagraphDown)", [(Q, Q_DOWN,
+     "            Action::Down | Action::ParagraphDown => Some(Self::Down),\n")]),
 ]
 only = sys.argv[3:]
 if only:

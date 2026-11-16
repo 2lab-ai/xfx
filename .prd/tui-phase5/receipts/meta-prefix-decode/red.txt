@@ -1,5 +1,29 @@
 # RED: the unit's tests over the base's code (df45025c's src/ outside the test modules), each tree's own test module, the names as filters, TMPDIR=<tmp>, under a 300-900 s alarm.
 
+## 0. Round 2: fd898fc5's five new or changed tests over the base's code, in a --no-local clone at 873328ab
+test tui::input::tests::the_quiet_is_one_50_ms_window_not_fxs_two_stages ... FAILED
+test tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits ... FAILED
+test tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one ... FAILED
+test tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending ... FAILED
+test tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape ... FAILED
+thread 'tui::input::tests::the_quiet_is_one_50_ms_window_not_fxs_two_stages' panicked at src/tui/input.rs:4408:9:
+  left: [Action(Escape), Action(Up)]
+ right: [Action(ParagraphUp)]
+thread 'tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits' panicked at src/tui/input.rs:4360:9:
+  left: [Action(Ignore)]
+ right: [Action(WordRight)]
+thread 'tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one' panicked at src/tui/input.rs:4336:9:
+  left: [Action(Escape), Action(Ignore), Action(Up)]
+ right: [Action(Ignore), Action(Up)]
+thread 'tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending' panicked at src/tui/input.rs:4319:13:
+  left: [Action(Escape), Action(Escape), Action(Cancel), Text('x')]
+ right: [Action(Ignore), Text('x')]
+thread 'tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape' panicked at src/tui/shell.rs:23805:13:
+  left: Some(Cancel { through: 1 })
+ right: None
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4810 filtered out; finished in 0.03s
+
+
 ## 1. 47fccd97's tests (the corrected ones) over the base's code, in a --no-local clone
 test tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key ... ok
 test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok

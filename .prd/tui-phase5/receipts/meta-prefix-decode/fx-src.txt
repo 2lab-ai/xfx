@@ -1137,6 +1137,40 @@
   300      forwarded.len = 1;
   301      return .{ .forward = forwarded };
 
+## src/ui/terminal/theme_protocol.zig:11-42
+   11  pub const ResponseStatus = enum { invalid, pending, complete };
+   12  
+   13  const primary_device_attributes_prefix = "\x1b[?";
+   14  
+   15  /// Classifies a primary device attributes reply (`ESC [ ? Ps ; ... c`). Every
+   16  /// terminal answers that query, so fx sends it as a fence after a query the
+   17  /// terminal may ignore.
+   18  pub fn classifyPrimaryDeviceAttributes(bytes: []const u8) ResponseStatus {
+   19      if (std.mem.startsWith(u8, primary_device_attributes_prefix, bytes)) return .pending;
+   20      if (!std.mem.startsWith(u8, bytes, primary_device_attributes_prefix)) return .invalid;
+   21  
+   22      const parameters = bytes[primary_device_attributes_prefix.len..];
+   23      var expect_digit = true;
+   24      for (parameters, 0..) |byte, index| {
+   25          if (std.ascii.isDigit(byte)) {
+   26              expect_digit = false;
+   27              continue;
+   28          }
+   29          if (byte == ';' and !expect_digit) {
+   30              expect_digit = true;
+   31              continue;
+   32          }
+   33          if (byte == 'c') {
+   34              return if (!expect_digit and index + 1 == parameters.len)
+   35                  .complete
+   36              else
+   37                  .invalid;
+   38          }
+   39          return .invalid;
+   40      }
+   41      return .pending;
+   42  }
+
 ## src/ui/input/runtime.zig:685-712
   685      pub fn takeDeferredTerminalInputByte(self: *Runtime) ?u8 {
   686          if (self.takeDeferredThemeMonitorByte()) |byte| return byte;
@@ -1229,6 +1263,39 @@
   174  const active_poll_timeout_ms: i32 = 8;
   175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
   176  const idle_wasm_poll_timeout_ms: i32 = 16;
+
+## src/main.zig:1115-1145
+ 1115      pub fn run(self: *App) !void {
+ 1116          const callbacks = RenderAppRuntime.eventLoopCallbacks(self);
+ 1117          while (true) {
+ 1118              const exit_cause = try event_loop.run(
+ 1119                  self.terminal,
+ 1120                  &self.should_exit,
+ 1121                  active_poll_timeout_ms,
+ 1122                  callbacks,
+ 1123              );
+ 1124              switch (exit_cause) {
+ 1125                  .requested_exit => return,
+ 1126                  .input_closed => return error.TerminalInputClosed,
+ 1127              }
+ 1128          }
+ 1129      }
+ 1130  
+ 1131      pub fn loopPollTimeoutMs(ctx: *anyopaque, default_timeout_ms: i32) i32 {
+ 1132          const self: *App = @ptrCast(@alignCast(ctx));
+ 1133          if (comptime !host_target.is_wasm) {
+ 1134              return nativeLoopPollTimeoutMs(
+ 1135                  default_timeout_ms,
+ 1136                  self.shell.render_requests.hasReason(.first_frame),
+ 1137                  self.auth.sourceInventoryRefreshActive(),
+ 1138                  self.skills.refreshActive(),
+ 1139                  self.fullTranscriptFocusedWorkActive(),
+ 1140                  InputAppRuntime.fileListingHoldPending(self, app_permission_runtime.monotonicMillis()),
+ 1141              );
+ 1142          }
+ 1143          return if (self.pacer.hasPending()) default_timeout_ms else idle_wasm_poll_timeout_ms;
+ 1144      }
+ 1145  
 
 ## src/main.zig:187-187
   187  const input_escape_timeout_ms: i64 = 30;

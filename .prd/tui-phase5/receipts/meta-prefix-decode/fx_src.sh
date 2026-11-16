@@ -56,12 +56,18 @@ ranges=(
   src/ui/terminal/theme_monitor.zig:1-174
   src/ui/terminal/theme_monitor.zig:208-225
   src/ui/terminal/theme_monitor.zig:261-301
+  # What the monitor holds as a device attributes reply's start: `ESC [ ?`
+  # and what follows it, nothing else (so `ESC ^C`, `ESC CR` and `ESC [ A`
+  # are not held).
+  src/ui/terminal/theme_protocol.zig:11-42
   src/ui/input/runtime.zig:685-712
   src/main.zig:2804-2806
   src/main.zig:3096-3140
   src/main.zig:3160-3163
   # The clock: the timeout, the poll, the flush once a loop turn, the loop.
   src/main.zig:174-176
+  # The loop's poll: 8 ms, the active timeout, at most.
+  src/main.zig:1115-1145
   src/main.zig:187-187
   src/main.zig:2975-2982
   src/ui/event_loop.zig:76-122
