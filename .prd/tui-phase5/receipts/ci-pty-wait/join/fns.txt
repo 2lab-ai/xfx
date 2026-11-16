@@ -1,0 +1,25 @@
+src/tui/event_loop.rs session: changed by ours; tree = ours
+src/tui/event_loop.rs loop_turn: changed by ours; tree = ours
+src/tui/event_loop.rs commit_or_hold: changed by neither; tree = base
+src/tui/event_loop.rs take_ui_events: changed by neither; tree = base
+src/tui/event_loop.rs drain_ui_events: changed by ours; tree = ours
+src/tui/event_loop.rs read_burst: changed by neither; tree = base
+src/tui/event_loop.rs collect_facts: changed by neither; tree = base
+src/tui/event_loop.rs commit_tick: changed by neither; tree = base
+src/tui/shell.rs route_read: changed by neither; tree = base
+src/tui/shell.rs settle_input: changed by neither; tree = base
+src/tui/shell.rs settle_band: changed by theirs; tree = theirs
+src/tui/shell.rs consume: changed by neither; tree = base
+src/tui/shell.rs consume_inputs: changed by theirs; tree = theirs
+src/tui/shell.rs keyed: changed by ours; tree = ours
+src/tui/shell.rs take_status_moved_by_input: changed by ours; tree = ours
+src/tui/shell.rs turn_start_owes_its_frame: changed by ours; tree = ours
+src/tui/shell.rs status_activity: changed by neither; tree = base
+src/tui/shell.rs waiting_prompts: changed by neither; tree = base
+src/tui/shell.rs apply: changed by neither; tree = base
+src/tui/shell.rs end_delivery: changed by neither; tree = base
+src/tui/shell.rs end_delivery_at: changed by neither; tree = base
+src/tui/shell.rs still_at: changed by neither; tree = base
+src/tui/input.rs feed: changed by theirs; tree = theirs
+src/tui/input.rs flush: changed by theirs; tree = theirs
+changed by both: 0

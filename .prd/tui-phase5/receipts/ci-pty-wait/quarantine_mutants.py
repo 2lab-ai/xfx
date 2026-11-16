@@ -19,14 +19,33 @@ The baseline (no mutant) is run the same way. A mutant the retry could hide
 would show green runs, or only "every session paused" ones. Prints one line
 per run and a summary per mutant; prints no path. Exits 1 if a mutant run
 was green.
+The join with train 16 bounds each cargo run, its build included (TIMEOUT):
+a run past it has its process group killed and is printed TIMED OUT.
 """
 import os
+import signal
 import subprocess
 import sys
 
 clone, target, runs = sys.argv[1], sys.argv[2], int(sys.argv[3])
 env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 env["CARGO_TARGET_DIR"] = target
+TIMEOUT = 1200
+
+
+def bounded(command):
+    """`subprocess.run` with each run bounded by TIMEOUT, its build included:
+    past it the run's process group is killed and the returncode is None."""
+    proc = subprocess.Popen(command, cwd=clone, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=TIMEOUT)
+        code = proc.returncode
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, err = proc.communicate()
+        code = None
+    return subprocess.CompletedProcess(command, code, out, err)
 CASES = [
     "a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing",
     "a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval",
@@ -67,8 +86,7 @@ for name, old, new in MUTANTS:
         assert text.count(old) == 1, name
         open(file, "w").write(text.replace(old, new))
     try:
-        build = subprocess.run(["cargo", "test", "--locked", "--test", "tui", "--no-run"],
-                               cwd=clone, env=env, capture_output=True, text=True)
+        build = bounded(["cargo", "test", "--locked", "--test", "tui", "--no-run"])
         if build.returncode != 0:
             print(f"{name}: BUILD ERROR {build.stderr.strip().splitlines()[-1:]}")
             green_mutant = True
@@ -76,12 +94,11 @@ for name, old, new in MUTANTS:
         tally = {}
         for case in CASES:
             for n in range(1, runs + 1):
-                done = subprocess.run(
+                done = bounded(
                     ["cargo", "test", "--locked", "--test", "tui", "--", "--exact", case,
-                     "--nocapture"],
-                    cwd=clone, env=env, capture_output=True, text=True)
+                     "--nocapture"])
                 out = done.stdout + done.stderr
-                verdict = classify(out)
+                verdict = "TIMED OUT" if done.returncode is None else classify(out)
                 pauses = [l.split(":", 1)[1].strip() for l in out.splitlines()
                           if l.startswith("the paste's longest pause:")]
                 rejected = out.count("a timing-indeterminate session")

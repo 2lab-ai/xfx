@@ -9,9 +9,15 @@ should catch it, and puts the file back with `git checkout`. A mutant is
 killed when those tests fail; the killing tests are the mutant's RED. Prints
 one line per run; exits 1 if the baseline failed or any mutant survived.
 Reads $TMPDIR for the tests; prints no path.
+
+The join with train 16 added a bound on each cargo run, its build included
+(TIMEOUT): a run past it has its process group killed and is printed TIMED
+OUT -- a baseline that times out fails, a mutant that does is counted apart
+from the kills -- and the two `loop-*` mutants, with the join test in UNIT.
 """
 import os
 import re
+import signal
 import subprocess
 import sys
 
@@ -22,7 +28,7 @@ env["CARGO_TARGET_DIR"] = target
 UNIT = ["cargo", "test", "--locked", "--lib", "--",
         "a_turn_read_whole_in_one_drain", "a_turn_start_owes_its_frame_exactly",
         "keys_between_a_split", "under_a_sustained_stream", "the_drain_reads_past_a_start",
-        "the_drain_stops_behind_a_start_only"]
+        "the_drain_stops_behind_a_start_only", "an_escape_pair_settled"]
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
            "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
            "the_last_bytes_of_a_stream"]
@@ -31,6 +37,12 @@ DRAIN_STOP = ("                if starts && shell.turn_start_owes_its_frame() {\
               "                    return false;\n"
               "                }\n")
 KEYED = "        if self.status_moved_by_input || (self.status_held && working) {\n"
+SETTLE = "    shell.settle_input(Instant::now());\n"
+SETTLE_THEN_DRAIN = (SETTLE +
+                     "    // What the runtime produced since the last turn. Text, not terminal\n"
+                     "    // state, and therefore outside the reconciles for the same reason.\n"
+                     "    take_ui_events(shell, events);\n")
+TIMEOUT = 1200
 
 MUTANTS = [
     # The round-1 set, re-aimed at the round-2 code where it moved.
@@ -75,11 +87,26 @@ MUTANTS = [
     # Round 3.
     ("last-bytes-cut-anywhere", "tests/tui.rs",
      "    while !text.is_char_boundary(from) {\n        from += 1;\n    }\n", "", HARNESS),
+    # The join with train 16: the loop's turn settles the input once, after
+    # the read and before the drain.
+    ("loop-never-settles-input", "src/tui/event_loop.rs", SETTLE_THEN_DRAIN,
+     SETTLE_THEN_DRAIN.replace(SETTLE, ""), UNIT),
+    ("loop-settles-input-after-the-drain", "src/tui/event_loop.rs", SETTLE_THEN_DRAIN,
+     SETTLE_THEN_DRAIN.replace(SETTLE, "") + SETTLE, UNIT),
 ]
 
 
 def run(command):
-    done = subprocess.run(command, cwd=clone, env=env, capture_output=True, text=True)
+    proc = subprocess.Popen(command, cwd=clone, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=TIMEOUT)
+        code = proc.returncode
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, err = proc.communicate()
+        code = None
+    done = subprocess.CompletedProcess(command, code, out, err)
     failed = [l.split()[1] for l in done.stdout.splitlines()
               if l.startswith("test ") and l.endswith("FAILED")]
     passed = sum(int(n) for n in re.findall(r"test result: \w+\. (\d+) passed", done.stdout))
@@ -90,6 +117,8 @@ bad = 0
 for name, command in (("unit", UNIT), ("harness", HARNESS)):
     done, failed, passed = run(command)
     ok = done.returncode == 0 and not failed
+    if done.returncode is None:
+        print(f"baseline {name}: TIMED OUT after {TIMEOUT} s")
     print(f"baseline {name}: {'green' if ok else 'NOT GREEN'}, {passed} passed, failed {failed}")
     bad += not ok
 for name, path, old, new, command in MUTANTS:
@@ -104,7 +133,9 @@ for name, path, old, new, command in MUTANTS:
         done, failed, _ = run(command)
     finally:
         subprocess.run(["git", "-C", clone, "checkout", "--", path], env=env, check=True)
-    if done.returncode != 0 and failed:
+    if done.returncode is None:
+        print(f"{name}: TIMED OUT after {TIMEOUT} s, failed so far {failed}")
+    elif done.returncode != 0 and failed:
         print(f"{name}: killed by {', '.join(failed)}")
     elif done.returncode != 0:
         tail = done.stderr.strip().splitlines()[-1:]

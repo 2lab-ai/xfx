@@ -1,0 +1,5 @@
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:87 `:11516` -> `:11696` (src/tui/shell.rs:11696 names 'return Keyed::NotYet;'; the line holds it once)
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:97 `:11501` -> `:11681` (src/tui/shell.rs:11681 names 'fn keyed(&self) -> Keyed {'; the line holds it once)
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:203 `:14576` -> `:14694` (tests/tui.rs:14694 names 'fn found_in_sandbox(root: &std::path::Path, searched: &[&str]) -> Found {'; the line holds it once)
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:208 `:14599` -> `:14717` (tests/tui.rs:14717 names 'fn a_skills_sandbox_path_never_holds_what_its_case_searches() {'; the line holds it once)
+scripts/fxcap/capfile.py:184 :15860-15862 -> :15896-15898 (src/tui/shell.rs:15896 names 'if self.owner != ScreenOwner::Primary {'; the line holds it once)

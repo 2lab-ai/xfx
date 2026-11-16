@@ -1,0 +1,3 @@
+scripts/check-env-reads.py and both clippy runs in the worktree after ba133c25's fix (uncommitted then; the same tree as ba133c25), under the suite lock: clippy exit 0, clippy-fault exit 0.
+check-env-reads: 40 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 74 compile-time reads of 6 names; 52 test binaries started with a marker no parent makes
+check-env-reads: OK
