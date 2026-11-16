@@ -59,11 +59,12 @@ paths by their shape and is not every path of a machine: a Windows path,
 ## The gate
 
 Everything below must pass before a change is ready. This is exactly what CI
-runs, on Linux and macOS, on x86_64 and aarch64 -- except the four script
+runs, on Linux and macOS, on x86_64 and aarch64 -- except the five script
 tests (`test-gate-env.sh`, `test-preview-contract.sh`,
-`test-check-no-local-paths.sh` and `check-env-reads.py --self-test`), which
-test the gate scripts on the OS's own tools rather than anything built for
-the target, so CI runs them on one row per OS: aarch64 macOS and x86_64
+`test-check-no-local-paths.sh`, `test-early-stop.sh` and
+`check-env-reads.py --self-test`), which test the gate scripts on the OS's
+own tools rather than anything built for the target, so CI runs them on one
+row per OS: aarch64 macOS, under the `/bin/bash` macOS ships, and x86_64
 Linux. Run them locally all the same:
 
 ```bash
@@ -84,6 +85,7 @@ cargo build --locked --release --features fault-injection --target-dir target/fa
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
 ./scripts/test-preview-contract.sh
+./scripts/test-early-stop.sh
 ./scripts/smoke.sh target/release/xfx
 ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx
 ```
