@@ -453,8 +453,10 @@ are at the code head `ba133c25`.
   `ef595df2` merged with `8be4693b` stops on that one conflict, the script
   resolves it, and the written tree is the merge commit's (`e57a5389`).
 - **The auto-merged files** (`src/tui/event_loop.rs`, `src/tui/shell.rs`,
-  `tests/tui.rs`). `fns.txt` takes 24 functions on this unit's path and
+  `tests/tui.rs`). `fns.txt` takes 26 functions on this unit's path and
   compares each at the base `e2fc7e94`, at both parents and in the merge.
+  The 26 include the worker's `turn_loop` and `run_turn`, which send what
+  the drain reads; neither side changed them.
   - **0 changed by both sides.**
   - This branch changed `session`, `loop_turn`, `drain_ui_events`, `keyed`,
     `take_status_moved_by_input` and `turn_start_owes_its_frame`.
@@ -658,6 +660,20 @@ cargo 1.99.1). **29 steps, 0 failed**, the tree clean after; the load at the ste
   - Every rejection here is a pause of 50 ms or more, the threshold a
     rejection needs. A run is red only when all three of its sessions are
     rejected, and that happened in round 8 alone.
+- **The same-load control** (`flake-control/`). `ef595df2`'s tui test binary
+  (this branch before the join) and `ba133c25`'s ran in the same rounds: 10
+  rounds × 1 copy of the same five entries each, 10 processes at once, the
+  load at 52.5 and then 24.6.
+  - All 50 runs of each build are green.
+  - Rejected sessions: `ef595df2` 12 of 72 (16.7%), `ba133c25` 9 of 69
+    (13.0%) (`counts-pre.txt`, `counts-head.txt`).
+  - The joined build rejects no more than the unjoined one under the same
+    load. The rate follows the load: `flake/`'s run rejected 44 of 157
+    (28.0%).
+  - The quiet-machine control is the quarantine mutants' baseline: its paced
+    sessions' longest pauses were 18–21 ms, and none was rejected
+    (`quarantine-3e17645a.txt`). Round 3's were 16–18 ms
+    (`round3/s1-four-boundaries-12ms/quarantine.txt`).
 
 **Mutants** (`mutants-*.txt`, `lib-threshold-3e17645a.txt`,
 `quarantine-3e17645a.txt`). They ran on `--no-local` clones under the lock.
@@ -720,10 +736,14 @@ untouched). This run installed that toolchain and the Linux std.
 The brief's eight terms, train
 16's pattern, were scanned over every commit this branch holds that
 `8be4693b` does not: each message and what `git show` prints of it (for a
-merge, its own resolution). That is 26 commits, through the one that adds this
-section; **0 matching lines**. This folder on disk has 0 files matching.
-`check-no-local-paths.sh`
-also passed in the gate.
+merge, its own resolution). That is 27 commits, through the receipt's last;
+**0 matching lines**. This folder on disk has 0 files matching.
+`check-no-local-paths.sh` also passed in the gate.
+
+**At the receipt's last commit** (`head-files.txt`), the four gate steps that
+scan the tree pass: identity, no stubs, no secrets and no local paths.
+`git diff ba133c25 HEAD` outside `.prd/` is empty, so the gate's code head
+is the head's code.
 
 ## Open questions
 

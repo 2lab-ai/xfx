@@ -1,0 +1,5 @@
+The same-load control: starve.sh recipe A, 10 rounds x 1 copy of the same five entries for each of two builds in the same rounds -- pre = ef595df2's tui test binary (this branch before the join), head = ba133c25's (the binary flake/ ran) -- so 10 processes at once, every run --nocapture, under the suite lock. Start and end, each with vm.loadavg:
+2026-11-16T15:13:23Z
+{ 52.51 44.25 49.21 }
+2026-11-16T15:18:39Z
+{ 24.59 44.64 49.46 }

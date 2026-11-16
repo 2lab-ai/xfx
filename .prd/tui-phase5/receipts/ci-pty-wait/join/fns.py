@@ -25,11 +25,16 @@ FNS = {
                          "status_activity", "waiting_prompts", "apply", "end_delivery",
                          "end_delivery_at", "still_at"],
     "src/tui/input.rs": ["feed", "flush"],
+    # The runtime's side of a turn: the start, the answer and the end the
+    # drain reads, and the place given back (added after the reviewer's
+    # question; this unit's comments name neither, but its fix rests on
+    # what they send).
+    "src/tui/worker.rs": ["turn_loop", "run_turn"],
 }
 
 
 def body(text, name):
-    found = [m.start() for m in re.finditer(r"\n(?:    )*(?:pub(?:\([a-z]+\))? )?fn " + name + r"\b", text)]
+    found = [m.start() for m in re.finditer(r"\n(?:    )*(?:pub(?:\([a-z]+\))? )?(?:async )?fn " + name + r"\b", text)]
     # The first definition outside `mod tests`, the file's code.
     tests = text.find("\nmod tests {")
     found = [at for at in found if tests < 0 or at < tests] or found[:1]

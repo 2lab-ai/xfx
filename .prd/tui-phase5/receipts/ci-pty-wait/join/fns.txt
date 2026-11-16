@@ -22,4 +22,6 @@ src/tui/shell.rs end_delivery_at: changed by neither; tree = base
 src/tui/shell.rs still_at: changed by neither; tree = base
 src/tui/input.rs feed: changed by theirs; tree = theirs
 src/tui/input.rs flush: changed by theirs; tree = theirs
+src/tui/worker.rs turn_loop: changed by neither; tree = base
+src/tui/worker.rs run_turn: changed by neither; tree = base
 changed by both: 0
