@@ -1,0 +1,45 @@
+# round 3, item D. p5-approval-paste-spaces swept once at 40x120 (sweep.sh --only p5-approval-paste-spaces, under the suite lock),
+# fx v0.0.16 (sha256 8e6cda2e...) against xfx built at 802dd239 (sha256 21e42d86a2cfec61c1e25a5021c2224f1d544630a45e4cb12fb44e228e161925),
+# classified with e26ce67b's ledger (no cause, sha256 d94473b0e3c8), then rescored (--rescore --ledger) with ac276d9f's (one cause, 3f0653874f09)
+# and round 3's (split, fbb9d594fb88); compared with ../approval-vertical-spellings/cmp_sweeps.py. Round 1's sweep captures were lost to the /tmp cleanup.
+## e26ce67b ledger -> round 3 ledger
+change p5-approval-paste-spaces/deny-fits: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window-tail', 'approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-held: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window', 'approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-letter-refused: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window-tail', 'approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-paste-refused: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['amend-draft-window-tail', 'approval-grant-scope']; uncaused 4 -> 0
+base: 9 pairs, 0 pass, 4 with uncaused rows
+head: 9 pairs, 0 pass, 0 with uncaused rows
+drops: 0
+## ac276d9f ledger -> round 3 ledger
+change p5-approval-paste-spaces/deny-fits: unresolved-defect -> unresolved-defect; causes ['amend-draft-window', 'approval-grant-scope'] -> ['amend-draft-window-tail', 'approval-grant-scope']; uncaused 0 -> 0
+change p5-approval-paste-spaces/deny-letter-refused: unresolved-defect -> unresolved-defect; causes ['amend-draft-window', 'approval-grant-scope'] -> ['amend-draft-window-tail', 'approval-grant-scope']; uncaused 0 -> 0
+change p5-approval-paste-spaces/deny-paste-refused: unresolved-defect -> unresolved-defect; causes ['amend-draft-window', 'approval-grant-scope'] -> ['amend-draft-window-tail', 'approval-grant-scope']; uncaused 0 -> 0
+base: 9 pairs, 0 pass, 0 with uncaused rows
+head: 9 pairs, 0 pass, 0 with uncaused rows
+drops: 0
+
+$ python3 -I round3/tail_check.py scripts/fxcap/parity-ledger.toml   (round 3 ledger)
+ok   deny-held           fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxxxx" ['amend-draft-window']
+ok   deny-held           xfx '                    x10x10x10x10x10x10x10x10x10xxx' ['amend-draft-window']
+ok   deny-fits           fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxa b" ['amend-draft-window-tail']
+ok   deny-fits           xfx "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10x10" ['amend-draft-window-tail']
+ok   deny-fits           xfx '                    x10x10x10x10x10x10x10x10x10x10' ['amend-draft-window-tail']
+ok   deny-fits           xfx '                    x10x10x10x10x10x10x10x10x10xxxa b ' ['amend-draft-window-tail']
+ok   deny-fits           fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxxxx" uncaused
+ok   deny-fits           xfx '                    x10x10x10x10x10x10x10x10x10xxx' uncaused
+ok   deny-paste-refused  fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxxxx" uncaused
+ok   deny-paste-refused  xfx '                    x10x10x10x10x10x10x10x10x10xxxxxx ' uncaused
+10 cases, 0 wrong
+
+$ python3 -I round3/tail_check.py <ac276d9f's ledger>
+ok   deny-held           fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxxxx" ['amend-draft-window']
+ok   deny-held           xfx '                    x10x10x10x10x10x10x10x10x10xxx' ['amend-draft-window']
+ok   deny-fits           fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxa b" ['amend-draft-window']
+ok   deny-fits           xfx "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10x10" ['amend-draft-window']
+ok   deny-fits           xfx '                    x10x10x10x10x10x10x10x10x10x10' ['amend-draft-window']
+ok   deny-fits           xfx '                    x10x10x10x10x10x10x10x10x10xxxa b ' ['amend-draft-window']
+BAD  deny-fits           fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxxxx" ['amend-draft-window']
+BAD  deny-fits           xfx '                    x10x10x10x10x10x10x10x10x10xxx' ['amend-draft-window']
+BAD  deny-paste-refused  fx  "  ❯ 3  Don't apply, x10x10x10x10x10x10x10x10x10xxxxxxxxx" ['amend-draft-window']
+BAD  deny-paste-refused  xfx '                    x10x10x10x10x10x10x10x10x10xxxxxx ' ['amend-draft-window']
+10 cases, 4 wrong

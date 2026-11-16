@@ -10237,9 +10237,9 @@ impl Shell {
             // and Super-Left and -Right and Shift-Home and -End as Home and
             // End (`line_start`/`line_end` and `.home` are one
             // `.cursor_home` there, `approvalDraftActionFromShortcut`,
-            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
-            // edge here, the whole draft's in fx, whose draft holds no line
-            // break (`super::approval_amendment`).
+            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the whole draft's
+            // edges, which the draft gives them (`Draft::apply`,
+            // `super::approval_amendment`).
             Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
                 Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
                 _ => return None,
@@ -27618,18 +27618,16 @@ mod tests {
                 "{name}"
             );
         }
-        // **Not fx's, and labelled so: APPROVAL-PASTE-SPACES' divergence.**
-        // A draft with a line break in it, which xfx's paste keeps and fx's
-        // turns into a space (`normalizeApprovalAmendmentPasteInPlace`,
-        // `input_paste_runtime.zig:19-25`), so fx's draft can never hold one.
-        // Ctrl-Home is the whole draft's start, as fx's `.cursor_home`.
-        // Super-Left is Home there, the caret line's start (`ab\nzcd`), where
-        // fx's `.cursor_home` would be 0 (`src/ui/input/runtime.zig:82`) --
-        // the two agree once APPROVAL-PASTE-SPACES takes the break out; the
-        // amendment's Home is older than this unit.
+        // A paste with a line break in it: fx's paste turns the break into a
+        // space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25`), and so does xfx's
+        // (APPROVAL-PASTE-SPACES), so the draft is one line and Ctrl-Home,
+        // Super-Left and Home all go to 0, as fx's `.cursor_home` does
+        // (`src/ui/input/runtime.zig:82`).
         for (name, key, feedback) in [
-            ("ctrl-home", &b"\x1b[1;5H"[..], "zab\ncd"),
-            ("super-left", b"\x1b[1;9D", "ab\nzcd"),
+            ("ctrl-home", &b"\x1b[1;5H"[..], "zab cd"),
+            ("super-left", b"\x1b[1;9D", "zab cd"),
+            ("home", b"\x1b[H", "zab cd"),
         ] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
@@ -48873,6 +48871,130 @@ mod tests {
     }
 
     #[test]
+    fn a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs() {
+        // fx's amendment paste turns CR LF, a lone CR, LF and Tab each into
+        // one space (`normalizeApprovalAmendmentPasteInPlace`,
+        // `input_paste_runtime.zig:19-25@481104fd`, for the
+        // `.approval_amendment` owner at `:242-245`), whichever plane the
+        // question is on: both answer through `approval::answered`. Through
+        // the decoder, markers and all, then a typed letter and Enter.
+        let paste = b"\x1b[200~ab\ncd\r\nef\tgh\rij\x1b[201~";
+        let band_shell = {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell
+        };
+        for (plane, mut shell) in [("band", band_shell), ("review", on_the_plane(100))] {
+            shell.route_bytes(b"\t");
+            shell.route_bytes(paste);
+            shell.route_bytes(b"z");
+            let rows = if plane == "band" {
+                shell.shell.band_rows()
+            } else {
+                shell.screen_rows()
+            };
+            assert!(
+                rows.iter().any(|row| row.contains("ab cd ef gh ijz")),
+                "{plane}: the draft is not one line: {rows:?}"
+            );
+            assert!(
+                rows.iter().all(|row| !row.contains(['\r', '\t'])),
+                "{plane}: a CR or a Tab reached a painted row: {rows:?}"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("ab cd ef gh ijz".to_string()),
+                }),
+                "{plane}"
+            );
+        }
+
+        // A draft has no selection for a paste to replace, as fx's has none
+        // (`DraftAction`, `approval_decision.zig:18-31`): Super-A in it is no
+        // draft key (`approval::edits`), so the paste goes in at the caret.
+        let mut drafting = shell(24, 80);
+        asking(&mut drafting);
+        drafting.route_bytes(b"\tkeep");
+        drafting.route_bytes(b"\x1b[97;9u");
+        drafting.route_bytes(b"\x1b[200~\r\nthis\x1b[201~");
+        delivered(&mut drafting);
+        drafting.route_bytes(b"\r");
+        assert_eq!(
+            drafting.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("keep this".to_string()),
+            }),
+            "Super-A made a selection the paste replaced"
+        );
+
+        // The composer keeps its paste's breaks and tabs, as fx's does
+        // (`normalizeLineEndingsInPlace` alone for `.composer`,
+        // `input_paste_runtime.zig:238-241`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x1b[200~ab\ncd\r\nef\tgh\rij\x1b[201~");
+        assert_eq!(shell.editor.text(), "ab\ncd\nef\tgh\nij");
+    }
+
+    #[test]
+    fn a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row() {
+        // fx keeps valid UTF-8 from 0x80 up in an amendment's paste
+        // (`paste_framing.zig:122-126@481104fd`; `isModelSafeText`,
+        // `text_utils.zig:28-31`), C1 controls included, and so does xfx's
+        // draft. No frame writes one: every row goes to the terminal through
+        // `super::super::frame::row_text`, which drops a control character, on
+        // either plane.
+        let paste = "\x1b[200~a\u{85}b\u{9b}c\r\nd\x1b[201~";
+        let band_shell = {
+            let mut shell = shell(24, 80);
+            asking(&mut shell);
+            shell
+        };
+        for (plane, mut shell, cols) in
+            [("band", band_shell, 80), ("review", on_the_plane(100), 100)]
+        {
+            shell.route_bytes(b"\t");
+            shell.route_bytes(paste.as_bytes());
+            let rows = if plane == "band" {
+                shell.shell.band_rows()
+            } else {
+                shell.screen_rows()
+            };
+            let wire: Vec<String> = rows
+                .iter()
+                .map(|row| super::super::frame::row_text(row, cols).into_owned())
+                .collect();
+            assert!(
+                wire.iter().any(|row| row.contains("abc d")),
+                "{plane}: the draft is not painted: {wire:?}"
+            );
+            assert!(
+                wire.iter().all(|row| !row
+                    .chars()
+                    .any(|c| ('\u{80}'..='\u{9f}').contains(&c) || c == '\r')),
+                "{plane}: a C1 control or a CR reached the terminal: {wire:?}"
+            );
+            delivered(&mut shell);
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Once,
+                    feedback: Some("a\u{85}b\u{9b}c d".to_string()),
+                }),
+                "{plane}: the draft did not keep the C1 controls fx's keeps"
+            );
+        }
+    }
+
+    #[test]
     fn an_oversized_paste_at_a_draft_is_refused_atomically_in_upstreams_words() {
         // Refused **whole**: the alternative -- the first 4096 bytes of
         // somebody's file, silently -- is a draft the user did not type. The
@@ -51271,9 +51393,11 @@ mod tests {
             b"\x1b[27;3;57421~",
         ];
         // At an approval's choice and in its amendment, a draft of two lines
-        // pasted in (the caret at its end): no key moves the caret or the
-        // choice, the `Z` typed after them all lands where the caret was, and
-        // Enter answers the choice and that draft.
+        // pasted in, which the paste makes one, its break a space as fx's
+        // (`normalizeApprovalAmendmentPasteInPlace`, `input_paste_runtime.zig:19-25`;
+        // APPROVAL-PASTE-SPACES), the caret at its end: no key moves the caret
+        // or the choice, the `Z` typed after them all lands where the caret
+        // was, and Enter answers the choice and that draft.
         for amending in [false, true] {
             let mut shell = shell(24, 80);
             asking(&mut shell);
@@ -51301,7 +51425,7 @@ mod tests {
                 Some(TurnControl::Answer {
                     id: ApprovalId(1),
                     answer: ApprovalAnswer::Once,
-                    feedback: amending.then(|| "ab cd\nef ghZ".to_string()),
+                    feedback: amending.then(|| "ab cd ef ghZ".to_string()),
                 }),
                 "amending={amending}"
             );

@@ -1,0 +1,20 @@
+$ python3 -I srcsize.py . a5cf9567 9a73d0ba   (RED commit to the code head)
+src/tui/approval_amendment.rs: +40/-9
+src/tui/shell.rs: +2/-2
+total: +42/-11
+$ python3 -I srcsize.py . a5cf9567 4a8f0a6c   (with the comment-only commit)
+src/tui/approval_amendment.rs: +42/-9
+src/tui/shell.rs: +2/-2
+total: +44/-11
+$ python3 -I srcsize.py . a5cf9567 2804b108   (the last src/ commit: test modules only)
+src/tui/approval_amendment.rs: +42/-9
+src/tui/shell.rs: +2/-2
+total: +44/-11
+$ python3 -I srcsize.py . a5cf9567 53557ed6   (round 2 code head)
+src/tui/approval_amendment.rs: +71/-9
+src/tui/shell.rs: +2/-2
+total: +73/-11
+$ python3 -I srcsize.py . a5cf9567 802dd239   (round 3: tests and comments only)
+src/tui/approval_amendment.rs: +73/-9
+src/tui/shell.rs: +3/-3
+total: +76/-12

@@ -1,0 +1,2 @@
+$ { git diff df45025c -- src tests scripts/fxcap/scenarios scripts/fxcap/parity-ledger.toml | grep "^+"; git diff --word-diff=porcelain df45025c -- docs/parity.md | grep "^+"; } | fx_src.sh <fx checkout>   (round 3; README.md is read too)
+134 citations checked, 0 outside fx-src.txt's ranges
