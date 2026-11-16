@@ -457,11 +457,26 @@ def compile_time_names(filenames, root):
 SOURCES = "\0sources"
 
 
+def relative(path, root):
+    """`path` under `root`, whichever way the two are spelled. Cargo reports a
+    package's paths under the directory it ran in as the OS resolves it
+    (getcwd), so a root given through a symlink -- macOS's temporary
+    directories are under one, `/var` -> `/private/var`, CI's aarch64 macOS
+    row's `TMPDIR` among them -- is not cargo's spelling of the same place,
+    and `os.path.relpath` alone would key every file `../../private/...`,
+    where no fixture or EXCEPTIONS entry finds it."""
+    for base in (root, os.path.realpath(root)):
+        under = os.path.relpath(path, base)
+        if under != os.pardir and not under.startswith(os.pardir + os.sep):
+            return under
+    return os.path.relpath(path, root)
+
+
 def record_compiled(compiled, record, root):
     """Adds an artifact's compile-time reads to `compiled`, under its source,
     and its source files under SOURCES; an artifact with no dep-info of its
     own is recorded as such."""
-    source = os.path.relpath(record["target"]["src_path"], root)
+    source = relative(record["target"]["src_path"], root)
     read = compile_time_names(record["filenames"], root)
     if read is None:
         compiled[source].add(NO_DEP_INFO)
@@ -539,7 +554,7 @@ def classify(crate, messages, exception_file, process_env_file):
                 text = source.read()[where["byte_start"] : where["byte_end"]].decode()
             literal = COMPILE_TIME.match(text)
             if literal:
-                seen_at_compile_time[os.path.relpath(record["target"]["src_path"], crate)].add(literal.group(1))
+                seen_at_compile_time[relative(record["target"]["src_path"], crate)].add(literal.group(1))
             if not literal:
                 problems.append((*at, f"a {path}! whose name is not a literal"))
             elif literal.group(1) not in COMPILE_TIME_NAMES:
@@ -714,7 +729,7 @@ def artifact_problems(root, cargo_flags=("--locked",), env_extra=None):
                 continue
             if os.path.realpath(record.get("manifest_path", "")) != manifest:
                 continue
-            source = os.path.relpath(record["target"]["src_path"], root)
+            source = relative(record["target"]["src_path"], root)
             record_compiled(compiled, record, root)
             if not record["profile"]["test"] or not record.get("executable"):
                 continue
@@ -891,11 +906,11 @@ def cfg_problems(root, compiled=None, also=()):
             predicate = text[call.end() : predicate_end if predicate_end is not None else at - 1]
             if CLIPPY_WORD.search(predicate):
                 line = text.count("\n", 0, call.start()) + 1
-                problems.append((os.path.relpath(path, root), line, "a cfg predicate that names clippy, under which code is never linted"))
+                problems.append((relative(path, root), line, "a cfg predicate that names clippy, under which code is never linted"))
         for arrow, predicate in cfg_select_predicates(text):
             if CLIPPY_WORD.search(predicate):
                 line = text.count("\n", 0, arrow) + 1
-                problems.append((os.path.relpath(path, root), line, "a cfg_select! arm whose predicate names clippy, under which code is never linted"))
+                problems.append((relative(path, root), line, "a cfg_select! arm whose predicate names clippy, under which code is never linted"))
     return problems
 
 
@@ -960,7 +975,7 @@ def build_script_problems(root, compiled):
         except OSError:
             continue
         if b"rustc-cfg" in raw:
-            problems.append((os.path.relpath(path, root), 0, "the build script sets a cfg (rustc-cfg), which can differ between clippy and a test build"))
+            problems.append((relative(path, root), 0, "the build script sets a cfg (rustc-cfg), which can differ between clippy and a test build"))
     return problems
 
 
@@ -1334,7 +1349,15 @@ def lock_version(name):
 
 
 def self_test():
-    scratch = tempfile.mkdtemp(prefix="check-env-reads-")
+    # The fixtures' package is reached through a symlink, as a package under
+    # macOS's temporary directory is (`/var` -> `/private/var`): cargo
+    # reports its paths resolved, and every check must still find each file
+    # by its place in the package (`relative`). Without the link a machine
+    # whose TMPDIR is resolved -- most -- would never run that case; CI's
+    # aarch64 macOS row did, and four fixtures went unrefused there.
+    scratch_dir = tempfile.mkdtemp(prefix="check-env-reads-")
+    scratch = scratch_dir + "-link"
+    os.symlink(scratch_dir, scratch)
     try:
         crate = os.path.join(scratch, "env_fixtures")
         os.makedirs(os.path.join(crate, "src"))
@@ -1594,7 +1617,8 @@ def self_test():
         print(f"check-env-reads --self-test: {len(FIXTURES) + 5} fixtures, {failures} not as expected")
         return 1 if failures else 0
     finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+        os.unlink(scratch)
+        shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
