@@ -1,15 +1,15 @@
-# gates-files.sh <clone> 866747ff a4452753, in a git clone --no-local at 26f290f9 (the receipt in its final form), under the suite lock; exit 0
-# The file checks with the receipt in its final form, at 26f290f9, in a `git clone --no-local`; each exit from `$?` right after its command.
+# gates-files.sh <clone> 866747ff 3ed1c082, in a git clone --no-local at a078fb83 (the receipt in its final form), under the suite lock; exit 0
+# The file checks with the receipt in its final form, at a078fb83, in a `git clone --no-local`; each exit from `$?` right after its command.
 # tree clean: yes
-# code since the gate a4452753, outside .prd/tui-phase5/receipts/train-16: none
+# code since the gate 3ed1c082, outside .prd/tui-phase5/receipts/train-16: none
 cargo fmt --check: exit 0; 
-./scripts/check-xfx-identity.sh: exit 0; check-xfx-identity: ok (25848 tracked file(s) scanned)
+./scripts/check-xfx-identity.sh: exit 0; check-xfx-identity: ok (25857 tracked file(s) scanned)
 ./scripts/check-no-stubs.sh: exit 0; check-no-stubs: ok
-./scripts/check-no-secrets.sh: exit 0; check-no-secrets: ok (25848 tracked file(s) scanned)
-./scripts/check-no-local-paths.sh: exit 0; check-no-local-paths: ok (25848 tracked file(s) scanned; 8 marked fixture line(s), 84 placeholder line(s); 0 symlink(s))
+./scripts/check-no-secrets.sh: exit 0; check-no-secrets: ok (25857 tracked file(s) scanned)
+./scripts/check-no-local-paths.sh: exit 0; check-no-local-paths: ok (25857 tracked file(s) scanned; 8 marked fixture line(s), 84 placeholder line(s); 0 symlink(s))
 # added lines of git diff 866747ff..HEAD holding the brief's pattern: 0
 # of them in this folder: 0
-# the reference checks at 26f290f9
+# the reference checks at a078fb83
 refs: # 90 references; 6 (side, reference) pairs MOVED; * = the side's own text cites it
 refs_all: # 198 references in 651 files; 36 moved or changed on some side that cites them; entries outside the historical plans: 3
 refs_short: # 124 short references into changed files; 70 moved or changed on some side that cites them; entries outside the historical plans: 0
