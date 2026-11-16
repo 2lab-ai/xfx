@@ -667,9 +667,17 @@ cargo 1.99.1). **29 steps, 0 failed**, the tree clean after; the load at the ste
   - All 50 runs of each build are green.
   - Rejected sessions: `ef595df2` 12 of 72 (16.7%), `ba133c25` 9 of 69
     (13.0%) (`counts-pre.txt`, `counts-head.txt`).
-  - The joined build rejects no more than the unjoined one under the same
-    load. The rate follows the load: `flake/`'s run rejected 44 of 157
-    (28.0%).
+  - **No increase was observed; the rates are not shown equal**
+    (`join-review/control-test.txt`). The difference, 12 of 72 against 9 of
+    69, has Fisher's exact two-sided p 0.64: this run cannot tell the two
+    builds apart either way. With these totals, an increase would have
+    shown at p < 0.05 only if the joined build had rejected 22 of 69
+    (31.9%) or more. So the run rules out roughly a doubling, and nothing
+    smaller. `81ef5a0a`'s message ("the join does not slow the reader")
+    says more than that; this paragraph is the claim.
+  - The heavier run rejected more: `flake/`'s, at load 41.8 to 74.8,
+    rejected 44 of 157 (28.0%). That is two runs, an association with the
+    load and not a measured dependence.
   - The quiet-machine control is the quarantine mutants' baseline: its paced
     sessions' longest pauses were 18–21 ms, and none was rejected
     (`quarantine-3e17645a.txt`). Round 3's were 16–18 ms
@@ -706,8 +714,13 @@ Train 16's PR #102 went red on CI for three reasons no local gate caught:
 - the Mac is not Linux.
 
 Both checks below ran at `ba133c25`, under the lock, with rustup's 1.99.1
-through its proxies first on PATH (`RUSTUP_TOOLCHAIN=1.99.1`; rustup's default
-untouched). This run installed that toolchain and the Linux std.
+(`RUSTUP_TOOLCHAIN=1.99.1`; rustup's default untouched). This run installed
+that toolchain and the Linux std. **Correction (join review):** the files
+say "rustup's proxies first on PATH", but what went first was Homebrew's
+`rustup/bin`. Each of those is a two-line script that runs rustup's
+multiplexer with Homebrew's settings file. rustup's own multiplexer
+(`rustup/libexec/bin`) ran the tui binary after the review
+(`join-review/`).
 
 - **Linux clippy** (`--target x86_64-unknown-linux-gnu`, plain and with
   `fault-injection`).
@@ -727,7 +740,8 @@ untouched). This run installed that toolchain and the Linux std.
     empty HOME, has rustup sync and download a stable toolchain into that
     HOME. The download fails.
   - `check-env-reads.py --self-test` passes here: 66 fixtures, 0 not as
-    expected.
+    expected. TMPDIR here had no symlink in its path, and a symlinked
+    TMPDIR is train 16's round-5 cause, so this pass does not test it.
   - This unit's 20 tests and META-PREFIX-DECODE's 15 are ok
     (`touched-rustup.txt`).
 

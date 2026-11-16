@@ -14,6 +14,9 @@ The join with train 16 added a bound on each cargo run, its build included
 (TIMEOUT): a run past it has its process group killed and is printed TIMED
 OUT -- a baseline that times out fails, a mutant that does is counted apart
 from the kills -- and the two `loop-*` mutants, with the join test in UNIT.
+The join review added two more `loop-*` orders, and UNIT takes every
+`an_escape_pair_` case (the settled one, the hand-driven pending one and the
+loop-driven pending one).
 """
 import os
 import re
@@ -28,7 +31,7 @@ env["CARGO_TARGET_DIR"] = target
 UNIT = ["cargo", "test", "--locked", "--lib", "--",
         "a_turn_read_whole_in_one_drain", "a_turn_start_owes_its_frame_exactly",
         "keys_between_a_split", "under_a_sustained_stream", "the_drain_reads_past_a_start",
-        "the_drain_stops_behind_a_start_only", "an_escape_pair_settled"]
+        "the_drain_stops_behind_a_start_only", "an_escape_pair_"]
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
            "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
            "the_last_bytes_of_a_stream"]
@@ -43,6 +46,25 @@ SETTLE_THEN_DRAIN = (SETTLE +
                      "    // state, and therefore outside the reconciles for the same reason.\n"
                      "    take_ui_events(shell, events);\n")
 TIMEOUT = 1200
+# The pass from the input's settle through the band's, and from the read
+# through the drain, as loop_turn has them: each order mutant moves one line
+# within one of them, so it is one replacement.
+BAND_LINE = "    shell.settle_band(Instant::now());\n"
+DRAIN_LINE = "    take_ui_events(shell, events);\n"
+PASS = (SETTLE_THEN_DRAIN +
+        "    // And what neither the bytes nor the events settled: how deep the\n"
+        "    // submission queue is now, and whether an armed Escape has gone stale.\n"
+        "    // Both are answers only the clock and the other thread produce, so like\n"
+        "    // `settle_input` this is what makes them a tick rather than a wait for\n"
+        "    // the next keystroke.\n" + BAND_LINE)
+READ_TO_DRAIN = (
+    "    read(shell)?;\n"
+    "    // What the bytes could not settle by themselves. A lone `ESC` is both a\n"
+    "    // key and the first byte of every sequence, so it is the Escape key only\n"
+    "    // once it has been alone for `input::Decoder::ESC_TIMEOUT`; asking here,\n"
+    "    // every turn, is what makes that a 50 ms wait rather than a wait for the\n"
+    "    // next keystroke. It reads no terminal and writes none, which is why it\n"
+    "    // is outside the two reconciles rather than between them.\n" + SETTLE_THEN_DRAIN)
 
 MUTANTS = [
     # The round-1 set, re-aimed at the round-2 code where it moved.
@@ -93,6 +115,13 @@ MUTANTS = [
      SETTLE_THEN_DRAIN.replace(SETTLE, ""), UNIT),
     ("loop-settles-input-after-the-drain", "src/tui/event_loop.rs", SETTLE_THEN_DRAIN,
      SETTLE_THEN_DRAIN.replace(SETTLE, "") + SETTLE, UNIT),
+    # The join review (SHOULD 2): two more orders of the pass, which the
+    # loop-driven pending case (25203a2c) kills and the hand-driven one
+    # cannot (join-review/order_red.py runs the three cases apart).
+    ("loop-settles-band-first", "src/tui/event_loop.rs", PASS,
+     "    shell.settle_band(Instant::now());\n" + PASS.replace(BAND_LINE, ""), UNIT),
+    ("loop-drains-before-the-read", "src/tui/event_loop.rs", READ_TO_DRAIN,
+     "    take_ui_events(shell, events);\n" + READ_TO_DRAIN.replace(DRAIN_LINE, ""), UNIT),
 ]
 
 
