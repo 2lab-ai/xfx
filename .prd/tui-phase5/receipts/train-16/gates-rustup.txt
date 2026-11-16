@@ -1,0 +1,202 @@
+# Train 16's gate: gates.sh (train 15's with TEST-ENV-ISOLATION's two env-check steps and, round 3, the join of main's four: the pinned toolchain, /bin/bash first on PATH, which bash, test-early-stop.sh; ci-steps.txt), every step of ci.yml's gate job and sweep.yml's two harness tests, in a git clone --no-local at 3ed1c082, PATH first: rustup's own multiplexer (no fallback default), RUSTUP_TOOLCHAIN=1.99.1, TMPDIR given through the /tmp link, the whole script inside one hold of the suite lock (suite-lock.sh gates.sh), TMPDIR the harness scratch root, each step's exit from $? on the line after its command.
+# PATH first: rustup's own multiplexer (no fallback default); RUSTUP_TOOLCHAIN=1.99.1; TMPDIR through /tmp, a link
+# head 3ed1c082; tree clean: yes
+01 pinned-toolchain                   exit 0     1s  load 66.08
+02 bash32                             exit 0     0s  load 66.08
+03 which-bash                         exit 0     0s  load 66.08
+04 fmt                                exit 0     2s  load 66.08
+05 clippy                             exit 0    43s  load 68.96
+06 clippy-fault                       exit 0    24s  load 89.27
+07 check-env-reads                    exit 0   447s  load 101.24
+08 check-env-reads-self-test          exit 0    21s  load 62.96
+09 test                               exit 0   132s  load 58.44
+10 test-fault                         exit 0   128s  load 35.64
+11 check-xfx-identity                 exit 0     1s  load 42.19
+12 check-no-stubs                     exit 0    10s  load 42.19
+13 check-no-secrets                   exit 0   102s  load 41.15
+14 check-no-local-paths               exit 0    30s  load 35.54
+15 test-check-no-local-paths          exit 0    14s  load 41.03
+16 check-preview-contract             exit 0     2s  load 46.39
+17 check-tui-preflight-cost           exit 0     2s  load 46.39
+18 check-at-search-cost               exit 0     1s  load 47.40
+19 check-usage-clock                  exit 0     1s  load 47.40
+20 test-check-no-secrets              exit 0    71s  load 47.40
+21 test-gate-env                      exit 0   168s  load 48.82
+22 test-preview-contract              exit 0    61s  load 14.19
+23 test-early-stop                    exit 0     1s  load 21.62
+24 fxcap-test-sweep                   exit 0    16s  load 21.62
+25 fxcap-test-capture                 exit 0   534s  load 27.90
+26 build-release                      exit 0    27s  load 31.77
+27 build-faulty                       exit 0    32s  load 42.15
+28 smoke                              exit 0     1s  load 48.16
+29 smoke-tui                          exit 0    66s  load 48.16
+# 29 steps, 0 failed; tree clean after: yes
+
+===== 01-pinned-toolchain (last lines; test suites: every 'test result' line and every failure)
+rustc 1.99.1 (58cf8f9c3 2026-10-13)
+cargo 1.99.1 (5f94df478 2026-08-27)
+clippy 0.1.99 (58cf8f9c35 2026-10-13)
+rustfmt 1.10.0-stable (58cf8f9c35 2026-10-13)
+===== 02-bash32 (last lines; test suites: every 'test result' line and every failure)
+/bin/bash is bash 3.2.57(1)-release
+===== 03-which-bash (last lines; test suites: every 'test result' line and every failure)
+#!/usr/bin/env bash runs <gate>/logs/bash32/bash, bash 3.2.57(1)-release
+command -v bash: <gate>/logs/bash32/bash
+GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+===== 04-fmt (last lines; test suites: every 'test result' line and every failure)
+
+===== 05-clippy (last lines; test suites: every 'test result' line and every failure)
+    Checking idna_adapter v1.2.2
+    Checking idna v1.1.0
+    Checking url v2.5.8
+    Checking tower-http v0.6.11
+    Checking reqwest v0.12.28
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 43.61s
+===== 06-clippy-fault (last lines; test suites: every 'test result' line and every failure)
+   Compiling xfx v0.2.0 (<repo>)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.30s
+===== 07-check-env-reads (last lines; test suites: every 'test result' line and every failure)
+check-env-reads: 41 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 75 compile-time reads of 7 names; 52 test binaries started with a marker no parent makes
+check-env-reads: OK
+===== 08-check-env-reads-self-test (last lines; test suites: every 'test result' line and every failure)
+            the build script sets a cfg (rustc-cfg), which can differ between clippy and a test build
+refused   clippy configuration
+            a .clippy.toml, which clippy reads in place of clippy.toml
+            disallowed-methods no longer holds std::env::var_os
+            disallowed-methods no longer holds std::process::Command::new
+check-env-reads --self-test: 66 fixtures, 0 not as expected
+===== 09-test (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 5120 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 62.48s
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.15s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.84s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.00s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.63s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.54s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.26s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.13s
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.32s
+===== 10-test-fault (last lines; test suites: every 'test result' line and every failure)
+test result: ok. 5143 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 66.93s
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.85s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.03s
+test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.11s
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.47s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.85s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.27s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.56s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+test result: ok. 206 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.76s
+===== 11-check-xfx-identity (last lines; test suites: every 'test result' line and every failure)
+check-xfx-identity: ok (25848 tracked file(s) scanned)
+===== 12-check-no-stubs (last lines; test suites: every 'test result' line and every failure)
+check-no-stubs: ok
+===== 13-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+check-no-secrets: ok (25848 tracked file(s) scanned)
+===== 14-check-no-local-paths (last lines; test suites: every 'test result' line and every failure)
+check-no-local-paths: ok (25848 tracked file(s) scanned; 8 marked fixture line(s), 84 placeholder line(s); 0 symlink(s))
+===== 15-test-check-no-local-paths (last lines; test suites: every 'test result' line and every failure)
+test-check-no-local-paths: ok cutlinks                   the scan stops
+test-check-no-local-paths: ok cuttracked                 the check stops
+test-check-no-local-paths: ok stopped                    the check fails
+test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+test-check-no-local-paths: ok diagnosis-gone             no path, every line its shape
+test-check-no-local-paths: ok (31 cases)
+===== 16-check-preview-contract (last lines; test suites: every 'test result' line and every failure)
+check-preview-contract: ok (.github/workflows/preview.yml)
+===== 17-check-tui-preflight-cost (last lines; test suites: every 'test result' line and every failure)
+preflight 200x300 full: 61292 bytes in 930.143µs mean, 915.833µs min, 932.875µs median, 953.417µs max (budget 32 ms)
+preflight 200x300 scroll: 9 bytes in 449.854µs mean, 443.083µs min, 449.5µs median, 466.334µs max (budget 32 ms)
+preflight 200x300 update: 85420 bytes in 658.566µs mean, 655.833µs min, 657.333µs median, 666.917µs max (budget 32 ms)
+replay 24x80 1000 rows: 26000 bytes in 337.061µs mean, 332.791µs min, 335.583µs median, 345.667µs max (budget 8 ms)
+replay 200x300 1000 rows: 28000 bytes in 1.199644ms mean, 1.191792ms min, 1.1965ms median, 1.212167ms max (budget 32 ms)
+check-tui-preflight-cost: ok
+===== 18-check-at-search-cost (last lines; test suites: every 'test result' line and every failure)
+unicode-fold      3 keys 32 rows p50 291.834µs p95 316.208µs max 327.542µs
+every keystroke: 1460 searches p50 204.416µs p95 1.579875ms p99 3.191041ms max 3.542ms
+whole queries (fx's gate): 160 searches p50 231.75µs p95 1.694542ms
+slowest: 3.542ms at "src/", pass 9 of 23
+first search, cold: 721.708µs at "s" (pass 0, not counted)
+check-at-search-cost: ok
+===== 19-check-usage-clock (last lines; test suites: every 'test result' line and every failure)
+check-usage-clock: debug: honoured (debug assertions)
+check-usage-clock: release: ignored (release)
+check-usage-clock: release, fault injection: ignored (release)
+check-usage-clock: ok
+===== 20-test-check-no-secrets (last lines; test suites: every 'test result' line and every failure)
+test-check-no-secrets: ok stopped-int        exit 130
+test-check-no-secrets: ok stopped-int-group  exit 130
+test-check-no-secrets: ok stopped-late       exit 1
+test-check-no-secrets: ok skipped-listing    exit 1
+test-check-no-secrets: ok skipped-scan       exit 1
+test-check-no-secrets: ok (23 cases; 3473 tracked names past ARG_MAX 1048576)
+===== 21-test-gate-env (last lines; test suites: every 'test result' line and every failure)
+test-gate-env: ok test-early-stop-stopped-subshell exit 5
+test-gate-env: ok test-early-stop-stopped-term   exit 143
+test-gate-env: ok test-early-stop-stopped-hup    exit 129
+test-gate-env: ok test-early-stop-stopped-int    exit 130
+test-gate-env: ok test-early-stop-stopped-int-group exit 130
+test-gate-env: ok (95 cases)
+===== 22-test-preview-contract (last lines; test suites: every 'test result' line and every failure)
+test-preview-contract: caught stopped-subshell             exit 5
+test-preview-contract: caught stopped-term                 exit 143
+test-preview-contract: caught stopped-hup                  exit 129
+test-preview-contract: caught stopped-int                  exit 130
+test-preview-contract: caught stopped-int-group            exit 130
+test-preview-contract: ok (35 mutants caught; the unbroken copy passes)
+===== 23-test-early-stop (last lines; test suites: every 'test result' line and every failure)
+test-early-stop: ok smoke-stopped-subshell           exit 5
+test-early-stop: ok smoke-stopped-term               exit 143
+test-early-stop: ok smoke-stopped-hup                exit 129
+test-early-stop: ok smoke-stopped-int                exit 130
+test-early-stop: ok smoke-stopped-int-group          exit 130
+test-early-stop: ok (15 cases)
+===== 24-fxcap-test-sweep (last lines; test suites: every 'test result' line and every failure)
+OK
+............................
+----------------------------------------------------------------------
+Ran 28 tests in 9.081s
+
+OK
+===== 25-fxcap-test-capture (last lines; test suites: every 'test result' line and every failure)
+.................................................................................................................................................
+----------------------------------------------------------------------
+Ran 145 tests in 534.067s
+
+OK
+===== 26-build-release (last lines; test suites: every 'test result' line and every failure)
+   Compiling hyper v1.11.0
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+   Compiling xfx v0.2.0 (<repo>)
+    Finished `release` profile [optimized] target(s) in 27.02s
+===== 27-build-faulty (last lines; test suites: every 'test result' line and every failure)
+   Compiling tokio-rustls v0.26.4
+   Compiling tower-http v0.6.11
+   Compiling hyper-util v0.1.20
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.12.28
+    Finished `release` profile [optimized] target(s) in 31.11s
+===== 28-smoke (last lines; test suites: every 'test result' line and every failure)
+
+6. what was sent, and what was written down
+  ok    every request carried exactly the provided credential, and nothing else leaked (scanned 52 file(s), 11 request(s))
+
+47 check(s), 0 failure(s)
+evidence: <gate>/smoke/smoke
+===== 29-smoke-tui (last lines; test suites: every 'test result' line and every failure)
+  26-layout-stabilization               ok
+  26b-composer-yield-to-panel           ok
+  27-live-theme-retint                  ok
+
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+evidence: <gate>/smoke/smoke-tui

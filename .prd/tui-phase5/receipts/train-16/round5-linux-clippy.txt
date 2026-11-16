@@ -1,0 +1,47 @@
+# the Linux rows' Lints step from this Mac: rustup's 1.99.1 with the x86_64 and aarch64 Linux std (rustup target add ... --toolchain 1.99.1), cargo clippy --locked --all-targets --target <t> [--features fault-injection] -- -D warnings
+## what blocks it plainly: a build script. ring's compiles C for the target and finds no C compiler for it (the plain run, at 8be4693b):
+warning: ring@0.17.14: Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-gnu-gcc": No such file or directory (os error 2)
+warning: ring@0.17.14: Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-gnu-gcc": No such file or directory (os error 2)
+  then, with Apple's clang as the target's CC, no Linux libc headers ('assert.h' not found; on x86_64 also clang's mm_malloc.h wanting stdlib.h). ring's own cross switch RING_CORE_NOSTDLIBINC with -nostdlibinc (and -ffreestanding on x86_64) builds it: linux-clippy.sh. No cfg of xfx's blocks the check; those flags reach ring's C alone.
+
+## RED at 8be4693b (linux-clippy.sh)
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu  -- -D warnings
+error: useless conversion to the same type: `u32`
+    --> src/config.rs:2639:5
+error: could not compile `xfx` (lib) due to 1 previous error
+error: could not compile `xfx` (lib test) due to 1 previous error
+### exit 101
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu --features fault-injection -- -D warnings
+error: useless conversion to the same type: `u32`
+    --> src/config.rs:2639:5
+error: could not compile `xfx` (lib) due to 1 previous error
+error: could not compile `xfx` (lib test) due to 1 previous error
+### exit 101
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu  -- -D warnings
+error: useless conversion to the same type: `u32`
+    --> src/config.rs:2639:5
+error: could not compile `xfx` (lib) due to 1 previous error
+error: could not compile `xfx` (lib test) due to 1 previous error
+### exit 101
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu --features fault-injection -- -D warnings
+error: useless conversion to the same type: `u32`
+    --> src/config.rs:2639:5
+error: could not compile `xfx` (lib) due to 1 previous error
+error: could not compile `xfx` (lib test) due to 1 previous error
+### exit 101
+# 4 of 4 runs failed
+
+## GREEN at the code head 3ed1c082 (linux-clippy.sh, in a clone at it): the lib compiles, so every target after it is checked too
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.49s
+### exit 0
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.98s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.89s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.74s
+### exit 0
+# 0 of 4 runs failed
