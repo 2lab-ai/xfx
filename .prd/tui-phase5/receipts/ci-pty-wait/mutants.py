@@ -24,7 +24,8 @@ UNIT = ["cargo", "test", "--locked", "--lib", "--",
         "keys_between_a_split", "under_a_sustained_stream", "the_drain_reads_past_a_start",
         "the_drain_stops_behind_a_start_only"]
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
-           "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path"]
+           "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
+           "the_last_bytes_of_a_stream"]
 
 DRAIN_STOP = ("                if starts && shell.turn_start_owes_its_frame() {\n"
               "                    return false;\n"
@@ -71,6 +72,9 @@ MUTANTS = [
      HARNESS),
     ("rejected-screens-unsaid", "tests/tui.rs",
      'rejected.screen.join(" | ")', "String::new()", HARNESS),
+    # Round 3.
+    ("last-bytes-cut-anywhere", "tests/tui.rs",
+     "    while !text.is_char_boundary(from) {\n        from += 1;\n    }\n", "", HARNESS),
 ]
 
 
