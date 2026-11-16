@@ -50,8 +50,10 @@
 //! draft: Enter answers, Tab is the panel's, Ctrl-J is no draft key
 //! (`super::approval::edits`), and the decoder's `Input::Text` is never a
 //! control character (a printing byte, or a scalar that is not `is_control`,
-//! `super::input`). So a draft holds no line break, and its Home and
-//! Super-Left reach the edge Ctrl-Home does (`super::shell::Shell::decide`).
+//! `super::input`). So a draft holds no line break. Its Home and Super-Left
+//! reach the edge Ctrl-Home does for another reason, which holds whatever the
+//! draft holds: `Draft::apply` sends Home and every line-start spelling to the
+//! draft's start, and End's to its end, as fx's `cursorHome`/`cursorEnd` do.
 //! The composer keeps a paste's breaks and tabs, as fx's does (`:238-241`);
 //! that rule is `super::paste`'s.
 
@@ -831,6 +833,9 @@ mod tests {
         // overflow and not kept (`paste_framing.zig:130-135`), and an
         // overflow refuses the paste whole (`input_paste_runtime.zig:210-235`).
         let cap = super::super::paste::MAX_PASTE_BYTES;
+        // The number itself, apart from the constant: fx's `composer_bytes`
+        // is `8 * 1024 * 1024` (`paste_framing.zig:18`).
+        assert_eq!(cap, 8 * 1024 * 1024, "the capture is not fx's 8 MiB");
         let mut paste = DraftPaste::default();
         paste.begin();
         for _ in 0..cap {
@@ -882,8 +887,10 @@ mod tests {
     #[test]
     fn a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces() {
         // The capture keeps 8190 bytes where a bound anywhere from 4098 to
-        // 8191 would refuse them, and the budget then counts the 4095 spaces
+        // 8189 would refuse them, and the budget then counts the 4095 spaces
         // they become (`insertAmendmentSlice`, `approval_decision.zig:178-194`).
+        // A bound of 8190 or 8191 keeps them; the 8192-byte paste below is
+        // what such a bound refuses.
         let drafts = pasted_into(&b"\r\n".repeat(4095));
         assert_eq!(drafts.text(ALLOW), " ".repeat(4095));
         // 8192 bytes are exactly twice the room and exactly the budget once
@@ -924,6 +931,12 @@ mod tests {
                 drafts.typed(character);
                 said.push(drafts.take_notice());
             }
+            // Three bytes of room again, so the third paste takes the same
+            // two paths the first did: `abcdefg` early, `a` CR LF `bc` late.
+            for _ in 0..3 {
+                drafts.edit(Action::Backspace, COLS);
+            }
+            said.push(drafts.take_notice());
             paste(&mut drafts, pasted);
             said.push(drafts.take_notice());
             (said, drafts.text(ALLOW).to_string())
@@ -942,11 +955,12 @@ mod tests {
                 None,
                 Some(INPUT_LIMIT),
                 None,
+                None,
                 Some(INPUT_LIMIT),
             ],
             "each paste is a run of its own, and a run is said once"
         );
-        assert_eq!(early_text, format!("{}def", "x".repeat(held)));
+        assert_eq!(early_text, "x".repeat(held));
     }
 
     #[test]

@@ -9771,9 +9771,9 @@ impl Shell {
             // and Super-Left and -Right and Shift-Home and -End as Home and
             // End (`line_start`/`line_end` and `.home` are one
             // `.cursor_home` there, `approvalDraftActionFromShortcut`,
-            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
-            // edge, which is the whole draft's, since a draft holds no line
-            // break on either side (`super::approval_amendment`).
+            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the whole draft's
+            // edges, which the draft gives them (`Draft::apply`,
+            // `super::approval_amendment`).
             Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
                 Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
                 _ => return,
