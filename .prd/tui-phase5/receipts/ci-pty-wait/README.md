@@ -4,8 +4,9 @@ Unit: CI-PTY-WAIT. Base `dcfa5146` (main). Branch `fix/p5-ci-pty-wait`: one
 product commit, `f79f5e5b`; five test commits, `f311ad79`, `a70dcd89`,
 `a77fad76`, `7b524d78` and `765f9170`; and the receipt commits. Joined with
 train 16 (§9): the merge `931418d4`, a join test `9a54c911`, the re-points
-`3e17645a` and a clippy fix `ba133c25`, the code head. Every figure
-below comes from a file in this folder; paths are scrubbed (`<runner>`,
+`3e17645a` and a clippy fix `ba133c25`. The join review's case `25203a2c`
+(§10). Train 16's final head merged as `d0115e72` (§11), the code head.
+Every figure below comes from a file in this folder; paths are scrubbed (`<runner>`,
 `<tmp>`, `<home>`).
 
 ## The question
@@ -728,7 +729,8 @@ multiplexer with Homebrew's settings file. rustup's own multiplexer
     has no `x86_64-linux-gnu-gcc`. It is given clang, with ring's
     no-libc-headers switch. Nothing links in a check.
   - As it is, both runs stop at one error, train 16's:
-    `useless_conversion` at `src/config.rs:2639`.
+    `useless_conversion` at `src/config.rs:2639@ba133c25` (fixed in train
+    16's round 5, now `src/config.rs:2642`; §11).
   - That error stops the lib, so nothing behind it was linted. A probe
     clone allowed that one lint on that one function and ran again. Both
     runs pass, with 0 errors and 0 warnings. **Nothing of this unit's, and
@@ -865,6 +867,96 @@ and 0 files in this folder (`pathscan.txt`). The content check moved
 nothing: at `4122bfcf` the code and docs read the same 9 WRONG as at
 `ba133c25`, and this README the same 18 references
 (`refs-4122bfcf.txt`).
+
+## 11. Train 16's final head merged — `join2/`
+
+Train 16 settled at `1a4cb6b4` (code `23819f7a`), pushed to PR #102. Its
+rounds 5 and 6, on top of `8be4693b`, fix PR #102's three runner-only CI
+causes. They touch `src/config.rs`, `scripts/check-env-reads.py`,
+`tests/support/isolated.rs` and its own receipt.
+
+| commit | what |
+|---|---|
+| `d0115e72` | `git merge --no-ff 1a4cb6b4` — **the code head** |
+| the next | this section, `join2/`, and §9's one pinned reference |
+
+### The merge (`merge.txt`)
+
+- **No conflict.** `git merge-tree` reported none beforehand, and its tree
+  is the merge commit's (`45465042`). The merge itself wrote nothing:
+  `git show --cc` prints no line beyond its header. There was no hand
+  resolution to check.
+- **Train 16's head plus this unit's changes:**
+  - `git diff 1a4cb6b4 d0115e72` is byte-identical to `git diff 8be4693b
+    5f9f38e2`, this branch on train 16 before the merge. It covers 137
+    files: 129 are this receipt; the other 8 are this unit's code, tests and
+    re-points.
+  - What the merge brought, `git diff 5f9f38e2 d0115e72`, is
+    byte-identical to train 16's own rounds 5 and 6, `git diff 8be4693b
+    1a4cb6b4`.
+
+### Numstat by class, against `1a4cb6b4` (`numstat.txt`)
+
+| class | lines |
+|---|---|
+| product | +98 −33 (`src/tui/event_loop.rs`, `src/tui/shell.rs`, outside their tests) |
+| tests | +1442 −76 (both files' tests modules, `tests/tui.rs`, `tests/support/pty.rs`) |
+| receipt | +10526 −0 (this folder) |
+| other | +14 −14 (the re-points: `docs/parity.md` 1, `scripts/` 13) |
+
+The product lines are this unit's from before the join (§2a: the drain's
+stop, `loop_turn`, `keyed()`). Neither join added a product line.
+
+### References (`refs.txt`, `content-*.txt`, `readme-refs-*.txt`)
+
+- **Code and docs:** WRONG 9 at the merge, the same set as at `5f9f38e2`.
+  That is train 16's 8, and `docs/parity.md`'s pinned transport reference.
+  **The merge moved none.** Train 16's three files cite nothing this unit
+  cites, and this unit's files cite nothing in them.
+- **This README:** 19 at the merge against 18 before. The new one is §9's
+  `src/config.rs:2639@ba133c25`, the Linux clippy hit. Train 16's round 5 rewrote
+  that line rather than moving it. It is now pinned to `ba133c25`, where it
+  stands, with the fix's line (`:2642`) beside it. That is a pin, not a
+  number change.
+
+### The gate, as CI runs it (`gates-rustup.txt`, `gates-brew.txt`, `gate-counts-*.txt`)
+
+Train 16's `gates.sh` mirrors every step of the joined `ci.yml`'s gate
+job. It ran at `d0115e72` twice, side by side. Each run had its own fresh
+`--no-local` clone and its own hold of the suite lock.
+
+| run | how | steps | `cargo test` / with fault injection |
+|---|---|---|---|
+| rustup | rustup's own multiplexer (`libexec/bin`) first on PATH, no fallback default, `RUSTUP_TOOLCHAIN=1.99.1`, `TMPDIR` through the `/tmp` link | **29, 0 failed** (load 17.9 to 56.1) | **6077 / 6114 passed**, 0 failed, 8 ignored each |
+| Homebrew | this Mac's PATH (Homebrew's 1.99.1), `TMPDIR` resolved | **29, 0 failed** (load 11.9 to 44.2) | **6077 / 6114 passed**, 0 failed, 8 ignored each |
+
+- No step was run again in either.
+- The counts are the same in both runs, binary by binary
+  (`gate-counts-*.txt`). They are 2 more than at `ba133c25` (6075 and
+  6112): those are the join review's two new cases.
+- `check-env-reads` is OK in both. Its self-test has 68 fixtures, 0 not as
+  expected, in both, including the rustup run's `TMPDIR` through the link.
+- Train 16's `a_config_alias_cannot_redirect_the_admitted_cargo_builtins`,
+  which failed in §9's run under rustup, passes in both.
+- This unit's 22 tests and META-PREFIX-DECODE's 15 are ok in all four test
+  runs (`touched.txt`).
+
+### Linux clippy (`linux-clippy.txt`)
+
+Train 16's `linux-clippy.sh` ran at `d0115e72` on a fresh clone. Its
+proxy dir was rustup's own multiplexer, and it ran under the lock. It
+covers both Linux targets (x86_64 and aarch64 `unknown-linux-gnu`), each
+plain and with fault-injection: **0 of 4 runs failed, with no warning or
+error line.** The `src/config.rs` hit of §9 is gone with train 16's fix, so
+the whole crate is linted now, this unit's code included, with no probe.
+
+### Paths
+
+`join/pathscan.sh` scanned every commit this branch holds that `8be4693b`
+does not: the messages, and what `git show` prints of each (for the merge,
+its own resolution, which is empty). It ran through this section's commit:
+0 matching lines, and 0 files in this folder (`pathscan.txt`). The tree
+checks passed in both gates.
 
 ## Open questions
 

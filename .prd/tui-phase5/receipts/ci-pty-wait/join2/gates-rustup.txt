@@ -1,0 +1,34 @@
+train 16's gates.sh (ci.yml's gate job at the joined main) at d0115e72, on a fresh --no-local clone, in one hold of the suite lock.
+# PATH first: rustup's own multiplexer (no fallback default); RUSTUP_TOOLCHAIN=1.99.1; TMPDIR through /tmp, a link
+# /opt/homebrew/opt/rustup/libexec/bin/cargo cargo 1.99.1 (5f94df478 2026-08-27) rustc 1.99.1 (58cf8f9c3 2026-10-13) 
+# head d0115e72; tree clean: yes
+01 pinned-toolchain                   exit 0     1s  load 28.15
+02 bash32                             exit 0     0s  load 28.15
+03 which-bash                         exit 0     0s  load 28.15
+04 fmt                                exit 0     2s  load 28.15
+05 clippy                             exit 0    40s  load 28.15
+06 clippy-fault                       exit 0    36s  load 26.64
+07 check-env-reads                    exit 0   430s  load 27.34
+08 check-env-reads-self-test          exit 0    25s  load 41.85
+09 test                               exit 0   109s  load 39.93
+10 test-fault                         exit 0   114s  load 56.06
+11 check-xfx-identity                 exit 0     1s  load 43.83
+12 check-no-stubs                     exit 0    12s  load 43.83
+13 check-no-secrets                   exit 0   131s  load 39.67
+14 check-no-local-paths               exit 0    48s  load 25.40
+15 test-check-no-local-paths          exit 0    18s  load 31.56
+16 check-preview-contract             exit 0     3s  load 35.09
+17 check-tui-preflight-cost           exit 0     2s  load 35.09
+18 check-at-search-cost               exit 0     2s  load 34.92
+19 check-usage-clock                  exit 0     1s  load 34.92
+20 test-check-no-secrets              exit 0    92s  load 34.92
+21 test-gate-env                      exit 0   238s  load 39.24
+22 test-preview-contract              exit 0    53s  load 26.82
+23 test-early-stop                    exit 0     1s  load 42.05
+24 fxcap-test-sweep                   exit 0    16s  load 42.05
+25 fxcap-test-capture                 exit 0   536s  load 45.62
+26 build-release                      exit 0    18s  load 19.21
+27 build-faulty                       exit 0    28s  load 24.58
+28 smoke                              exit 0     1s  load 17.91
+29 smoke-tui                          exit 0    65s  load 17.91
+# 29 steps, 0 failed; tree clean after: yes
