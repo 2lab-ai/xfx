@@ -1,0 +1,6 @@
+# moved_edits.py: the decoder's edits of decide's translation, which RULE-CONFIRM-KEYS moved into approval_action
+`decide` a37a969e..b10ca771: 14 lines out, 19 in
+`approval_action` 7c9dfb2e..88e83a68: 14 lines out, 19 in
+the same lines out and in: True
+`decide` at 7c9dfb2e 25c7b22d9405, at 88e83a68 25c7b22d9405: the merge's is 7c9dfb2e's byte for byte: True
+# exit 0

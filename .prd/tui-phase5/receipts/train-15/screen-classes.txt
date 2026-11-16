@@ -1,0 +1,10 @@
+== screen-moves-base.txt: 100 listed lines
+  93  a saved session's id (resume ids, /status's Session row)
+  7  other
+    other: xfx fulltranscript-notice end rows [9]: [('* version: 0.2.0 (debug 2026-11-11-1018-e2fc7e94d66e)', '* version: 0.2.0 (debug 2026-11-11-1059-2c575f52db5d)')]
+    other: xfx fulltranscript-notice full rows [24]: [('* version: 0.2.0 (debug 2026-11-11-1018-e2fc7e94d66e)', '* version: 0.2.0 (debug 2026-11-11-1059-2c575f52db5d)')]
+    other: xfx fulltranscript-notice full-pgup rows [24]: [('* version: 0.2.0 (debug 2026-11-11-1018-e2fc7e94d66e)', '* version: 0.2.0 (debug 2026-11-11-1059-2c575f52db5d)')]
+    other: xfx fulltranscript-notice full-top rows [24]: [('* version: 0.2.0 (debug 2026-11-11-1018-e2fc7e94d66e)', '* version: 0.2.0 (debug 2026-11-11-1059-2c575f52db5d)')]
+    other: xfx links full rows [2, 3, 4, 5, 6, 7]: [('  +4 more)', '  mcp: none'), ('  mcp: none', '')]
+    other: xfx p5-transcript-md full rows [2, 3, 4, 5, 6, 7]: [('  2026-11-11 20:17:33.010 KST · Response', 'uild test before you push, and read src/ui/render.zig first.'), ('uild test before you push, and read 
+    other: xfx p5-transcript-md-light full rows [2, 3, 4, 5, 6, 7]: [('  2026-11-11 20:18:05.201 KST · Response', 'uild test before you push, and read src/ui/render.zig first.'), ('uild test before you push, and

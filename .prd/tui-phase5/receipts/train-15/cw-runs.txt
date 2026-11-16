@@ -1,0 +1,24 @@
+# join check 5: 10 runs of tui::worker::tests on each binary, one after the other, in one normal slot, the machine's own load; each run bounded at 900 s; cores 18
+plain run  1 load 13.45 exit 0   18.0 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.77s
+plain run  2 load 12.08 exit 0   16.2 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 16.19s
+plain run  3 load 11.90 exit 0   16.2 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 16.23s
+plain run  4 load 18.73 exit 0   16.0 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.98s
+plain run  5 load 16.49 exit 0   15.7 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.74s
+plain run  6 load 15.54 exit 0   15.7 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.68s
+plain run  7 load 19.20 exit 0   15.8 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.75s
+plain run  8 load 26.59 exit 0   16.0 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.96s
+plain run  9 load 25.64 exit 0   15.8 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.81s
+plain run 10 load 23.20 exit 0   15.8 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 204 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 15.81s
+fault run  1 load 20.97 exit 0   19.4 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 16.18s
+fault run  2 load 23.39 exit 0   20.7 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 20.69s
+fault run  3 load 21.10 exit 0   17.7 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 17.69s
+fault run  4 load 21.02 exit 0   22.5 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 22.46s
+fault run  5 load 16.69 exit 0   16.2 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 16.19s
+fault run  6 load 14.49 exit 0   16.0 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 15.97s
+fault run  7 load 12.33 exit 0   16.7 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 16.71s
+fault run  8 load 11.21 exit 0   16.1 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 16.13s
+fault run  9 load  9.56 exit 0   18.3 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 18.28s
+fault run 10 load  9.06 exit 0   19.3 s  A:ok B:ok C:ok D:ok F:ok G:ok  | ok. 212 passed; 0 failed; 0 ignored; 0 measured; 4833 filtered out; finished in 19.32s
+
+plain: A 10/10 B 10/10 C 10/10 D 10/10 F 10/10 G 10/10; module exit 0 in 10/10; load at the runs' start 11.90-26.59, median 18.73
+fault: A 10/10 B 10/10 C 10/10 D 10/10 F 10/10 G 10/10; module exit 0 in 10/10; load at the runs' start 9.06-23.39, median 16.69

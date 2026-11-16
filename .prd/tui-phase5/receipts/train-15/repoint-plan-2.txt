@@ -1,0 +1,7 @@
+auto  main                scripts/fxcap/parity-ledger.toml:268 UPSTREAM.md:95-98 -> UPSTREAM.md:88-91 (cites UPSTREAM.md; frame 5700fdaa :95-98): the frame's lines and two either side stand there alone
+auto  main                scripts/fxcap/parity-ledger.toml:281 UPSTREAM.md:99-101 -> UPSTREAM.md:92-94 (cites UPSTREAM.md; frame 5700fdaa :99-101): the frame's lines and two either side stand there alone
+auto  main                scripts/fxcap/parity-ledger.toml:295 UPSTREAM.md:90-94 -> UPSTREAM.md:83-87 (cites UPSTREAM.md; frame 5700fdaa :90-94): the frame's lines and two either side stand there alone
+left  main                src/tools/question.rs:303 Cargo.toml:42 -> (as it is) (cites Cargo.toml; frame 866de4f4 :42): the comment says the crate does not enable serde_json's `preserve_order`, and Cargo.toml enables it: the claim is out of date, and the number is wrong too (:42 is `"http2",`); queued as TRAIN14-FOLLOWUPS with the comment's rewrite, not a re-point
+left  main                tests/session_compat.rs:57 src/session/event.rs:98-192 -> (as it is) (cites src/session/event.rs; frame 9956e7a8 :98-192): it names commit 14ad04202fe5's file (`14ad04202fe5 src/session/event.rs:98-192`), whose 98-192 are `SessionEvent` as it says; the check reads it against the head
+# 5 WRONG refs, by where they came from: main 5
+# by how: auto 3; left 2 (extra: read SAME, re-pointed by hand)

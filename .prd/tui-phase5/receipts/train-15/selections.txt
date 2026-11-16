@@ -1,0 +1,7 @@
+# the selection made again here, its scenario names against the swept file's
+selection-all.txt: 32 names swept; made again 32; the same names
+selection-units.txt: 34 names swept; made again 34; the same file, byte for byte
+no name in both: 0
+selection-sweep.txt is the two, in order: yes
+e2fc7e94: 411 scenarios, 115 of them selected
+2c575f52: 432 scenarios, 136 of them selected

@@ -1,0 +1,128 @@
+# head 2c575f52; sides: main e2fc7e94, train bc9ea199, catalog-wait-clock 72fc9672, decoder df45025c, ftrh fffb3cfe, approval 7c9dfb2e, question-ctrl-j b5cb6f46
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    main MOVED -> :1947-1953 | catalog-wait-clock MOVED -> :1950-1956 | decoder MOVED -> :1950-1956 | ftrh MOVED -> :1950-1956 | approval MOVED -> :2039-2045 | question-ctrl-j MOVED -> :1946-1952
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    main MOVED -> :1916 | catalog-wait-clock MOVED -> :1919 | decoder MOVED -> :1919 | ftrh MOVED -> :1919 | approval MOVED -> :2008 | question-ctrl-j MOVED -> :1915
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :584 (after src/tui/shell.rs)
+    main MOVED -> :589 | catalog-wait-clock MOVED -> :587 | decoder MOVED -> :587 | ftrh MOVED -> :587 | approval MOVED -> :648 | question-ctrl-j MOVED -> :583
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    main MOVED -> :2175 | catalog-wait-clock MOVED -> :2178 | decoder MOVED -> :2178 | ftrh MOVED -> :2178 | approval MOVED -> :2267 | question-ctrl-j MOVED -> :2174
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    main MOVED -> :2551 | catalog-wait-clock MOVED -> :2554 | decoder MOVED -> :2554 | ftrh MOVED -> :2554 | approval MOVED -> :2652 | question-ctrl-j MOVED -> :2550
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    main MOVED -> :2576 | catalog-wait-clock MOVED -> :2579 | decoder MOVED -> :2579 | ftrh MOVED -> :2579 | approval MOVED -> :2677 | question-ctrl-j MOVED -> :2575
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    main MOVED -> :2135 | catalog-wait-clock MOVED -> :2138 | decoder MOVED -> :2138 | ftrh MOVED -> :2138 | approval MOVED -> :2227 | question-ctrl-j MOVED -> :2134
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    main MOVED -> :2193 | catalog-wait-clock MOVED -> :2196 | decoder MOVED -> :2196 | ftrh MOVED -> :2196 | approval MOVED -> :2285 | question-ctrl-j MOVED -> :2192
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    main MOVED -> :2212 | catalog-wait-clock MOVED -> :2215 | decoder MOVED -> :2215 | ftrh MOVED -> :2215 | approval MOVED -> :2304 | question-ctrl-j MOVED -> :2211
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    main MOVED -> :2268 | catalog-wait-clock MOVED -> :2271 | decoder MOVED -> :2271 | ftrh MOVED -> :2271 | approval MOVED -> :2360 | question-ctrl-j MOVED -> :2267
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    main MOVED -> :2318 | catalog-wait-clock MOVED -> :2321 | decoder MOVED -> :2321 | ftrh MOVED -> :2321 | approval MOVED -> :2416 | question-ctrl-j MOVED -> :2317
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    main MOVED -> :2213 | catalog-wait-clock MOVED -> :2216 | decoder MOVED -> :2216 | ftrh MOVED -> :2216 | approval MOVED -> :2305 | question-ctrl-j MOVED -> :2212
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    main MOVED -> :2269 | catalog-wait-clock MOVED -> :2272 | decoder MOVED -> :2272 | ftrh MOVED -> :2272 | approval MOVED -> :2361 | question-ctrl-j MOVED -> :2268
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    main MOVED -> :2319 | catalog-wait-clock MOVED -> :2322 | decoder MOVED -> :2322 | ftrh MOVED -> :2322 | approval MOVED -> :2417 | question-ctrl-j MOVED -> :2318
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    main MOVED -> :2560 | catalog-wait-clock MOVED -> :2563 | decoder MOVED -> :2563 | ftrh MOVED -> :2563 | approval MOVED -> :2661 | question-ctrl-j MOVED -> :2559
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    main MOVED -> :4018 | catalog-wait-clock MOVED -> :4021 | decoder MOVED -> :4021 | ftrh MOVED -> :4021 | approval MOVED -> :4146 | question-ctrl-j MOVED -> :4017
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    main MOVED -> :4079 | catalog-wait-clock MOVED -> :4082 | decoder MOVED -> :4082 | ftrh MOVED -> :4082 | approval MOVED -> :4223 | question-ctrl-j MOVED -> :4078
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    main MOVED -> :2863 | catalog-wait-clock MOVED -> :2867 | decoder MOVED -> :2867 | ftrh MOVED -> :2867 | approval MOVED -> :2980 | question-ctrl-j MOVED -> :2863
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:36: :634 (after src/output.rs)
+    catalog-wait-clock MOVED -> :642 | decoder MOVED -> :642 | ftrh MOVED -> :642 | approval MOVED -> :642 | question-ctrl-j MOVED -> :642
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2585 (after src/tui/worker.rs)
+    approval MOVED -> :2586
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2820 (after src/tui/worker.rs)
+    approval MOVED -> :2821
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :349-367 (after src/tui/bridge.rs)
+    approval MOVED -> :351-369
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :544-549 (after src/tui/shell.rs)
+    main MOVED -> :549-554 | catalog-wait-clock MOVED -> :547-552 | decoder MOVED -> :547-552 | ftrh MOVED -> :547-552 | approval MOVED -> :561-613 | question-ctrl-j MOVED -> :543-548
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :640-655 (after src/tui/shell.rs)
+    main MOVED -> :645-660 | catalog-wait-clock MOVED -> :643-658 | decoder MOVED -> :643-658 | ftrh MOVED -> :643-658 | approval MOVED -> :704-719 | question-ctrl-j MOVED -> :639-654
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :790-795 (after src/tui/shell.rs)
+    main MOVED -> :795-800 | catalog-wait-clock MOVED -> :793-798 | decoder MOVED -> :793-798 | ftrh MOVED -> :793-798 | approval MOVED -> :854-859 | question-ctrl-j MOVED -> :789-794
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1040-1060 (after src/tui/shell.rs)
+    main MOVED -> :1045-1065 | catalog-wait-clock MOVED -> :1043-1063 | decoder MOVED -> :1043-1063 | ftrh MOVED -> :1043-1063 | approval MOVED -> :1109-1129 | question-ctrl-j MOVED -> :1039-1059
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1220 (after src/tui/shell.rs)
+    main MOVED -> :1225 | catalog-wait-clock MOVED -> :1223 | decoder MOVED -> :1223 | ftrh MOVED -> :1223 | approval MOVED -> :1289 | question-ctrl-j MOVED -> :1219
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    main MOVED -> :1797-1815 | catalog-wait-clock MOVED -> :1800-1818 | decoder MOVED -> :1800-1818 | ftrh MOVED -> :1800-1818 | approval MOVED -> :1889-1907 | question-ctrl-j MOVED -> :1796-1814
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    main MOVED -> :2782 | catalog-wait-clock MOVED -> :2786 | decoder MOVED -> :2786 | ftrh MOVED -> :2786 | approval MOVED -> :2899 | question-ctrl-j MOVED -> :2782
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    main MOVED -> :7073 | catalog-wait-clock MOVED -> :7279 | decoder MOVED -> :7279 | ftrh MOVED -> :7279 | approval MOVED -> :7466 | question-ctrl-j MOVED -> :7275
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    main MOVED -> :6038 | catalog-wait-clock MOVED -> :6130 | decoder MOVED -> :6130 | ftrh MOVED -> :6130 | approval MOVED -> :6317 | question-ctrl-j MOVED -> :6126
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :588-600 (after src/tui/worker.rs)
+    approval MOVED -> :589-601
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :1287-1304 (after src/tui/worker.rs)
+    approval MOVED -> :1288-1305
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:295: :574 (after src/agent/machine.rs)
+    catalog-wait-clock MOVED -> :575 | decoder MOVED -> :575 | ftrh MOVED -> :575 | approval MOVED -> :575 | question-ctrl-j MOVED -> :575
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:296: :588 (after src/agent/machine.rs)
+    catalog-wait-clock MOVED -> :589 | decoder MOVED -> :589 | ftrh MOVED -> :589 | approval MOVED -> :589 | question-ctrl-j MOVED -> :589
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:428: :770-789 (after src/output.rs)
+    catalog-wait-clock MOVED -> :778-797 | decoder MOVED -> :778-797 | ftrh MOVED -> :778-797 | approval MOVED -> :778-797 | question-ctrl-j MOVED -> :778-797
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:429: :873-878 (after src/output.rs)
+    catalog-wait-clock MOVED -> :881-886 | decoder MOVED -> :881-886 | ftrh MOVED -> :881-886 | approval MOVED -> :881-886 | question-ctrl-j MOVED -> :881-886
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:724: :185-191 (after src/tui/approval_readiness.rs)
+    main MOVED -> :212-223 | catalog-wait-clock MOVED -> :212-223 | decoder MOVED -> :212-223 | ftrh MOVED -> :212-223 | question-ctrl-j MOVED -> :212-223
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :384-417 (after src/tui/bridge.rs)
+    approval MOVED -> :386-419
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    main MOVED -> :1207-1271 | catalog-wait-clock MOVED -> :1205-1269 | decoder MOVED -> :1205-1269 | ftrh MOVED -> :1205-1269 | approval MOVED -> :1271-1340 | question-ctrl-j MOVED -> :1201-1265
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    main MOVED -> :1525-1538 | catalog-wait-clock MOVED -> :1528-1541 | decoder MOVED -> :1528-1541 | ftrh MOVED -> :1528-1541 | approval MOVED -> :1617-1630 | question-ctrl-j MOVED -> :1524-1537
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    main MOVED -> :376-377 | catalog-wait-clock MOVED -> :376-377 | decoder MOVED -> :376-377 | ftrh MOVED -> :376-377 | approval MOVED -> :453-454 | question-ctrl-j MOVED -> :376-377
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    main MOVED -> :374 | catalog-wait-clock MOVED -> :374 | decoder MOVED -> :374 | ftrh MOVED -> :374 | approval MOVED -> :451 | question-ctrl-j MOVED -> :374
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :743-754 (after src/tui/shell.rs)
+    main MOVED -> :748-759 | catalog-wait-clock MOVED -> :746-757 | decoder MOVED -> :746-757 | ftrh MOVED -> :746-757 | approval MOVED -> :807-818 | question-ctrl-j MOVED -> :742-753
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :755 (after src/tui/shell.rs)
+    main MOVED -> :760 | catalog-wait-clock MOVED -> :758 | decoder MOVED -> :758 | ftrh MOVED -> :758 | approval MOVED -> :819 | question-ctrl-j MOVED -> :754
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :1072-1194 | decoder MOVED -> :1072-1194 | ftrh MOVED -> :1072-1194 | approval MOVED -> :1136-1243 | question-ctrl-j MOVED -> :1072-1194
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :662-665 | decoder MOVED -> :662-665 | ftrh MOVED -> :662-665 | approval MOVED -> :678-681 | question-ctrl-j MOVED -> :662-665
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :1130-1158 | decoder MOVED -> :1130-1158 | ftrh MOVED -> :1130-1158 | approval MOVED -> :1178-1206 | question-ctrl-j MOVED -> :1130-1158
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :1160-1190 | decoder MOVED -> :1160-1190 | ftrh MOVED -> :1160-1190 | approval MOVED -> :1208-1238 | question-ctrl-j MOVED -> :1160-1190
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :1172-1175 | decoder MOVED -> :1172-1175 | ftrh MOVED -> :1172-1175 | approval MOVED -> :1220-1223 | question-ctrl-j MOVED -> :1172-1175
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :1086-1127 | decoder MOVED -> :1086-1127 | ftrh MOVED -> :1086-1127 | approval MOVED -> :1150-1175 | question-ctrl-j MOVED -> :1086-1127
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :662 | decoder MOVED -> :662 | ftrh MOVED -> :662 | approval MOVED -> :678 | question-ctrl-j MOVED -> :662
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    main MOVED -> :3244 | catalog-wait-clock MOVED -> :3248 | decoder MOVED -> :3248 | ftrh MOVED -> :3248 | approval MOVED -> :3361 | question-ctrl-j MOVED -> :3244
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    main MOVED -> :3192 | catalog-wait-clock MOVED -> :3196 | decoder MOVED -> :3196 | ftrh MOVED -> :3196 | approval MOVED -> :3309 | question-ctrl-j MOVED -> :3192
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    main MOVED -> :1262 | catalog-wait-clock MOVED -> :1262 | decoder MOVED -> :1259 | ftrh MOVED -> :1262 | approval MOVED -> :1249 | question-ctrl-j MOVED -> :1262
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    main MOVED -> :1215-1234 | catalog-wait-clock MOVED -> :1215-1234 | decoder MOVED -> :1212-1231 | ftrh MOVED -> :1215-1234 | approval MOVED -> :1202-1221 | question-ctrl-j MOVED -> :1215-1234
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    main MOVED -> :1196-1212 | catalog-wait-clock MOVED -> :1196-1212 | decoder MOVED -> :1193-1209 | ftrh MOVED -> :1196-1212 | approval MOVED -> :1183-1199 | question-ctrl-j MOVED -> :1196-1212
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:694: :4194 (after scripts/smoke-tui.sh)
+    approval MOVED -> :4215
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    main MOVED -> :5585 | catalog-wait-clock MOVED -> :5677 | decoder MOVED -> :5677 | ftrh MOVED -> :5677 | approval MOVED -> :5890 | question-ctrl-j MOVED -> :5673
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    main MOVED -> :5598 | catalog-wait-clock MOVED -> :5690 | decoder MOVED -> :5690 | ftrh MOVED -> :5690 | approval MOVED -> :5903 | question-ctrl-j MOVED -> :5686
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    main MOVED -> :5608 | catalog-wait-clock MOVED -> :5700 | decoder MOVED -> :5700 | ftrh MOVED -> :5700 | approval MOVED -> :5913 | question-ctrl-j MOVED -> :5696
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    catalog-wait-clock MOVED -> :1280-1318 | decoder MOVED -> :1280-1318 | ftrh MOVED -> :1280-1318 | approval MOVED -> :1330-1369 | question-ctrl-j MOVED -> :1280-1318
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    main MOVED -> :774 | catalog-wait-clock MOVED -> :774 | decoder MOVED -> :771 | ftrh MOVED -> :774 | approval MOVED -> :758 | question-ctrl-j MOVED -> :774
+# 124 bare continuations after a reference into a changed file; 63 moved or changed on some side that holds them

@@ -1,0 +1,410 @@
+## 2ff302c5: base afd891af, ours 753b0a72, theirs 72fc9672
+ok   both  Cargo.toml (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/tui/worker.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 6 line(s) more, 18 fewer
+       more  +        // began is told the band once, `Dropped`, inside the stop  [merged :20613; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  +        // clock a retry run takes: the compaction the stop dropped before it  [merged :20612; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  +        // quoting the first two, sent when the band hears the first turn  [merged :20610; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  +        // start, as [`first_of_two_and_a_stop`] sends one, on the paused  [merged :20611; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  -        // before it began is told the band once, `Dropped`, inside the stop  [ours :20158]
+       more  -        // quoting the first two, 300 ms in: the compaction the stop dropped  [ours :20157]
+       fewer +                    (wait, false, vec![None, None], vec![1, 0])  [theirs :19985]
+       fewer +                    (wait, true, vec![cancelled.clone(), None], vec![0, 1])  [theirs :19983]
+       fewer +                got.push((wait, stop, ends, said));  [theirs :19981]
+       fewer +                let log = first_of_two_and_a_stop(state, first, stop, held);  [theirs :19455,19968; merged :19441; in fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_]
+       fewer +                want.push(if stop {  [theirs :19982]
+       fewer +                } else {  [theirs :18911,19805,19984; merged :18897,19791; in fn first_of_two_and_a_stop_watched(]
+       fewer +            for stop in [true, false] {  [theirs :19084,19444,19965; merged :19070,19430; in fn a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_k]
+       fewer +        // Ctrl-C quoting the first two, sent when the band hears the first  [theirs :20127]
+       fewer +        // clock a retry run takes: the stopped turn hands no  [theirs :20129]
+       fewer +        // turn start, as [`first_of_two_and_a_stop`] sends one, on the paused  [theirs :20128]
+       fewer -                    None => (wait, false, vec![None, None], vec![1, 0]),  [base :19532; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -                    Some(_) => (wait, true, vec![cancelled.clone(), None], vec![0, 1]),  [base :19531; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -                drop(held);  [base :19036,19516; ours :19022; theirs :19758; merged :19744; in fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_]
+       fewer -                got.push((wait, stop.is_some(), ends, said));  [base :19529; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -                let log = first_of_two_and_a_stop(state, first, stop);  [base :19035,19515; ours :19021; in fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_]
+       fewer -                want.push(match stop {  [base :19530; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -            for stop in [Some(Duration::from_millis(300)), None] {  [base :18709,19025,19512; ours :18695,19011; in fn a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_k]
+       fewer -        // Ctrl-C quoting the first two, 300 ms in: the stopped turn hands no  [base :19674; in fn a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_hi]
+     theirs->merged minus base->ours: 14 line(s) more, 10 fewer
+       more  +        // began is told the band once, `Dropped`, inside the stop  [merged :20613; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  +        // clock a retry run takes: the compaction the stop dropped before it  [merged :20612; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  +        // quoting the first two, sent when the band hears the first turn  [merged :20610; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  +        // start, as [`first_of_two_and_a_stop`] sends one, on the paused  [merged :20611; in fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_t]
+       more  -                    (wait, false, vec![None, None], vec![1, 0])  [theirs :19985]
+       more  -                    (wait, true, vec![cancelled.clone(), None], vec![0, 1])  [theirs :19983]
+       more  -                got.push((wait, stop, ends, said));  [theirs :19981]
+       more  -                let log = first_of_two_and_a_stop(state, first, stop, held);  [theirs :19455,19968; merged :19441; in fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_]
+       more  -                want.push(if stop {  [theirs :19982]
+       more  -                } else {  [theirs :18911,19805,19984; merged :18897,19791; in fn first_of_two_and_a_stop_watched(]
+       more  -            for stop in [true, false] {  [theirs :19084,19444,19965; merged :19070,19430; in fn a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_k]
+       more  -        // Ctrl-C quoting the first two, sent when the band hears the first  [theirs :20127]
+       more  -        // clock a retry run takes: the stopped turn hands no  [theirs :20129]
+       more  -        // turn start, as [`first_of_two_and_a_stop`] sends one, on the paused  [theirs :20128]
+       fewer +        // before it began is told the band once, `Dropped`, inside the stop  [ours :20158]
+       fewer +        // quoting the first two, 300 ms in: the compaction the stop dropped  [ours :20157]
+       fewer -                    None => (wait, false, vec![None, None], vec![1, 0]),  [base :19532; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -                    Some(_) => (wait, true, vec![cancelled.clone(), None], vec![0, 1]),  [base :19531; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -                drop(held);  [base :19036,19516; ours :19022; theirs :19758; merged :19744; in fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_]
+       fewer -                got.push((wait, stop.is_some(), ends, said));  [base :19529; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -                let log = first_of_two_and_a_stop(state, first, stop);  [base :19035,19515; ours :19021; in fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_]
+       fewer -                want.push(match stop {  [base :19530; in fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_]
+       fewer -            for stop in [Some(Duration::from_millis(300)), None] {  [base :18709,19025,19512; ours :18695,19011; in fn a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_k]
+       fewer -        // Ctrl-C quoting the first two, 300 ms in: the stopped turn hands no  [base :19674; in fn a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_hi]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+files both sides changed: 2; one side only: 2458 (ours 2408, theirs 50); disagreeing: 1; disagreeing with numbers masked: 1
+# exit 0
+## ed92e515: base afd891af, ours 2ff302c5, theirs df45025c
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 4 line(s) more, 4 fewer
+       more  +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [merged :238; in (top)]
+       more  +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [merged :237; in (top)]
+       more  -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [ours :238]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [theirs :238]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [base :238; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 4 line(s) more, 4 fewer
+       more  +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [merged :238; in (top)]
+       more  +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [merged :237; in (top)]
+       more  -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [theirs :238]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [ours :238]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [base :238; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 22 fewer
+       fewer +source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:14016", "docs/parity.md:237"]  [theirs :505]
+       fewer +why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :876]
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]  [theirs :828,840,851,862]
+       fewer +xfx = ["src/tui/shell.rs:10579"]  [theirs :874]
+       fewer +xfx = ["src/tui/shell.rs:17033"]  [theirs :700,1000]
+       fewer +xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]  [theirs :930]
+       fewer +xfx = ["src/tui/shell.rs:43422"]  [theirs :817]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13962", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :865; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42431"]  [base :817,829,840,851; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10558"]  [base :863; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16977"]  [base :689,989; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:42431", "src/tui/approval_view.rs:685"]  [base :919; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:42431"]  [base :806; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 11 line(s) more, 11 fewer
+       more  -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:14016", "docs/parity.md:237"]  [theirs :505]
+       more  -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :876]
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]  [theirs :828,840,851,862]
+       more  -xfx = ["src/tui/shell.rs:10579"]  [theirs :874]
+       more  -xfx = ["src/tui/shell.rs:17033"]  [theirs :700,1000]
+       more  -xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]  [theirs :930]
+       more  -xfx = ["src/tui/shell.rs:43422"]  [theirs :817]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13962", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :865; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42431"]  [base :817,829,840,851; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10558"]  [base :863; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16977"]  [base :689,989; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:42431", "src/tui/approval_view.rs:685"]  [base :919; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:42431"]  [base :806; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  src/tui/input.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/tui/shell.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 2 line(s) more, 24 fewer
+       more  +            if self.offer_to_pickers(&menus) {  [merged :12880; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       more  -            if self.offer_to_pickers(&event) {  [ours :12851]
+       fewer +            if self.offer_to_catalog(&menus) {  [theirs :12466]
+       fewer +            if self.offer_to_column(&menus) {  [theirs :12478]
+       fewer +            if self.offer_to_effort(&menus) {  [theirs :12472]
+       fewer +            if self.offer_to_files(&menus) {  [theirs :12481]
+       fewer +            if self.offer_to_fork(&menus) {  [theirs :12463]
+       fewer +            if self.offer_to_mcp_args(&menus) {  [theirs :12490]
+       fewer +            if self.offer_to_models(&menus) {  [theirs :12469]
+       fewer +            if self.offer_to_picker(&menus) {  [theirs :12484]
+       fewer +            if self.offer_to_provider_picker(&menus) {  [theirs :12487]
+       fewer +            if self.offer_to_sessions(&menus) {  [theirs :12460]
+       fewer +            if self.offer_to_settings(&menus) {  [theirs :12457]
+       fewer +            if self.offer_to_skills(&menus) {  [theirs :12475]
+       fewer -            if self.offer_to_catalog(&event) {  [base :12437; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_column(&event) {  [base :12449; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_effort(&event) {  [base :12443; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_files(&event) {  [base :12452; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_fork(&event) {  [base :12434; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_mcp_args(&event) {  [base :12461; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_models(&event) {  [base :12440; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_picker(&event) {  [base :12455; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_provider_picker(&event) {  [base :12458; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_sessions(&event) {  [base :12431; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_settings(&event) {  [base :12428; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_skills(&event) {  [base :12446; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+     theirs->merged minus base->ours: 13 line(s) more, 13 fewer
+       more  +            if self.offer_to_pickers(&menus) {  [merged :12880; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       more  -            if self.offer_to_catalog(&menus) {  [theirs :12466]
+       more  -            if self.offer_to_column(&menus) {  [theirs :12478]
+       more  -            if self.offer_to_effort(&menus) {  [theirs :12472]
+       more  -            if self.offer_to_files(&menus) {  [theirs :12481]
+       more  -            if self.offer_to_fork(&menus) {  [theirs :12463]
+       more  -            if self.offer_to_mcp_args(&menus) {  [theirs :12490]
+       more  -            if self.offer_to_models(&menus) {  [theirs :12469]
+       more  -            if self.offer_to_picker(&menus) {  [theirs :12484]
+       more  -            if self.offer_to_provider_picker(&menus) {  [theirs :12487]
+       more  -            if self.offer_to_sessions(&menus) {  [theirs :12460]
+       more  -            if self.offer_to_settings(&menus) {  [theirs :12457]
+       more  -            if self.offer_to_skills(&menus) {  [theirs :12475]
+       fewer +            if self.offer_to_pickers(&event) {  [ours :12851]
+       fewer -            if self.offer_to_catalog(&event) {  [base :12437; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_column(&event) {  [base :12449; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_effort(&event) {  [base :12443; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_files(&event) {  [base :12452; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_fork(&event) {  [base :12434; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_mcp_args(&event) {  [base :12461; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_models(&event) {  [base :12440; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_picker(&event) {  [base :12455; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_provider_picker(&event) {  [base :12458; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_sessions(&event) {  [base :12431; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_settings(&event) {  [base :12428; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       fewer -            if self.offer_to_skills(&event) {  [base :12446; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+files both sides changed: 4; one side only: 3628 (ours 2456, theirs 1172); disagreeing: 3; disagreeing with numbers masked: 2
+# exit 0
+## b10ca771: base 3f2d6e78, ours ed92e515, theirs fffb3cfe
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 2 line(s) more, 2 fewer
+       more  +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [merged :238; in (top)]
+       more  -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [ours :238]
+       fewer +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [theirs :238]
+       fewer -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [base :238; in (top)]
+     theirs->merged minus base->ours: 2 line(s) more, 2 fewer
+       more  +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [merged :238; in (top)]
+       more  -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [theirs :238]
+       fewer +| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [ours :238]
+       fewer -| full transcript (`C-o`) | ui | partial | Upstream's Ctrl-O screen (`src/ui/full_transcript_screen.zig`, keys `src/cor  [base :238; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 8 fewer
+       fewer +source = ["src/tui/full_transcript.rs:3064", "docs/parity.md:238"]  [theirs :491]
+       fewer +source = ["src/tui/full_transcript.rs:3115", "docs/parity.md:237"]  [theirs :519]
+       fewer +source = ["src/tui/full_transcript.rs:3115", "src/tui/shell.rs:13966", "docs/parity.md:237"]  [theirs :505]
+       fewer +xfx = ["src/tui/full_transcript.rs:3064", "src/tui/approval_view.rs:1224"]  [theirs :1013]
+       fewer -source = ["src/tui/full_transcript.rs:3010", "docs/parity.md:238"]  [base :491; in [[divergence]] / id = "ctrl-o-drawn-wider-named"]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "docs/parity.md:237"]  [base :519; in [[divergence]] / id = "answer-label-and-modifier-named"]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13966", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -xfx = ["src/tui/full_transcript.rs:3010", "src/tui/approval_view.rs:1224"]  [base :1012; in [[cause]] / id = "answer-modifier-sequence-wider"]
+     theirs->merged minus base->ours: 4 line(s) more, 4 fewer
+       more  -source = ["src/tui/full_transcript.rs:3064", "docs/parity.md:238"]  [theirs :491]
+       more  -source = ["src/tui/full_transcript.rs:3115", "docs/parity.md:237"]  [theirs :519]
+       more  -source = ["src/tui/full_transcript.rs:3115", "src/tui/shell.rs:13966", "docs/parity.md:237"]  [theirs :505]
+       more  -xfx = ["src/tui/full_transcript.rs:3064", "src/tui/approval_view.rs:1224"]  [theirs :1013]
+       fewer -source = ["src/tui/full_transcript.rs:3010", "docs/parity.md:238"]  [base :491; in [[divergence]] / id = "ctrl-o-drawn-wider-named"]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "docs/parity.md:237"]  [base :519; in [[divergence]] / id = "answer-label-and-modifier-named"]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13966", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -xfx = ["src/tui/full_transcript.rs:3010", "src/tui/approval_view.rs:1224"]  [base :1012; in [[cause]] / id = "answer-modifier-sequence-wider"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  src/trace.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/full_transcript.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 5; one side only: 3270 (ours 3153, theirs 117); disagreeing: 2; disagreeing with numbers masked: 1
+# exit 0
+## 88e83a68: base a37a969e, ours b10ca771, theirs 7c9dfb2e
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 2 line(s) more, 2 fewer
+       more  +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [merged :237; in (top)]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 2 line(s) more, 2 fewer
+       more  +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [merged :237; in (top)]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 24 fewer
+       fewer +source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13684", "docs/parity.md:237"]  [theirs :505]
+       fewer +why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :883]
+       fewer +why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a mu  [theirs :551]
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41359"]  [theirs :835,847,858,869]
+       fewer +xfx = ["src/tui/shell.rs:10435"]  [theirs :881]
+       fewer +xfx = ["src/tui/shell.rs:16640"]  [theirs :698,1020]
+       fewer +xfx = ["src/tui/shell.rs:41359", "src/tui/approval_view.rs:685"]  [theirs :950]
+       fewer +xfx = ["src/tui/shell.rs:41359"]  [theirs :824]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13578", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :874; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a mu  [base :551; in [[cause]] / id = "submit-multi-card-whole"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:39893"]  [base :826,838,849,860; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10339"]  [base :872; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16534"]  [base :689,998; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:39893", "src/tui/approval_view.rs:685"]  [base :928; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:39893"]  [base :815; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 12 line(s) more, 12 fewer
+       more  -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13684", "docs/parity.md:237"]  [theirs :505]
+       more  -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :883]
+       more  -why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a mu  [theirs :551]
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:41359"]  [theirs :835,847,858,869]
+       more  -xfx = ["src/tui/shell.rs:10435"]  [theirs :881]
+       more  -xfx = ["src/tui/shell.rs:16640"]  [theirs :698,1020]
+       more  -xfx = ["src/tui/shell.rs:41359", "src/tui/approval_view.rs:685"]  [theirs :950]
+       more  -xfx = ["src/tui/shell.rs:41359"]  [theirs :824]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13578", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :874; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "Awaiting the user, to be asked at the epic-4 (Transcript) preview: copy fx's one-frame last-line preview of a mu  [base :551; in [[cause]] / id = "submit-multi-card-whole"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:39893"]  [base :826,838,849,860; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10339"]  [base :872; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16534"]  [base :689,998; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:39893", "src/tui/approval_view.rs:685"]  [base :928; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:39893"]  [base :815; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  src/tui/approval.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/approval_screen.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/event_loop.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/input.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/tui/shell.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 4 line(s) more, 1 fewer
+       more  +                self.offer_to_rule_confirm(event, now);  [merged :12920; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       more  +            // `app_input_runtime.zig:2259-2263@481104fd`).  [merged :12927; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       more  -            // `app_input_runtime.zig:2259-2263@481104fd`; a rule change is  [ours :12823]
+       more  -            // fx's approval, `input_approval_runtime.zig:128`).  [ours :12824]
+       fewer +                self.offer_to_rule_confirm(spelled, now);  [theirs :12197]
+     theirs->merged minus base->ours: 3 line(s) more, 2 fewer
+       more  +                self.offer_to_rule_confirm(event, now);  [merged :12920; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       more  +            // `app_input_runtime.zig:2259-2263@481104fd`).  [merged :12927; in fn consume_inputs(&mut self, events: Vec<Input>, now: Instant) {]
+       more  -                self.offer_to_rule_confirm(spelled, now);  [theirs :12197]
+       fewer +            // `app_input_runtime.zig:2259-2263@481104fd`; a rule change is  [ours :12823]
+       fewer +            // fx's approval, `input_approval_runtime.zig:128`).  [ours :12824]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  tests/tui.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 1 line(s) more, 1 fewer
+       more  -    // `Reason::ExternalDamage` (`src/tui/shell.rs:10127`) and answers nothing,  [ours :9488]
+       fewer -    // `Reason::ExternalDamage` (`src/tui/shell.rs:2024`) and answers nothing,  [base :9245; in fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_agai]
+     theirs->merged minus base->ours: 0 line(s) more, 2 fewer
+       fewer +    // `Reason::ExternalDamage` (`src/tui/shell.rs:10127`) and answers nothing,  [ours :9488]
+       fewer -    // `Reason::ExternalDamage` (`src/tui/shell.rs:2024`) and answers nothing,  [base :9245; in fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_agai]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+files both sides changed: 8; one side only: 6436 (ours 6016, theirs 420); disagreeing: 4; disagreeing with numbers masked: 2
+# exit 0
+## 07eefa89: base afd891af, ours 88e83a68, theirs b5cb6f46
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 6 line(s) more, 6 fewer
+       more  +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [merged :99; in (top)]
+       more  +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [merged :162; in (top)]
+       more  +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [merged :237; in (top)]
+       more  -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [ours :99]
+       more  -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [ours :162]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [theirs :99]
+       fewer +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [theirs :162]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [base :99; in (top)]
+       fewer -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [base :162; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 6 line(s) more, 6 fewer
+       more  +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [merged :99; in (top)]
+       more  +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [merged :162; in (top)]
+       more  +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [merged :237; in (top)]
+       more  -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [theirs :99]
+       more  -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [theirs :162]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [ours :99]
+       fewer +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [ours :162]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [base :99; in (top)]
+       fewer -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [base :162; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 26 fewer
+       fewer +source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13974", "docs/parity.md:237"]  [theirs :505]
+       fewer +why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :865]
+       fewer +why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [theirs :1066]
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42938"]  [theirs :817,829,840,851]
+       fewer +xfx = ["src/tui/shell.rs:10562"]  [theirs :863]
+       fewer +xfx = ["src/tui/shell.rs:16989"]  [theirs :689,989]
+       fewer +xfx = ["src/tui/shell.rs:1858"]  [theirs :955]
+       fewer +xfx = ["src/tui/shell.rs:42938", "src/tui/approval_view.rs:685"]  [theirs :919]
+       fewer +xfx = ["src/tui/shell.rs:42938"]  [theirs :806]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13962", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :865; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [base :1066; in [[cause]] / id = "activity-tokens-before-request"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42431"]  [base :817,829,840,851; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10558"]  [base :863; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16977"]  [base :689,989; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:1854"]  [base :955; in [[cause]] / id = "stats-bytes"]
+       fewer -xfx = ["src/tui/shell.rs:42431", "src/tui/approval_view.rs:685"]  [base :919; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:42431"]  [base :806; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 13 line(s) more, 13 fewer
+       more  -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13974", "docs/parity.md:237"]  [theirs :505]
+       more  -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :865]
+       more  -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [theirs :1066]
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42938"]  [theirs :817,829,840,851]
+       more  -xfx = ["src/tui/shell.rs:10562"]  [theirs :863]
+       more  -xfx = ["src/tui/shell.rs:16989"]  [theirs :689,989]
+       more  -xfx = ["src/tui/shell.rs:1858"]  [theirs :955]
+       more  -xfx = ["src/tui/shell.rs:42938", "src/tui/approval_view.rs:685"]  [theirs :919]
+       more  -xfx = ["src/tui/shell.rs:42938"]  [theirs :806]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13962", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :865; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [base :1066; in [[cause]] / id = "activity-tokens-before-request"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42431"]  [base :817,829,840,851; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10558"]  [base :863; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16977"]  [base :689,989; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:1854"]  [base :955; in [[cause]] / id = "stats-bytes"]
+       fewer -xfx = ["src/tui/shell.rs:42431", "src/tui/approval_view.rs:685"]  [base :919; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:42431"]  [base :806; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+BAD  both  src/tui/input.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 4 line(s) more, 9 fewer
+       more  +    /// QUESTION-CTRL-J).  [merged :415; in (top)]
+       more  +    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J) and at a model  [merged :413; in (top)]
+       more  +    /// question (`questionActionFromByte`, `src/ui/input/runtime.zig:141@481104fd`;  [merged :414; in (top)]
+       more  -    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J).  [ours :413]
+       fewer +    /// (`routePickerControlByte`, `app_input_runtime.zig:1093-1108@481104fd`), and  [ours :411; theirs :350; merged :411; in (top)]
+       fewer +    /// **byte**: Alt-Enter and Shift-Enter are newlines everywhere, and only  [ours :417; theirs :356; merged :419; in (top)]
+       fewer +    /// Enter at a model question (`questionActionFromByte`,  [theirs :351]
+       fewer +    /// `src/ui/input/runtime.zig:141@481104fd`; QUESTION-CTRL-J).  [theirs :352]
+       fewer +    /// the key that is `0x0a` walks a menu or answers a question.  [ours :418; theirs :357; merged :420; in (top)]
+       fewer +    /// upstream binds the menu move and the question's answer to the  [ours :416; theirs :355; merged :418; in (top)]
+       fewer -    /// (`app_input_runtime.zig:1220-1235`, `routePickerControlByte`).  [base :350; in (top)]
+       fewer -    /// are newlines everywhere, and only the key that is `0x0a` walks a menu.  [base :354; in (top)]
+       fewer -    /// upstream binds the menu move to the **byte**: Alt-Enter and Shift-Enter  [base :353; in (top)]
+     theirs->merged minus base->ours: 5 line(s) more, 8 fewer
+       more  +    /// QUESTION-CTRL-J).  [merged :415; in (top)]
+       more  +    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J) and at a model  [merged :413; in (top)]
+       more  +    /// question (`questionActionFromByte`, `src/ui/input/runtime.zig:141@481104fd`;  [merged :414; in (top)]
+       more  -    /// Enter at a model question (`questionActionFromByte`,  [theirs :351]
+       more  -    /// `src/ui/input/runtime.zig:141@481104fd`; QUESTION-CTRL-J).  [theirs :352]
+       fewer +    /// (`routePickerControlByte`, `app_input_runtime.zig:1093-1108@481104fd`), and  [ours :411; theirs :350; merged :411; in (top)]
+       fewer +    /// **byte**: Alt-Enter and Shift-Enter are newlines everywhere, and only  [ours :417; theirs :356; merged :419; in (top)]
+       fewer +    /// `src/ui/input/runtime.zig:64@481104fd`; APPROVAL-CTRL-J).  [ours :413]
+       fewer +    /// the key that is `0x0a` walks a menu or answers a question.  [ours :418; theirs :357; merged :420; in (top)]
+       fewer +    /// upstream binds the menu move and the question's answer to the  [ours :416; theirs :355; merged :418; in (top)]
+       fewer -    /// (`app_input_runtime.zig:1220-1235`, `routePickerControlByte`).  [base :350; in (top)]
+       fewer -    /// are newlines everywhere, and only the key that is `0x0a` walks a menu.  [base :354; in (top)]
+       fewer -    /// upstream binds the menu move to the **byte**: Alt-Enter and Shift-Enter  [base :353; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  src/tui/question.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 5; one side only: 4275 (ours 4165, theirs 110); disagreeing: 3; disagreeing with numbers masked: 2
+# exit 0
+## a14df710: base 753b0a72, ours bc9ea199, theirs e2fc7e94
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 4 line(s) more, 4 fewer
+       more  +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [merged :99; in (top)]
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [ours :99]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [theirs :99]
+       fewer +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [theirs :237]
+       fewer -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [base :99; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 4 line(s) more, 4 fewer
+       more  +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [merged :99; in (top)]
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [theirs :99]
+       more  -| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [theirs :237]
+       fewer +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [ours :99]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [ours :237]
+       fewer -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [base :99; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 2; one side only: 1965 (ours 1882, theirs 83); disagreeing: 1; disagreeing with numbers masked: 1
+# exit 0

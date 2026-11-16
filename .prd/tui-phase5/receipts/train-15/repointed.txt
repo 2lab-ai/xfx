@@ -1,0 +1,49 @@
+# the first plan at da8e4c1a, where its numbers stand
+ok  auto  scripts/fxcap/capfile.py:180 src/tui/shell.rs:15591-15616 -> src/tui/shell.rs:15767-15792: the frame's lines and two either side at :15767-15792
+ok  auto  scripts/fxcap/parity-ledger.toml:492 src/tui/full_transcript.rs:3020 -> src/tui/full_transcript.rs:3074: the frame's lines and two either side at :3074
+ok  auto  scripts/fxcap/parity-ledger.toml:506 src/tui/full_transcript.rs:3071 -> src/tui/full_transcript.rs:3125: the frame's lines and two either side at :3125
+ok  auto  scripts/fxcap/parity-ledger.toml:506 src/tui/shell.rs:14355 -> src/tui/shell.rs:14529: the frame's lines and two either side at :14529
+ok  auto  scripts/fxcap/parity-ledger.toml:520 src/tui/full_transcript.rs:3071 -> src/tui/full_transcript.rs:3125: the frame's lines and two either side at :3125
+ok  auto  scripts/fxcap/parity-ledger.toml:552 src/tui/shell.rs:3823-3840 -> src/tui/shell.rs:3828-3845: the frame's lines and two either side at :3828-3845
+ok  auto  scripts/fxcap/parity-ledger.toml:553 src/tui/shell.rs:3823-3840 -> src/tui/shell.rs:3828-3845: the frame's lines and two either side at :3828-3845
+ok  auto  scripts/fxcap/parity-ledger.toml:694 src/tui/shell.rs:17389 -> src/tui/shell.rs:17565: the frame's lines and two either side at :17565
+ok  auto  scripts/fxcap/parity-ledger.toml:811 src/tui/shell.rs:46711 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:823 src/tui/shell.rs:42649 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:834 src/tui/shell.rs:46711 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:846 src/tui/shell.rs:46711 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:857 src/tui/shell.rs:46711 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:868 src/tui/shell.rs:46711 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:880 src/tui/shell.rs:10947 -> src/tui/shell.rs:11069: the frame's lines and two either side at :11069
+ok  auto  scripts/fxcap/parity-ledger.toml:882 src/tui/shell.rs:10947 -> src/tui/shell.rs:11069: the frame's lines and two either side at :11069
+ok  auto  scripts/fxcap/parity-ledger.toml:882 :1932 -> :1937: the frame's lines and two either side at :1937
+ok  auto  scripts/fxcap/parity-ledger.toml:893 src/tui/shell.rs:1840 -> src/tui/shell.rs:1937: the frame's lines and two either side at :1937
+ok  auto  scripts/fxcap/parity-ledger.toml:895 src/tui/shell.rs:1840 -> src/tui/shell.rs:1937: the frame's lines and two either side at :1937
+ok  auto  scripts/fxcap/parity-ledger.toml:949 src/tui/shell.rs:46711 -> src/tui/shell.rs:49793: the frame's lines and two either side at :49793
+ok  auto  scripts/fxcap/parity-ledger.toml:985 src/tui/shell.rs:1857 -> src/tui/shell.rs:1862: the frame's lines and two either side at :1862
+ok  auto  scripts/fxcap/parity-ledger.toml:1019 src/tui/shell.rs:17389 -> src/tui/shell.rs:17565: the frame's lines and two either side at :17565
+ok  auto  scripts/fxcap/parity-ledger.toml:1031 src/tui/full_transcript.rs:3020 -> src/tui/full_transcript.rs:3074: the frame's lines and two either side at :3074
+ok  auto  scripts/fxcap/parity-ledger.toml:1137 src/tui/shell.rs:4560 -> src/tui/shell.rs:4565: the frame's lines and two either side at :4565
+ok  auto  scripts/fxcap/scenarios/p5-panels-badsettings.cap:7 src/tui/shell.rs:3823-3840 -> src/tui/shell.rs:3828-3845: the frame's lines and two either side at :3828-3845
+ok  auto  scripts/smoke-tui.sh:11208 editor.rs:540 -> editor.rs:552: the frame's lines and two either side at :552
+ok  auto  scripts/smoke-tui.sh:11212 shell.rs:13043 -> shell.rs:13184: the frame's lines and two either side at :13184
+ok  auto  scripts/smoke-tui.sh:11213 input.rs:1347 -> input.rs:1431: the frame's lines and two either side at :1431
+ok  left  src/tools/question.rs:303 Cargo.toml:42: as it was
+ok  auto  src/tui/edit_history.rs:108 editor.rs:570-572 -> editor.rs:586-588: the frame's lines and two either side at :586-588
+ok  auto  src/tui/event_loop.rs:15010 shell.rs:2821 -> shell.rs:2826: the frame's lines and two either side at :2826
+ok  auto  src/tui/shell.rs:27636 shell.rs:6178 -> shell.rs:6212: the frame's lines and two either side at :6212
+ok  left  tests/session_compat.rs:57 src/session/event.rs:98-192: as it was
+ok  auto  tests/tui.rs:9448 src/tui/shell.rs:17353 -> src/tui/shell.rs:17529: the frame's lines and two either side at :17529
+# 34 plan lines checked at da8e4c1a: 34 ok, 0 bad
+# da8e4c1a: 32 lines out, 32 in; the same once numbers are masked and the 0 text spans put back: True
+# exit 0
+# da8e4c1a: 32 lines out, 32 in; the same once numbers are masked: True
+# the second plan at 2c575f52
+ok  auto  scripts/fxcap/parity-ledger.toml:268 UPSTREAM.md:95-98 -> UPSTREAM.md:88-91: the frame's lines and two either side at :88-91
+ok  auto  scripts/fxcap/parity-ledger.toml:281 UPSTREAM.md:99-101 -> UPSTREAM.md:92-94: the frame's lines and two either side at :92-94
+ok  auto  scripts/fxcap/parity-ledger.toml:295 UPSTREAM.md:90-94 -> UPSTREAM.md:83-87: the frame's lines and two either side at :83-87
+ok  left  src/tools/question.rs:303 Cargo.toml:42: as it was
+ok  left  tests/session_compat.rs:57 src/session/event.rs:98-192: as it was
+# 5 plan lines checked at 2c575f52: 5 ok, 0 bad
+# 2c575f52: 3 lines out, 3 in; the same once numbers are masked and the 0 text spans put back: True
+# exit 0
+# 2c575f52: 3 lines out, 3 in; the same once numbers are masked: True

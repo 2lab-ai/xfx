@@ -1,0 +1,267 @@
+# functions.py: each function's sha256 (12 hex digits, and its length in lines) per commit; then the lines that differ between the named pairs
+| function | base-a `a37a969e` | base-d `afd891af` | decoder `df45025c` | approval `7c9dfb2e` | question-ctrl-j `b5cb6f46` | main `753b0a72` | m1 `2ff302c5` | m2 `ed92e515` | m3 `b10ca771` | m4 `88e83a68` | m5 `07eefa89` | join `0341dd2b` | main-now `e2fc7e94` | head `2c575f52` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `src/tui/shell.rs` `consume_inputs` | 711026e4ee5a (196) | 711026e4ee5a (196) | 0c88c6343b20 (204) | e7b7f4cf4ebe (198) | 479047967dc2 (204) | c2b2a866d1b4 (174) | c2b2a866d1b4 (174) | bb0dff21ac48 (182) | bb0dff21ac48 (182) | 825cc20db0b4 (183) | 011558b1a793 (191) | 3044936af4d2 (193) | c2b2a866d1b4 (174) | 3044936af4d2 (193) |
+| `src/tui/shell.rs` `decide` | 5fedc5badb25 (312) | 5fedc5badb25 (312) | 303f0e0defa7 (317) | 25c7b22d9405 (213) | 5fedc5badb25 (312) | 5fedc5badb25 (312) | 5fedc5badb25 (312) | 303f0e0defa7 (317) | 303f0e0defa7 (317) | 25c7b22d9405 (213) | 25c7b22d9405 (213) | 25c7b22d9405 (213) | 5fedc5badb25 (312) | 25c7b22d9405 (213) |
+| `src/tui/shell.rs` `approval_action` | absent | absent | absent | 518b7263f640 (139) | absent | absent | absent | absent | absent | 5e35ce3fa588 (144) | 5e35ce3fa588 (144) | 5e35ce3fa588 (144) | absent | 5e35ce3fa588 (144) |
+| `src/tui/shell.rs` `offer_to_rule_confirm` | 2ddc6b32ee18 (52) | 2ddc6b32ee18 (52) | 2ddc6b32ee18 (52) | b27b0d9042a2 (56) | 2ddc6b32ee18 (52) | 2ddc6b32ee18 (52) | 2ddc6b32ee18 (52) | 2ddc6b32ee18 (52) | 2ddc6b32ee18 (52) | b27b0d9042a2 (56) | b27b0d9042a2 (56) | b27b0d9042a2 (56) | 2ddc6b32ee18 (52) | b27b0d9042a2 (56) |
+| `src/tui/shell.rs` `offer_to_pickers` | absent | absent | absent | absent | absent | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) | 143cdcb42274 (14) |
+| `src/tui/shell.rs` `offer_to_mcp` | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) | b1f9f278947a (63) |
+| `src/tui/shell.rs` `folded` | f92cf81c6463 (8) | f92cf81c6463 (8) | 62f83981fd0b (13) | f92cf81c6463 (8) | f92cf81c6463 (8) | f92cf81c6463 (8) | f92cf81c6463 (8) | 62f83981fd0b (13) | 62f83981fd0b (13) | 62f83981fd0b (13) | 62f83981fd0b (13) | 62f83981fd0b (13) | f92cf81c6463 (8) | 62f83981fd0b (13) |
+| `src/tui/shell.rs` `arrow_to_pickers` | absent | absent | 68f83833017b (7) | absent | absent | absent | absent | 68f83833017b (7) | 68f83833017b (7) | 68f83833017b (7) | 68f83833017b (7) | 68f83833017b (7) | absent | 68f83833017b (7) |
+| `src/tui/approval.rs` `edits` | 330f506fcc46 (25) | 330f506fcc46 (25) | 330f506fcc46 (25) | 4780c6a1dc2a (22) | 330f506fcc46 (25) | 330f506fcc46 (25) | 330f506fcc46 (25) | 330f506fcc46 (25) | 330f506fcc46 (25) | 4780c6a1dc2a (22) | 4780c6a1dc2a (22) | 4780c6a1dc2a (22) | 330f506fcc46 (25) | 4780c6a1dc2a (22) |
+| `src/tui/question.rs` `of` | c9af2dcb27d8 (32) | c9af2dcb27d8 (32) | 33805810b264 (51) | c9af2dcb27d8 (32) | 98e7736231e6 (40) | c9af2dcb27d8 (32) | c9af2dcb27d8 (32) | 33805810b264 (51) | 33805810b264 (51) | 33805810b264 (51) | f8450db68b64 (59) | f8450db68b64 (59) | c9af2dcb27d8 (32) | f8450db68b64 (59) |
+| `src/tui/input.rs` `tilde_key` | absent | absent | 7204501c8636 (19) | absent | absent | absent | absent | 7204501c8636 (19) | 7204501c8636 (19) | 7204501c8636 (19) | 7204501c8636 (19) | 7204501c8636 (19) | absent | 7204501c8636 (19) |
+
+## `consume_inputs`, m3 -> m4
+    +            // A rule change waiting to be confirmed is asked in upstream's
+    +            // approval prompt, so it reads the event the approval reads and
+    +            // swallows what the approval does not bind
+    +            // ([`Self::offer_to_rule_confirm`]).
+    +            if self.rule_confirm.is_some() {
+    +                self.offer_to_rule_confirm(event, now);
+    +                continue;
+    +            }
+    -            // `app_input_runtime.zig:2259-2263@481104fd`; a rule change is
+    -            // fx's approval, `input_approval_runtime.zig:128`).
+    +            // `app_input_runtime.zig:2259-2263@481104fd`).
+    -            // A rule change waiting to be confirmed has the focus the same
+    -            // way, and swallows what it does not bind.
+    -            if self.rule_confirm.is_some() {
+    -                self.offer_to_rule_confirm(event);
+    -                continue;
+    -            }
+
+## `decide`, m3 -> m4
+    -                screen.scroll_by(delta, cols, rows);
+    +                if screen.scroll_by(delta, cols, rows) {
+    +                    self.approval_changed();
+    +                }
+    -        let action = match event {
+    -            Input::Text(character) => approval::Action::Text(character),
+    -            // **The plain arrows move the choice, whether or not a draft is
+    -            // open** (`routeApprovalEscapeAction`,
+    -            // `input_approval_runtime.zig:111-126@481104fd`: the arrow's
+    -            // composer move, `visual_up`, is no draft key,
+    -            // `src/ui/input/runtime.zig:75-96`, so `.cursor_up` reaches the
+    -            // switch). Every other spelling of Up and Down is below.
+    -            Input::Action(Action::Up) => approval::Action::Up,
+    -            Input::Action(Action::Down) => approval::Action::Down,
+    -            // **Left and Alt-b mark the previous choice and Right and Alt-f the
+    -            // next, while no draft is open** -- fx's `.cursor_left`/`.word_left`
+    -            // and `.cursor_right`/`.word_right` (`routeApprovalEscapeAction`,
+    -            // `input_approval_runtime.zig:90-110@481104fd`): `move_choice`, the
+    -            // move Up and Down make, wrapping at both ends (`moveChoice`,
+    -            // `approval_decision.zig:214-225`). In a draft they are its caret's
+    -            // (below). Every other spelling of the four leaves the choice where
+    -            // it is: Ctrl-, Alt-, Shift- and Super-Left and -Right and
+    -            // Shift-Alt-b and -f are a composer move, which reaches fx's
+    -            // `else => {}` (`:128`); Ctrl-B and Ctrl-F never reach it -- they
+    -            // take fx's raw-byte route as `.edit_draft`, which `apply` answers
+    -            // with `.none` while no amendment is open
+    -            // (`src/ui/input/runtime.zig:103-108`,
+    -            // `approval_decision.zig:170-174`). The decoder keeps them apart
+    -            // ([`Action::ComposerLeft`], [`Action::WordLeft`],
+    -            // [`Action::LineStart`]), and they reach the swallow.
+    -            Input::Action(Action::Left | Action::AltB) if !drafting => approval::Action::Up,
+    -            Input::Action(Action::Right | Action::AltF) if !drafting => approval::Action::Down,
+    -            // **Super-Up and Super-Down, and Ctrl- and Super-Home and -End,
+    -            // take a draft's caret to its start and its end** -- fx's
+    -            // `draft_start` and `draft_end` (`modifiedArrowAction`,
+    -            // `escape_parser.zig:74-80`, `:95-96@481104fd`), which its
+    -            // amendment reads as `.cursor_home` and `.cursor_end`
+    -            // (`approvalDraftActionFromShortcut`, `src/ui/input/runtime.zig:82-83`;
+    -            // `cursorHome`/`cursorEnd`, `approval_amendment.zig:84-92`: the
+    -            // whole draft's edges, not the line's). Ahead of the draft's arm
+    -            // below, whose keys (`approval::edits`) name neither. With no
+    -            // draft open they are the swallow's.
+    -            Input::Action(edge @ (Action::DraftStart { .. } | Action::DraftEnd { .. }))
+    -                if drafting =>
+    -            {
+    -                approval::Action::Edit(edge)
+    -            }
+    -            // **Every other spelling of Up and Down moves nothing, with or
+    -            // without a draft open.** Shift-, Ctrl- and Alt-Up and -Down (and
+    -            // Super's with no draft) are composer moves, which reach fx's
+    -            // `else => {}` (`input_approval_runtime.zig:128`; `visual_up`,
+    -            // `paragraph_up` and their Down are no draft key,
+    -            // `src/ui/input/runtime.zig:86`). `C-p` is fx's decoded
+    -            // `.open_model_catalog` (`controlByteFeatureAction`,
+    -            // `escape_parser.zig:268-274`; `terminal_action_decoder.zig:118-122`),
+    -            // which carries no composer move (`shortcuts.zig:63`) and reaches
+    -            // the same `else`. `C-n` is a raw byte (`appendRaw`), no draft key
+    -            // (`fromFocusedEditorControlByte`, `shortcuts.zig:31-41`) and no
+    -            // approval byte (`approvalActionFromByte`,
+    -            // `src/ui/input/runtime.zig:61-73`, `:103-108`), so the question
+    -            // takes it and does nothing (`app_input_runtime.zig:1173-1184`).
+    -            // Swallowed here, before the panel is asked, so the choice, the
+    -            // draft, the frame and the readiness receipt are all exactly as
+    -            // they were: a key that does nothing cannot leave a choice marked
+    -            // that no frame has shown.
+    -            //
+    -            // **`C-p` and `C-n` on the review plane are this surface's own**:
+    -            // they walk the change (above), the only keys that do -- a bounded
+    -            // diff is up to 128 KiB (`crate::permission::ApprovalDiff`) and a
+    -            // screen is a few dozen rows. Upstream's plane scrolls by the
+    -            // wheel (`handleApprovalWheel`), which xfx does not enable; a
+    -            // retention, recorded in `docs/parity.md`.
+    -            Input::Action(
+    -                Action::SelectUp
+    -                | Action::SelectDown
+    -                | Action::ComposerUp
+    -                | Action::ComposerDown
+    -                | Action::ParagraphUp
+    -                | Action::ParagraphDown
+    -                | Action::DraftStart { .. }
+    -                | Action::DraftEnd { .. }
+    -                | Action::ControlP
+    -                | Action::HistoryNext,
+    -            ) => return,
+    -            Input::Action(Action::Tab) => approval::Action::Tab,
+    -            Input::Action(Action::Submit) => approval::Action::Submit,
+    -            Input::Action(Action::Escape) => approval::Action::Escape,
+    -            Input::Action(Action::Cancel) => approval::Action::Cancel,
+    -            // The whole band is repainted every frame, so a redraw is a frame
+    -            // here as much as anywhere else.
+    -            Input::Action(Action::Redraw) => {
+    -                self.external_damage();
+    -                return;
+    -            }
+    -            // The draft's own keys, and **only while a draft has them**: with
+    -            // no amendment open these stay what they have always been at a
+    -            // question, which is swallowed. `Up` and `Down` are deliberately
+    -            // not in the subset ([`approval::edits`]) -- they move the choice
+    -            // and end editing, and routing them into the editor would take away
+    -            // the only way out of a draft.
+    -            //
+    -            // Each spelling as the plain key it folds to ([`folded`]): in an
+    -            // amendment fx takes Alt-b and Alt-f as the word moves,
+    -            // Shift-Left and -Right and Ctrl-B and Ctrl-F as the caret's step,
+    -            // and Super-Left and -Right and Shift-Home and -End as Home and
+    -            // End (`line_start`/`line_end` and `.home` are one
+    -            // `.cursor_home` there, `approvalDraftActionFromShortcut`,
+    -            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
+    -            // edge here, the whole draft's in fx, whose draft holds no line
+    -            // break (`super::approval_amendment`).
+    -            Input::Action(editing) if drafting => match folded(Input::Action(editing)) {
+    -                Input::Action(key) if approval::edits(key) => approval::Action::Edit(key),
+    -                _ => return,
+    -            },
+    -            // Content, to the **draft's** assembler and never the composer's:
+    -            // a modal surface that leaked paste bytes into the composer would
+    -            // leave text behind the panel that the user never sees and cannot
+    -            // delete. With no draft open they fall through to the swallow
+    -            // below, exactly as they did before amendments existed.
+    -            Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
+    -            Input::Action(_) | Input::PasteByte(_) => return,
+    -            // Answered before the focus is consulted ([`Self::consume`]), for
+    -            // the reason the same arm in [`Self::answer`] gives.
+    -            Input::Report(_) => return,
+    +        let Some(action) = Self::approval_action(event, drafting) else {
+    +            return;
+    -                // The marker or a draft moved, which is a frame and nothing
+    -                // else: the panel is the same height, so the band's geometry
+    -                // and the receipt about it both still hold.
+    +                // The marker or a draft moved: the panel is the same height,
+    +                // so the band's geometry and the receipt about it both still
+    +                // hold, but no affirmative is taken until a frame shows the
+    +                // move ([`Self::approval_changed`]).
+    +                self.approval_changed();
+    +            // **A change the frame has not shown yet** -- a move, a draft edit
+    +            // read with this key: spent, and nothing said, as fx says nothing
+    +            // (its refusal is a trace line, `input_approval_runtime.zig:207-217
+    +            // @481104fd`). The question is on the screen, so "not on the screen
+    +            // yet" would be false; the frame asked for here shows what the next
+    +            // Enter answers.
+    +            if self.asked_id.is_some_and(|id| self.approval_unshown(id)) {
+    +                self.render.request(Reason::Modal);
+    +                return;
+    +            }
+
+## `offer_to_rule_confirm`, m3 -> m4
+    -    fn offer_to_rule_confirm(&mut self, event: Input) {
+    -        use super::rule_confirm::{Key, Reply};
+    -        let key = match event {
+    -            Input::Text(character) => Key::Digit(character),
+    -            Input::Action(Action::Up | Action::ControlP) => Key::Up,
+    -            Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
+    -            Input::Action(Action::Submit) => Key::Enter,
+    -            Input::Action(Action::Escape) => Key::Escape,
+    -            Input::Action(Action::Redraw) => {
+    -                self.external_damage();
+    -                return;
+    -            }
+    -            _ => return,
+    +    fn offer_to_rule_confirm(&mut self, event: Input, now: Instant) {
+    +        use super::rule_confirm::Reply;
+    +        let Some(action) = Self::approval_action(event, false) else {
+    +            return;
+    -        match confirm.apply(key) {
+    +        match confirm.apply(action) {
+    -            Reply::Dismiss => self.close_rule_confirm(),
+    +            Reply::Dismiss => {
+    +                self.close_rule_confirm();
+    +                if self.activity.working() || self.compacting() {
+    +                    if self.stop_owed() {
+    +                        // `true`: this key writes no `▪ Cancelled` row of
+    +                        // its own and settles no group here; a running
+    +                        // command's report says it was cancelled, as fx's
+    +                        // does (`cancelApprovalOperation` presents no tool
+    +                        // cancellation, `input_approval_runtime.zig:401-436`).
+    +                        self.cancel_turn_with(true);
+    +                    }
+    +                    self.settle_band(now);
+    +                }
+    +            }
+
+## `edits`, m3 -> m4
+    -            | Key::Undo
+    -            | Key::Redo
+    -            | Key::Yank
+
+## `consume_inputs`, m4 -> m5
+    -            // painted again, is a double tap, not an answer.
+    -            let held = matches!(event, Input::Action(Action::Submit))
+    -                && self.mcp_menu.is_some()
+    -                && self.mcp_enter.enter(now);
+    +            // painted again, is a double tap, not an answer. So is a C-j the
+    +            // model's panel takes, which answers it as Enter does
+    +            // (QUESTION-CTRL-J): the window is how soon after the last
+    +            // answering key a person can have read the question painted
+    +            // again, whichever key that was. A C-j the menu takes is its Down,
+    +            // no answer, and counts for nothing.
+    +            let answers = match event {
+    +                Input::Action(Action::Submit) => true,
+    +                Input::Action(Action::ControlJ) => self.ask.is_some(),
+    +                _ => false,
+    +            };
+    +            let held = answers && self.mcp_menu.is_some() && self.mcp_enter.enter(now);
+
+## `of`, m4 -> m5
+    -            Action::Submit => Some(Self::Submit),
+    +            // Enter, and `C-j`: upstream maps both bytes to a question's
+    +            // `.submit` (`questionActionFromByte`,
+    +            // `src/ui/input/runtime.zig:141@481104fd`), at a choice and in the
+    +            // field alike -- the field's own route keeps no newline
+    +            // (`:199-209`; `shortcuts.zig:26`, `:31-41`) -- so C-j is Enter
+    +            // wherever a question has the keys (QUESTION-CTRL-J). The
+    +            // composer's newline habit comes with it, as in fx: a C-j typed
+    +            // for a new line once a question is up answers it.
+    +            Action::Submit | Action::ControlJ => Some(Self::Submit),
+
+## `consume_inputs`, m5 -> join
+    -            // model's panel takes, which answers it as Enter does
+    -            // (QUESTION-CTRL-J): the window is how soon after the last
+    -            // answering key a person can have read the question painted
+    -            // again, whichever key that was. A C-j the menu takes is its Down,
+    -            // no answer, and counts for nothing.
+    +            // model's panel or a permission question takes, which answers
+    +            // either as Enter does (QUESTION-CTRL-J, APPROVAL-CTRL-J): the
+    +            // window is how soon after the last answering key a person can
+    +            // have read the question painted again, whichever key that was --
+    +            // and a C-j the approval's readiness check holds back counts too,
+    +            // as a swallowed Enter does. A C-j the menu takes is its Down, no
+    +            // answer, and counts for nothing.
+    -                Input::Action(Action::ControlJ) => self.ask.is_some(),
+    +                Input::Action(Action::ControlJ) => self.ask.is_some() || self.asking(),
+# exit 0
