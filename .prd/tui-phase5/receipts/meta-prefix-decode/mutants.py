@@ -10,7 +10,9 @@ give it (M22); round 2: the prefixed C0 arm leaving the stage pending
 (M23, review S1), a leading zero refused in a cursor key's modifier
 (M24), the question's choice moving on a prefixed Down (M25); round 3:
 the pair's 30 ms stage deleted (round 2's flush), set to 50 ms, emitting
-two Escapes at 30 ms, or dropping the kept ESC (M26-M29); the prefix dropped at `[`, at `O`, in the cursor table, in
+two Escapes at 30 ms, or dropping the kept ESC (M26-M29); round 4: a
+third ESC keeping the pair's clock, the kept ESC's clock restarting at the
+pair's stage, the stage strict at 30 ms (M30-M32); the prefix dropped at `[`, at `O`, in the cursor table, in
 SS3, in the keypad and kitty arrows (M4-M9); the key report's prefixed
 branches undone one at a time, and the prefix read as Alt's bit there
 (M10-M15); the control replayed behind the prefix, and a report losing the
@@ -67,6 +69,8 @@ LONE = ("        if quiet >= Self::ESC_TIMEOUT {\n"
         "            self.stage = Stage::Ground;\n"
         "            out.push(Input::Action(Action::Escape));\n"
         "        }\n")
+KEEP = "            self.stage = Stage::Esc { at, meta: false };\n"
+PAIR_IF = "        if meta && quiet >= Self::PAIR_TIMEOUT {\n"
 PAIR_CONST = "    pub(crate) const PAIR_TIMEOUT: Duration = Duration::from_millis(30);\n"
 DIGITS = "    if digits.is_empty() || digits.len() > 3 || !digits.iter().all(u8::is_ascii_digit) {\n"
 MUTANTS = [
@@ -135,6 +139,12 @@ MUTANTS = [
      "            self.stage = Stage::Ground;\n"
      "            return;\n"
      "        }\n")]),
+    ("M30 a third ESC keeps the pair's clock (0x1b if meta => {})", [(I, SECOND,
+     "            0x1b if meta => {}\n" + SECOND)]),
+    ("M31 the kept ESC's clock restarts at the pair's stage (at: now)", [(I, KEEP,
+     "            self.stage = Stage::Esc { at: now, meta: false };\n")]),
+    ("M32 the pair's stage is strict at 30 ms (quiet > PAIR_TIMEOUT)", [(I, PAIR_IF,
+     "        if meta && quiet > Self::PAIR_TIMEOUT {\n")]),
 ]
 only = sys.argv[3:]
 if only:

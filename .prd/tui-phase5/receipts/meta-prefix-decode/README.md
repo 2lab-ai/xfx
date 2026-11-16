@@ -23,6 +23,8 @@ A person's two presses, and two `ESC` bytes in one burst, stay two Escapes.
 | `29175fa7` | round 3 RED (tests only): the pair's 30 ms stage |
 | `4788ff6d` | **round 3, the code head**: `Decoder::PAIR_TIMEOUT` and `flush`'s pair branch |
 | `0f345c76` | round 3: `docs/parity.md` row 237 |
+| `e869c826` | round 3's receipt |
+| `b34fac46` | round 4 (tests and comments only): the pair's clock and the kept `ESC`'s expiry pinned; citations; `fx_src.sh` |
 | the commits after | this folder; no `src/` change |
 
 **Corrected within the unit.** `c76e5a51`'s burst rows, and `d83ef4eb`'s
@@ -127,8 +129,10 @@ key decoder does (`terminalInputOwner`, `src/ui/input/runtime.zig:46-55`;
   prefixed lone `ESC` is still the bare stage (`isBareEscapeStage`,
   `escape_parser.zig:327-329`), and its flush emits exactly one `.escape`
   (`terminal_action_decoder.zig:174-183`). The flush runs once a loop turn,
-  before the read (`main.zig:2975-2982`; `event_loop.zig:79-92`), and the
-  poll waits 8 ms at most while work is active (`main.zig:174-176`). No
+  before the read, in the loop's `collect_facts` (`loopCollectFacts`,
+  `main.zig:2846`, `:2975-2982`; `app_render_runtime.zig:2055-2065`;
+  `event_loop.zig:79-92`), and the poll waits 8 ms, or 1 ms while focused
+  work is on (`main.zig:174-176`, `:187-207`, `:1115-1123`). No
   rule reads which read a byte came off: a read's bytes are fed one at a
   time (`event_loop.zig:94-107`).
 - So **an `ESC` at the end of a read is held 75 ms by the monitor, then 30
@@ -163,8 +167,9 @@ read from the source, now that `theme_protocol.zig` is in `fx-src.txt`
 **The timing, two stages in fx; the pair's copied, a lone `ESC`'s not.**
 fx's monitor holds a lone `ESC` 75 ms; its decoder resolves a stage 30 ms
 after the stage's last `ESC` (`main.zig:187`,
-`terminal_action_decoder.zig:135-139`), at a loop turn, which comes every 8
-ms or less while nothing else is slow (the poll, `main.zig:174`,
+`terminal_action_decoder.zig:135-139`), at the first loop turn whose clock
+read comes after that (`main.zig:2975`); the poll between turns waits 8
+ms, or 1 ms while focused work is on (`main.zig:174`, `:187-207`,
 `:1115-1123`). **Round 3 copies the pair's stage**: 30 ms after `ESC ESC`
 with nothing behind it (`Decoder::PAIR_TIMEOUT`), one Escape, and the pair
 is one lone `ESC` from then on, its clock still the second `ESC`'s, where
@@ -225,8 +230,10 @@ edges are pinned by `the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_
 - `after_escape`: an `ESC` sets `meta`, with no event and the clock
   started again. `[` and `O` carry it. A control byte behind it is one
   `Ignore`.
-- `flush`: a lone `ESC` is one Escape, and a quiet prefix two, as fx's
-  monitor and decoder together deliver them.
+- `flush`: a lone `ESC` is one Escape after `ESC_TIMEOUT` (50 ms); a quiet
+  prefix is two, as fx's monitor and decoder together deliver them, in two
+  steps -- one Escape after `PAIR_TIMEOUT` (30 ms, round 3), the pair then
+  one lone `ESC` on the same clock, and the other after `ESC_TIMEOUT`.
 - The cursor keys read the prefix as Alt's bit (`prefixed`), through
   `cursor`, in the CSI and SS3 forms and on the keypad's arrows. That
   transcription is exact: fx's `modifiedArrowAction(b, m, true)` equals
@@ -333,8 +340,8 @@ What fx shows:
     xfx's row has the blank. The marker blinks (`docs/parity.md`, "The
     marker blinks every 500 ms"), so the two snaps caught it in different
     phases [inferred from the one cell; `mid`'s pair is identical].
-- `green.txt`: the unit's 15 tests at `0f345c76` (round 3), on both
-  suites: 15 + 15 ok. Round 2 changed no code outside the tests
+- `green.txt`: the unit's 15 tests at `b34fac46` (round 4; round 3's
+  code), on both suites: 15 + 15 ok. Round 2 changed no code outside the tests
   (`src/tui/input.rs` above its `mod tests`, comment lines left out, was the
   same at `47fccd97` and `873328ab`, 979 lines each). Round 3 changed
   `flush` only; the scenarios never put a key 30 to 50 ms behind a pair
@@ -342,12 +349,13 @@ What fx shows:
 
 ## Mutants (`mutants.txt`, `mutants.py`)
 
-On a fresh `--no-local` clone at `0f345c76` (round 3; code head
+On a fresh `--no-local` clone at `b34fac46` (round 4; code head
 `4788ff6d`) under the suite lock, one mutant at a time, each running
-`cargo test --lib -- tui::`: **29 of 29 killed**, the clone clean after the
+`cargo test --lib -- tui::`: **32 of 32 killed**, the clone clean after the
 run. M1-M22 are round 1's (M22 rewritten for round 3's `flush`), M23-M25
-round 2's, M26-M29 round 3's. Round 1's run (22 of 22 at `47fccd97`) and
-round 2's (25 of 25 at `873328ab`) are superseded by this one.
+round 2's, M26-M29 round 3's, M30-M32 round 4's. The earlier runs (22 of 22
+at `47fccd97`, 25 of 25 at `873328ab`, 29 of 29 at `0f345c76`) are
+superseded by this one.
 
 | mutant | killed by |
 |---|---|
@@ -380,6 +388,9 @@ round 2's (25 of 25 at `873328ab`) are superseded by this one.
 | M27 the pair's stage set to 50 ms | the timing pins, the pair's stage test |
 | M28 the pair's stage emits two Escapes at 30 ms, nothing pending | the timing pins, the pair's stage test |
 | M29 the pair's stage drops the kept `ESC` (one Escape at 30 ms, nothing pending) | the timing pins, the pair's stage test, the burst test |
+| M30 a third `ESC` keeps the pair's clock (`0x1b if meta => {}`) | the pair's stage test (its third-`ESC` row) |
+| M31 the kept `ESC`'s clock restarts at the pair's stage (`at: now`) | the pair's stage test (its staggered expiry) |
+| M32 the pair's stage strict at 30 ms (`quiet > PAIR_TIMEOUT`) | the pair's stage test (its 30 ms rows) |
 
 Some kill lists also name a `tui::worker` catalog-wait test, the known
 timing class under load (`round3-checks.txt`); every mutant's list has a
@@ -463,10 +474,11 @@ wrong, rerun at the end.
   key; round 2 says that fx does so only for the three reports its monitor
   keeps, and calls the rest a recorded deviation, kept. The pair with nothing
   behind it is two Escapes, as fx's theme monitor delivers it.
-- **The same row, not copied** (rewritten in round 2): fx's two-stage
-  timing, with the four schedules above, what each side reads, which ones
-  rest on fx's source and which on its loop cadence, and the owner,
-  **ESC-MONITOR-TIMING** (queued).
+- **The same row, the timing** (rewritten in rounds 2 and 3): the pair's
+  30 ms stage is fx's (round 3); a lone `ESC`'s 75 ms hold is not copied,
+  owner **ESC-MONITOR-TIMING** (queued). It names the schedules above,
+  what each side reads, and which rest on fx's source and which on its loop
+  cadence.
 - **The same row, the cursor-key grammar sentence**: a modifier field is
   read for every bit a terminal sends, `1` to `256`, its four bits only;
   any modifier is Shift-Tab; a leading zero is the number, as in fx, within
@@ -538,15 +550,27 @@ wrong, rerun at the end.
 
 ## Open
 
-- **ESC-MONITOR-TIMING** (queued): fx's 75 ms hold of a lone `ESC`, the
-  two 60 ms rows above. The two 40 ms rows read fx from its loop's cadence,
-  not a capture; that unit's timed differential tests are where they get
-  one.
-- **A key 50 to 75 ms after a pair** (`ESC ESC`, then `[ A` at 60 ms) is the
-  60 ms rows' case: fx's monitor still holds the first `ESC` and reads
-  Escape and Up; here the kept `ESC` has resolved, so Escape, Escape and
-  `[ A` typed. The base and round 2's head read it the same way here
-  [read from the code, not pinned]; ESC-MONITOR-TIMING's.
+- **ESC-MONITOR-TIMING** (queued): fx's 75 ms hold of a lone `ESC`. The
+  two 40 ms rows read fx from its loop's cadence, not a capture; that
+  unit's timed differential tests are where they get one. **Its test list**,
+  the schedules where xfx and fx, or xfx and the base, differ now [each read
+  from the code; the first two pinned here, the rest not]:
+  - `ESC`, then `ESC [ A` at 60 ms: fx `paragraph_up`, xfx Escape, Up (the
+    base's too);
+  - `ESC`, then CR at 60 ms: fx Alt-Enter, xfx Escape, Submit (the base's
+    too);
+  - `ESC ESC`, then `[ A` at 60 ms (50 to 75 ms after a pair): fx Escape,
+    Up (the monitor still holds the first `ESC`); xfx Escape, Escape and
+    `[ A` typed, as the base and round 2's head;
+  - `ESC ESC`, then CR at 50 to 75 ms: fx Escape, `insert_newline`; xfx
+    Escape, Escape, Submit, as the base and round 2's head;
+  - `ESC ESC`, then a paste's start marker: under 30 ms, `PasteStart`
+    alone (fx's, the two `ESC`s taken as the marker's prefix); at 30 to 50
+    ms, Escape and `PasteStart` (fx's at about 30 to 75 ms); the base gave
+    Escape, Escape, `PasteStart`;
+  - `ESC ESC`, then an `OSC 11` reply or a `997` notification under 30 ms:
+    one Escape and the report, as fx (its monitor keeps the report with the
+    first `ESC`); the base gave two Escapes.
 - **The gap at which a person's two presses become a prefix**: in fx a
   second `ESC` within 75 ms of the first is handed on while the first is
   held, and the decoder reads the two as two Escapes unless a key follows
@@ -605,3 +629,26 @@ The source change outside the test modules is now +255/-82, all in
 and the capture pairs are round 1's: none of their schedules spaces a key
 30 to 50 ms behind a pair (each scenario's keys are a burst or 0.3 s and
 more apart), so this fix changes none of them [read from the scenarios].
+
+## Round 4 (round-3 reviews: no MUST; tests, docs and `fx_src.sh` only)
+
+No production code changed: `src/tui/input.rs` above its `mod tests`,
+comment lines left out, is the same at `e869c826` and `b34fac46` (984
+lines).
+
+| item | where |
+|---|---|
+| gpt6 SHOULD, the kept `ESC`'s expiry staggered | `the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc`: `ESC` at 0, `ESC` at 20, Escapes 0, 1, 1, 2 at 49, 50, 69, 70 ms, 2 after; M31 |
+| gpt6 NTH, Ctrl-C at exactly 30 ms | the same test: Escape, Escape, Cancel; M32 |
+| opus NIT 1, a third `ESC` | the same test: `ESC ESC`, `ESC` at 20, `[ A` at 40 is `ParagraphUp`; M30 (`0x1b if meta => {}`) |
+| opus S1, fx's loop | `fx_src.sh`: `main.zig:187-207` (`nativeLoopPollTimeoutMs`), `:2846-2849` (`loopCollectFacts`' head), `app_render_runtime.zig:2055-2065` (its wiring as `collect_facts`), `main.zig:2975-2990` (the clock read, the flush, the worker's and pacer's ticks); the poll is 8 ms, or 1 ms with focused work, in the rule section and the module doc |
+| opus NIT 2, the cadence's cause | the module doc and the timing test's comment: more than about 2 ms of the same turn's work after the clock read (`main.zig:2975`) and before the poll (`event_loop.zig:92`) -- the worker's and pacer's ticks, collected bytes; inferred, not measured |
+| opus NIT 3, stale prose | the Parity section's timing item; "What xfx does now"'s `flush`; `flush`'s doc ("Two things") |
+| opus NIT 4, the second `ESC`'s clock | `beginEscape`, `terminal_action_decoder.zig:42-44`, `:186-192`, in the module doc, `after_escape`'s comment and two tests; `:84-88` named as the third's |
+| opus NIT 5, the base differences | Open: ESC-MONITOR-TIMING's test list |
+
+RED for each new pin, by its forced mutant, in a throwaway `--no-local`
+clone at `b34fac46` under the lock (`red4.txt`; each pin run as its own
+test there): Ctrl-C at 30 ms fails under the stage made strict, the third
+`ESC` under its clock kept, the staggered expiry under the kept `ESC`'s
+clock restarted at the stage; each passes with the mutant reverted.

@@ -1,4 +1,4 @@
-# refs.py df45025c, run at 0f345c76 (round 3; code head 4788ff6d) -- round 3 moves no ledger ref (src/tui/shell.rs unchanged since 873328ab, where --fix was applied)
+# refs.py df45025c, run at b34fac46 (round 4) -- no ledger ref moves (src/tui/shell.rs unchanged since 873328ab, where --fix was applied)
 ok    ledger:44 [banner] src/tui/shell.rs:189  "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for   (base 189 held '"{}x\\u{1d487}x{}{} {label} \\u{b7} Run /h')
 ok    ledger:45 [banner] src/tui/shell.rs:189  "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for   (base 189 held '"{}x\\u{1d487}x{}{} {label} \\u{b7} Run /h')
 ok    ledger:505 [answer-drawn-wider-named] src/tui/shell.rs:14016  let event = full_transcript::shown_event(event);  (base 14016 held 'let event = full_transcript::shown_event')
