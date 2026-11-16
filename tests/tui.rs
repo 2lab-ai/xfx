@@ -3754,9 +3754,11 @@ fn paste_with_pauses(
 /// Where a paste's pause of [`PASTE_QUIET`] or more fell, in words: between
 /// two parts -- across the planned pause before part `at`, with how long that
 /// sleep took, or with none planned there -- or inside part `at`, behind a
-/// full queue's [`IDLE_POLL`] poll, with how long that sleep took. A pause
-/// between parts spans the last write of one part and the first of the next
-/// as well as whatever lay between them.
+/// full queue's [`IDLE_POLL`] poll, with how long that sleep took; and how
+/// long the `write` that ended it took, and the rest of the pause (the write
+/// before it, and the time this thread was off a CPU). A pause between parts
+/// spans the last write of one part and the first of the next as well as
+/// whatever lay between them.
 fn where_it_fell(
     at: usize,
     parts: usize,
@@ -3764,21 +3766,34 @@ fn where_it_fell(
     planned: Option<std::time::Duration>,
     pause: std::time::Duration,
 ) -> String {
-    if written.at <= 1 {
+    let (place, slept) = if written.at <= 1 {
         let between = format!("between parts {} and {at} of {parts}", at.saturating_sub(1));
         match planned {
-            Some(slept) => {
-                format!("{between}, across a planned {pause:?} pause that slept {slept:?}")
-            }
-            None => format!("{between}, with no pause planned there"),
+            Some(slept) => (
+                format!("{between}, across a planned {pause:?} pause that slept {slept:?}"),
+                slept,
+            ),
+            None => (
+                format!("{between}, with no pause planned there"),
+                std::time::Duration::ZERO,
+            ),
         }
     } else {
-        format!(
-            "inside part {at} of {parts}, at its write attempt {} of {}, behind a full \
-             queue's {IDLE_POLL:?} poll that slept {:?}",
-            written.at, written.attempts, written.slept
+        (
+            format!(
+                "inside part {at} of {parts}, at its write attempt {} of {}, behind a full \
+                 queue's {IDLE_POLL:?} poll that slept {:?}",
+                written.at, written.attempts, written.slept
+            ),
+            written.slept,
         )
-    }
+    };
+    let rest = written.longest.saturating_sub(slept + written.wrote);
+    format!(
+        "{place}; the write that ended it took {:?}, and the rest, {rest:?}, is the write \
+         before it and the time this thread was off a CPU",
+        written.wrote
+    )
 }
 
 /// Writes `line` to standard error in one write, so a parallel suite's other
@@ -3913,30 +3928,41 @@ fn a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep() {
     // first red of the paced case (PR #103) held three pauses and no word of
     // where they fell.
     let ms = std::time::Duration::from_millis;
+    let rest = "is the write before it and the time this thread was off a CPU";
     let between = support::pty::Written {
         longest: ms(97),
         at: 1,
         slept: std::time::Duration::ZERO,
+        wrote: ms(1),
         attempts: 1,
     };
     assert_eq!(
         where_it_fell(64, 256, &between, Some(ms(90)), ms(12)),
-        "between parts 63 and 64 of 256, across a planned 12ms pause that slept 90ms"
+        format!(
+            "between parts 63 and 64 of 256, across a planned 12ms pause that slept 90ms; \
+             the write that ended it took 1ms, and the rest, 6ms, {rest}"
+        )
     );
     assert_eq!(
         where_it_fell(70, 256, &between, None, ms(12)),
-        "between parts 69 and 70 of 256, with no pause planned there"
+        format!(
+            "between parts 69 and 70 of 256, with no pause planned there; the write that \
+             ended it took 1ms, and the rest, 96ms, {rest}"
+        )
     );
     let inside = support::pty::Written {
         longest: ms(61),
         at: 3,
-        slept: ms(58),
+        slept: ms(3),
+        wrote: ms(8),
         attempts: 4,
     };
     assert_eq!(
         where_it_fell(9, 256, &inside, None, ms(12)),
-        "inside part 9 of 256, at its write attempt 3 of 4, behind a full queue's 2ms poll \
-         that slept 58ms"
+        format!(
+            "inside part 9 of 256, at its write attempt 3 of 4, behind a full queue's 2ms \
+             poll that slept 3ms; the write that ended it took 8ms, and the rest, 50ms, {rest}"
+        )
     );
     // And the writer's own trace: a gap between two calls is at the second
     // call's first attempt.

@@ -385,12 +385,14 @@ impl Session {
         while !rest.is_empty() {
             let started = Instant::now();
             let wrote = (&*self.master).write(rest);
+            let returned = started.elapsed();
             traced.attempts += 1;
             if let Some(before) = previous.replace(started) {
                 let gap = before.elapsed();
                 if gap > longest {
                     traced.at = traced.attempts;
                     traced.slept = slept;
+                    traced.wrote = returned;
                 }
                 longest = longest.max(gap);
             }
@@ -888,11 +890,15 @@ impl Pty {
 /// [`Session::write_raw_measured`] says it), the attempt it fell at (1 is
 /// the call's first: the gap since the last call; 0, no gap measured), the
 /// [`IDLE_POLL`] sleep right before that attempt, if a full queue made one,
-/// and how many attempts the call made.
+/// how long that attempt's own `write` took to return, and how many attempts
+/// the call made. What the gap holds besides the sleep and that write is the
+/// attempt before it -- its `write` -- and whatever held this thread off a
+/// CPU in between.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Written {
     pub longest: Duration,
     pub at: usize,
     pub slept: Duration,
+    pub wrote: Duration,
     pub attempts: usize,
 }
