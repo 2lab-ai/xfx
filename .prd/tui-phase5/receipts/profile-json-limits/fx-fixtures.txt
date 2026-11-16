@@ -1,0 +1,254 @@
+binary sha256 before: 8e6cda2efddb
+== deep-127 (profile 261 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-128 (profile 263 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-129 (profile 265 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-1000 (profile 2007 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=682B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-max (profile 65535 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-100000 (profile 200007 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=684B stderr=fx: config user: settings_too_large| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== deep-objects-1000 (profile 6996 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=690B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-entry (profile 474 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=683B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== deep-steps (profile 421 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=683B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== deep-dup (profile 425 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=681B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== deep-torn (profile 408 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=682B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== num-big (profile 14 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=680B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== num-neg-big (profile 15 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=684B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== num-int-30 (profile 39 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=683B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== num-neg-int-30 (profile 40 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=687B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== num-int-400 (profile 409 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=684B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== num-tiny (profile 15 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== num-neg-zero (profile 11 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=685B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== steps-big (profile 26 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=682B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== steps-neg-big (profile 27 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=686B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== steps-int-30 (profile 51 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=685B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== steps-tiny (profile 27 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=683B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== steps-neg-zero (profile 23 bytes)
+  permissions  exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask          exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status       exit=0 stdout=687B stderr=fx: config user: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration|
+== steps-i64-max (profile 40 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=704B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=9223372036854775807
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== steps-ok (profile 445 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=3
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== proj-big (profile 27 bytes, project 36 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=681B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=3
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== proj-deep (profile 27 bytes, project 431 bytes)
+  permissions  exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=682B stderr= | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=3
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=782B stderr=
+== proj-steps-big (profile 27 bytes, project 26 bytes)
+  permissions  exit=0 stdout=100B stderr=fx: config project: malformed_settings| | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: config project: malformed_settings|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=687B stderr=fx: config project: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=851B stderr=
+== proj-steps-float (profile 27 bytes, project 24 bytes)
+  permissions  exit=0 stdout=100B stderr=fx: config project: malformed_settings| | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask          exit=1 stdout=0B stderr=fx ask: config project: malformed_settings|fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status       exit=0 stdout=689B stderr=fx: config project: malformed_settings| | touched: 
+    | [status] build_revision=481104fdbc24
+    | [status] agent_step_limit=0
+    | [status] mcp_servers=0 mcp_configuration_issues=0
+  interactive  still running after 6 s exit= tty=851B stderr=
+binary sha256 after: 8e6cda2efddb

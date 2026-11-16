@@ -25,6 +25,8 @@ use serde_json::Value;
 
 use crate::provider::ProviderId;
 
+mod layer_json;
+
 /// The model xfx requests when nothing selects one.
 ///
 /// Matches upstream's Gateway default
@@ -393,20 +395,30 @@ impl PermissionMode {
         }
     }
 
-    /// A mode as a person types it: upstream's grammar
-    /// (`PermissionMode.parse`, `vercel-labs/fx@c1db9191
-    /// src/core/shared/types.zig:2396-2403`) -- `ask`, `auto`, and `full-access`,
-    /// `full access` or `yolo` for the third, in any case.
+    /// A mode as a person writes it: fx's `PermissionMode.parse`
+    /// (`types.zig:2375-2382@481104fd`), word for word -- `ask`, `auto`, and
+    /// `full-access`, `full access` or `yolo` for the third, in any case, and
+    /// **not trimmed**. fx reads every mode a person gives it with that parse
+    /// (`parsePermissionMode`, `config_runtime.zig:1057-1059`): the settings
+    /// key, `FX_PERMISSION_MODE`, the status load and `/permissions`, whose
+    /// router trims spaces and tabs first (`command_router.zig:92-94`).
+    /// [`crate::permission::slash::Request::parse`] trims too, but every
+    /// Unicode blank (`str::trim`), so a trailing no-break space is taken
+    /// there where fx answers with the usage (`docs/parity.md`, `/permissions`).
     ///
     /// The wire grammar is [`Self::parse`] and stays exact: a session log is
     /// something xfx wrote, and one that says `Full Access` is not one it
-    /// wrote. This is what an argument to `/permissions` is read with, and it
-    /// ends in that same table rather than in one of its own.
+    /// wrote.
     pub fn parse_choice(raw: &str) -> Option<Self> {
-        let word = raw.trim().to_ascii_lowercase();
-        match word.as_str() {
-            "full-access" | "full access" => Some(Self::Yolo),
-            other => Self::parse(other),
+        let is = |word: &str| raw.eq_ignore_ascii_case(word);
+        if is("ask") {
+            Some(Self::Ask)
+        } else if is("auto") {
+            Some(Self::Auto)
+        } else if is("full-access") || is("full access") || is("yolo") {
+            Some(Self::Yolo)
+        } else {
+            None
         }
     }
 
@@ -815,11 +827,14 @@ impl Environment {
             ENV_LLMUX_CONFIG,
             ENV_XDG_CONFIG_HOME,
         ] {
-            if let Ok(value) = std::env::var(key) {
+            if let Ok(value) = process_env!("config::Environment::from_process", var(key)) {
                 vars.insert(key.to_string(), value);
             }
         }
-        Self::new(std::env::var_os("HOME").map(PathBuf::from), vars)
+        Self::new(
+            process_env!("config::Environment::from_process", var_os("HOME")).map(PathBuf::from),
+            vars,
+        )
     }
 
     pub fn home(&self) -> Option<&Path> {
@@ -847,8 +862,10 @@ impl Environment {
     }
 }
 
-/// A fatal configuration failure. Malformed content is never fatal; only losing
-/// the workspace itself is.
+/// A fatal configuration failure: only losing the workspace itself. Malformed
+/// content never fails a load -- `status`, `doctor` and a reload in a session
+/// must still read it -- and a launch refuses a profile fx refuses by asking
+/// [`RuntimeConfig::refuses_launch`] itself.
 #[derive(Debug)]
 pub enum ConfigError {
     /// The current directory could not be resolved.
@@ -987,6 +1004,48 @@ pub struct RuntimeConfig {
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
+    /// Why a launch refuses this profile ([`Self::refuses_launch`]); only the
+    /// launches ask, so a reload inside a session never refuses, as fx's.
+    pub profile_refusal: Option<ProfileRefusal>,
+}
+
+/// What a launch that refuses the profile says after the program's name, and
+/// exits 1 with: the error's own name (`app_lifecycle.zig:689-703@481104fd`;
+/// `formatUnexpectedError`, `app_entry_runtime.zig:537-539`, `:158-168`).
+pub const PROFILE_REFUSAL: &str = "InvalidProfileConfiguration";
+
+/// Why fx v0.0.16 refuses a profile at launch, in the local auth mode that is
+/// its default and xfx's only one (`app_lifecycle.zig:689-703@481104fd`).
+/// Only the profile counts, `~/.xfx/settings.json` with this workspace's
+/// `workspaces` entry, read in fx's order ([`profile_open`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileRefusal {
+    /// Every launch refuses: HOME, `~/.xfx` or the file does not open; or the
+    /// file fx reads is not one JSON object within [`MAX_SETTINGS_BYTES`] with
+    /// no key twice, its `workspaces` or this workspace's entry is not an
+    /// object (`config_runtime.zig:589-597`), or fx's parse of either fails
+    /// first at a key xfx reads too ([`fx_first_error_refuses`]).
+    Rejected,
+    /// Only `ask` refuses: `~/.xfx` or its file is a link or not of its kind,
+    /// or the file has another hard link (`durable_path_unsafe`); fx's
+    /// interactive launch goes on (`app_lifecycle.zig:693-696`), as xfx's do.
+    Unsafe,
+    /// fx's load itself fails, naming the error: every launch and `status`
+    /// stop with it ([`fx_profile_refusal`]).
+    Stopped(&'static str),
+}
+
+/// Which launch asks [`RuntimeConfig::launch_refusal`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// The TUI and the line shell, as fx's interactive launch
+    /// (`loadInteractiveStartupState`, `app_lifecycle.zig:501-515`).
+    Interactive,
+    /// `ask` (`loadStartupStateForRun`, `app_lifecycle.zig:420-433`).
+    Ask,
+    /// `status` (`loadStartupStatus`, `:517-587`): stopped only by a load
+    /// that fails.
+    Status,
 }
 
 impl RuntimeConfig {
@@ -1036,12 +1095,20 @@ impl RuntimeConfig {
         }
 
         let before_user = diagnostics.len();
-        let user = match user_settings_path.as_ref() {
-            Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
-            None => LayerRead::absent(),
-        };
+        let (profile_opened, profile_file) =
+            env.home().map_or((ProfileOpen::Absent, None), profile_open);
+        let user = read_user_layer(
+            profile_file,
+            user_settings_path.as_deref(),
+            &mut diagnostics,
+        );
         let user_settings_present = user.present;
         let user_settings_loaded = user.object.is_some();
+        let profile_rejected = user.present && !user_settings_loaded;
+        let read_refusal = user
+            .object
+            .as_ref()
+            .and_then(|object| fx_profile_refusal(object, &workspace_root));
         let mut additional_directories = Vec::new();
         let mut permission = PermissionTables::default();
         // Fail closed (`PermissionTables::unreadable`): a profile that is there
@@ -1371,7 +1438,26 @@ impl RuntimeConfig {
             sources,
             diagnostics,
             credential: resolve_credential(env),
+            // What the file holds counts only when fx reads it.
+            profile_refusal: match profile_opened {
+                ProfileOpen::Unsafe => Some(ProfileRefusal::Unsafe),
+                ProfileOpen::Unopenable => Some(ProfileRefusal::Rejected),
+                ProfileOpen::Read if profile_rejected => Some(ProfileRefusal::Rejected),
+                ProfileOpen::Read => read_refusal,
+                ProfileOpen::Absent | ProfileOpen::NotRead => None,
+            },
         })
+    }
+
+    /// The error `launch` refuses this profile with, if it does: what follows
+    /// `xfx: ` on stderr before it exits 1.
+    pub fn launch_refusal(&self, launch: Launch) -> Option<&'static str> {
+        match (self.profile_refusal?, launch) {
+            (ProfileRefusal::Stopped(name), _) => Some(name),
+            (ProfileRefusal::Rejected, Launch::Status) => None,
+            (ProfileRefusal::Rejected, _) => Some(PROFILE_REFUSAL),
+            (ProfileRefusal::Unsafe, launch) => (launch == Launch::Ask).then_some(PROFILE_REFUSAL),
+        }
     }
 
     /// Whether a settings file exists on disk, usable or not.
@@ -1645,8 +1731,10 @@ fn parse_layer(
                 )),
             }
         }
+        // fx's parse (`config_runtime.zig:1691`): `ASK` is ask, `Full Access`
+        // full access, and ` ask` a value fx refuses.
         if let Some(value) = object.get("permission_mode") {
-            match value.as_str().and_then(PermissionMode::parse) {
+            match value.as_str().and_then(PermissionMode::parse_choice) {
                 Some(mode) => settings.permission_mode = Some(mode),
                 None => diagnostics.push(Diagnostic::with_key(
                     layer,
@@ -1937,8 +2025,14 @@ fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Se
     if let Some(model) = env.nonblank(ENV_MODEL) {
         settings.model = Some(model.to_string());
     }
-    if let Some(raw) = env.nonblank(ENV_PERMISSION_MODE) {
-        match PermissionMode::parse(raw) {
+    // fx's `loadPermissionMode` (`app_lifecycle.zig:1556-1560`): the value as
+    // set, not trimmed, read with the settings key's parse; one that does not
+    // read leaves the configured mode. A blank one is ignored, as before.
+    if let Some(raw) = env
+        .var(ENV_PERMISSION_MODE)
+        .filter(|raw| !raw.trim().is_empty())
+    {
+        match PermissionMode::parse_choice(raw) {
             Some(mode) => settings.permission_mode = Some(mode),
             None => diagnostics.push(Diagnostic::with_key(
                 ConfigLayer::Process,
@@ -2184,41 +2278,483 @@ impl LayerRead {
     }
 }
 
-/// Reads one settings file, recording why it was rejected and whether it was
-/// there at all.
-fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>) -> LayerRead {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return LayerRead::absent(),
-        Err(_) => {
-            // The entry could not be stat'ed. Something is there, or something
-            // is wrong with the path; either way xfx owes the user a report.
-            diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
-            return LayerRead::rejected();
+/// One layer of the profile fx parses: the global object or a workspace's entry.
+type Layer = serde_json::Map<String, Value>;
+
+/// fx's limits: a load's connections (`configured_provider.zig:6`), a
+/// connection name's bytes (`:8`), a model's (`settings_store.zig:18`), and a
+/// load's model preferences (`model_preferences.zig:4`).
+const FX_MAX_PROVIDERS: usize = 32;
+const FX_MAX_ID_BYTES: usize = 64;
+const FX_MAX_MODEL_BYTES: usize = 1024;
+const FX_MAX_PREFERENCES: usize = 35;
+
+/// What fx v0.0.16's load makes of the profile object it read, for the keys
+/// xfx reads too (`config_runtime.zig:463-632@481104fd`): the global
+/// `providers` ([`fx_providers_error`]); the global object, then this
+/// workspace's entry, each parsed whole and dropped at its first error, its
+/// routing salvaged or the load failed ([`fx_stop`]); their model preferences
+/// merged, at most 35 (`model_preferences.zig:35-51`); then the provider bound
+/// to the global `providers` (`:350-355`; `model_provider.zig:53-63`), a name
+/// it lacks stopping all but xfx's `llmux`.
+fn fx_profile_refusal(object: &Layer, workspace_root: &Path) -> Option<ProfileRefusal> {
+    if let Some(name) = fx_providers_error(object) {
+        return Some(ProfileRefusal::Stopped(name));
+    }
+    let entry = exact_workspace_entry(object, workspace_root, &mut Vec::new());
+    let mut rejected = entry.is_err();
+    let (mut provider, mut preferences) = (None, std::collections::BTreeSet::new());
+    for (layer, global) in
+        std::iter::once((object, true)).chain(entry.ok().flatten().map(|e| (e, false)))
+    {
+        // The routing keys alone, as the salvage parses them, and in a whole parse.
+        let [salvage, whole] = [false, true].map(|whole| fx_routing(layer, whole));
+        if let (Err(_), Err(routing)) = (&salvage, &whole) {
+            return Some(ProfileRefusal::Stopped(fx_stop(layer, routing)));
         }
+        let first = fx_first_error_refuses(layer, global, whole.is_err());
+        rejected |= first == Some(true);
+        // A layer that parsed is merged whole; one that did not, its routing.
+        preferences.extend(if first.is_none() { whole } else { salvage }.unwrap_or_default());
+        if preferences.len() > FX_MAX_PREFERENCES {
+            return Some(ProfileRefusal::Stopped("TooManyModelPreferences"));
+        }
+        provider = layer.get(PROVIDER_KEY).and_then(Value::as_str).or(provider);
+    }
+    let defined = object.get("providers").and_then(Value::as_object);
+    let unknown = provider.is_some_and(|name| {
+        fx_provider(name) == Some(false)
+            && ProviderId::parse(name) != Some(ProviderId::Llmux)
+            && !defined.is_some_and(|defined| defined.contains_key(name))
+    });
+    if unknown {
+        return Some(ProfileRefusal::Stopped("UnknownConfiguredProvider"));
+    }
+    rejected.then_some(ProfileRefusal::Rejected)
+}
+
+/// The error fx's load fails with over a layer whose routing does not parse
+/// even alone (a whole parse's fails too: it names more), so the salvage
+/// fails and the layer's first error is returned (`config_runtime.zig:1011-1015`):
+/// the retired key, the `model`, or the routing keys' own in a whole parse.
+fn fx_stop(layer: &Layer, routing: &'static str) -> &'static str {
+    if layer.contains_key("skill_match_fuzzy") {
+        return "RetiredSkillMatchFuzzy";
+    }
+    fx_model_error(layer).unwrap_or(routing)
+}
+
+/// The global `providers` object, parsed first (`config_runtime.zig:1623-1625`;
+/// `Registry.parse`, `configured_provider.zig:116-117`): an object of at most
+/// 32 connections. An entry's is never parsed. Each connection's checks are
+/// not copied (queued: PROVIDERS-REGISTRY).
+fn fx_providers_error(object: &Layer) -> Option<&'static str> {
+    match object.get("providers")? {
+        Value::Object(providers) => (providers.len() > FX_MAX_PROVIDERS).then_some("LimitExceeded"),
+        _ => Some("InvalidObject"),
+    }
+}
+
+/// Whether the first error of fx's parse of one profile layer, among the keys
+/// xfx reads and the fx-only ones whose cause no launch refuses, refuses a
+/// launch, once [`fx_stop`] has not stopped: in fx's order
+/// (`parseProfileOnlyFields`, `config_runtime.zig:1638-1860`;
+/// `parseProjectSafeFields`, `:1898-1953`), `malformed_settings` and
+/// `invalid_model_id` do; a retired key, the context limits and the skill
+/// authorities do not (`:1025-1037`). A `statusLine` that is not an object,
+/// and its `workspace`, count only in the global object.
+fn fx_first_error_refuses(layer: &Layer, global: bool, routing_fails: bool) -> Option<bool> {
+    if layer.contains_key("skill_match_fuzzy") {
+        return Some(false);
+    }
+    // The whole parse's routing can fail where the salvage's did not: the
+    // `model`'s preference counts in it (`model_preferences.zig:25-33`).
+    if fx_model_error(layer).is_some() || routing_fails {
+        return Some(true);
+    }
+    use crate::permission::rules::RuleSet;
+    use crate::provider::effort::Effort;
+    let bools = |object: &serde_json::Map<String, Value>, keys: &[&str]| {
+        keys.iter()
+            .all(|key| object.get(*key).is_none_or(Value::is_boolean))
+    };
+    let items = &["context", "session", "workspace"][..if global { 3 } else { 2 }];
+    let mode = |v: &Value| v.as_str().and_then(PermissionMode::parse_choice).is_some();
+    let authorities = |v: &Value| skill_symlink_authorities(v).is_ok();
+    let history = |v: &Value| v.as_object().is_some_and(|o| bools(o, &["enabled"]));
+    let effort = |v: &Value| v.is_null() || v.as_str().and_then(Effort::parse).is_some();
+    let status_line = |v: &Value| v.as_object().map_or(!global, |o| bools(o, items));
+    let switches = ["turn_end", "attention_required", "max"];
+    let notifications = |v: &Value| v.as_object().is_some_and(|o| bools(o, &switches));
+    let table = |v: &Value| RuleSet::parse(v).is_ok();
+    let steps = |v: &Value| v.as_i64().is_some_and(|steps| steps >= 0);
+    // A key, whether its value is one fx's parse takes, whether its error refuses.
+    type Check<'a> = (&'a str, &'a dyn Fn(&Value) -> bool, bool);
+    let checks: [Check; 17] = [
+        ("permission_mode", &mode, true),
+        ("yolo_acknowledged", &Value::is_boolean, true),
+        ("context_limits", &fx_context_limits, false),
+        (FAST_MODE_KEY, &Value::is_boolean, true),
+        (ULTRAFAST_MODE_KEY, &Value::is_boolean, true),
+        (FAST_MODE_MODEL_BOUND_KEY, &Value::is_boolean, true),
+        (SLASH_MENU_CATEGORIES_KEY, &Value::is_boolean, true),
+        (COLLAPSE_TOOL_CALLS_KEY, &Value::is_boolean, true),
+        (SESSION_TITLES_KEY, &Value::is_boolean, true),
+        (STARTUP_SCROLLBACK_KEY, &Value::is_boolean, true),
+        (SKILL_SYMLINK_AUTHORITIES_KEY, &authorities, false),
+        (PROMPT_HISTORY_KEY, &history, true),
+        (EFFORT_KEY, &effort, true),
+        (STATUS_LINE_KEY, &status_line, true),
+        (NOTIFICATIONS_KEY, &notifications, true),
+        (PERMISSION_KEY, &table, true),
+        ("max_agent_steps", &steps, true),
+    ];
+    checks
+        .iter()
+        .find(|(key, valid, _)| layer.get(*key).is_some_and(|value| !valid(value)))
+        .map(|(_, _, refuses)| *refuses)
+}
+
+/// A `model` fx's parse refuses (`:1651-1656`), and its error's name.
+fn fx_model_error(layer: &Layer) -> Option<&'static str> {
+    match layer.get("model")? {
+        Value::String(model) if fx_valid_model(model) => None,
+        Value::String(_) => Some("InvalidModelValue"),
+        _ => Some("InvalidModelType"),
+    }
+}
+
+/// The routing keys' first error (`:1658-1686`), or the preferences they name:
+/// `provider` a name [`fx_provider`] reads; `models` such names to models
+/// `validateModel` takes, one preference per provider (a built-in in any
+/// case), at most 35 with what a whole parse names first: the `model`'s
+/// Gateway, fx's `codex_model` and `grok_model` (`model_preferences.zig:25-33`).
+fn fx_routing(layer: &Layer, whole: bool) -> Result<Vec<String>, &'static str> {
+    match layer.get(PROVIDER_KEY) {
+        Some(Value::String(name)) if fx_provider(name).is_none() => {
+            return Err("InvalidProviderValue")
+        }
+        Some(Value::String(_)) | None => {}
+        Some(_) => return Err("InvalidProviderType"),
+    }
+    let mut named: Vec<String> = ["model", "codex_model", "grok_model"]
+        .into_iter()
+        .zip(["gateway", "codex", "grok"])
+        .filter(|(key, _)| whole && layer.contains_key(*key))
+        .map(|(_, provider)| provider.to_string())
+        .collect();
+    let models = match layer.get(MODELS_KEY) {
+        Some(Value::Object(models)) => models,
+        Some(_) => return Err("InvalidModelType"),
+        None => return Ok(named),
+    };
+    for (name, model) in models {
+        let provider = match fx_provider(name) {
+            Some(true) => name.to_ascii_lowercase(),
+            Some(false) => name.clone(),
+            None => return Err("InvalidProviderValue"),
+        };
+        match model {
+            Value::String(model) if !fx_valid_model(model) => return Err("InvalidModelValue"),
+            Value::String(_) if named.contains(&provider) => {}
+            Value::String(_) if named.len() == FX_MAX_PREFERENCES => {
+                return Err("TooManyModelPreferences")
+            }
+            Value::String(_) => named.push(provider),
+            _ => return Err("InvalidModelType"),
+        }
+    }
+    Ok(named)
+}
+
+/// fx's `model_provider.parse` (`model_provider.zig:106-114`): `Some(true)` a
+/// built-in in any case, `Some(false)` a name to look up among configured
+/// connections (`validate_id`, `configured_provider.zig:290-299`), `None`
+/// neither.
+fn fx_provider(name: &str) -> Option<bool> {
+    if matches!(
+        name.to_ascii_lowercase().as_str(),
+        "gateway" | "codex" | "grok"
+    ) {
+        return Some(true);
+    }
+    let bytes = name.as_bytes();
+    let id = |b: &u8| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-');
+    (bytes.len() <= FX_MAX_ID_BYTES
+        && bytes.first().is_some_and(u8::is_ascii_alphabetic)
+        && bytes.iter().all(id))
+    .then_some(false)
+}
+
+/// fx's `validateModel` (`settings_store.zig:894-902`): 1-1024 bytes, no
+/// blank of ` \t\r\n` around it, no ASCII control. Not xfx's own rule
+/// ([`usable_model`]), which trims and stops at 200 bytes and one word.
+fn fx_valid_model(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= FX_MAX_MODEL_BYTES
+        && model.trim_matches([' ', '\t', '\r', '\n']) == model
+        && !model.bytes().any(|byte| byte.is_ascii_control())
+}
+
+/// fx's `context_limits` (`context_limits.zig:178-204`, names `:5-16`): an
+/// object of its eleven names to a non-negative integer, `off` in any case,
+/// or decimal digits with `_` between them (`parseUnsigned`).
+fn fx_context_limits(value: &Value) -> bool {
+    const NAMES: &str = "skill_description_bytes skill_catalog_bytes skill_chunk_bytes \
+        skill_file_bytes mcp_description_bytes mcp_search_result_bytes \
+        mcp_server_instructions_bytes mcp_selected_schema_bytes project_instruction_file_bytes \
+        project_instructions_total_bytes image_adapter_output_bytes";
+    let digits = |raw: &str| {
+        !raw.starts_with('_')
+            && !raw.ends_with('_')
+            && raw.bytes().all(|b| b.is_ascii_digit() || b == b'_')
+            && raw.replace('_', "").parse::<u64>().is_ok()
+    };
+    value.as_object().is_some_and(|limits| {
+        limits.iter().all(|(name, limit)| {
+            NAMES.split_whitespace().any(|known| known == name)
+                && match limit {
+                    Value::Number(bytes) => bytes.as_i64().is_some_and(|bytes| bytes >= 0),
+                    Value::String(raw) => raw.eq_ignore_ascii_case("off") || digits(raw),
+                    _ => false,
+                }
+        })
+    })
+}
+
+/// What fx v0.0.16 makes of the profile before it reads a byte of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProfileOpen {
+    /// No `~/.xfx`, or no settings file in it: nothing to refuse.
+    Absent,
+    /// `durable_path_unsafe`: fx opens nothing there.
+    Unsafe,
+    /// An open fails, or the opened file cannot be made blocking
+    /// (`makeFileBlocking`, `io.zig:289-315`): `malformed_settings`.
+    Unopenable,
+    /// Group or other may write to it: fx does not read it
+    /// (`private_state_permissions_unsupported`, the layer absent), so what it
+    /// holds refuses nothing.
+    NotRead,
+    /// Opened to be read: what it holds decides.
+    Read,
+}
+
+/// fx's read-only load of the profile, on descriptors as fx keeps it
+/// (`initFromHome`, `settings_store.zig:340-391@481104fd`; `loadRawPrimary`,
+/// `:716-748`; `openExistingRegularFile`, `io.zig:170-180`, `:213-286`):
+/// HOME opened as a directory; `~/.xfx` opened in it without following a
+/// link, the descriptor's kind, then its mode; the settings file looked at
+/// without following a link (kind, links), then opened without following a
+/// link or waiting on a FIFO, the descriptor's kind and links again, made
+/// blocking, then its mode. A file that passes is handed back open and read from that
+/// descriptor ([`read_user_layer`]), whatever the path names by then.
+#[cfg(unix)]
+fn profile_open(home: &Path) -> (ProfileOpen, Option<fs::File>) {
+    use rustix::fs::{fstat, openat, statat, AtFlags, Mode, OFlags, CWD};
+    use rustix::io::Errno;
+
+    let directory = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
+    // HOME is followed, as fx's `openDirAbsolute` follows it; only a missing
+    // one is no profile (`settings_store.zig:342-348`).
+    let home = match openat(CWD, home, directory, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
+    };
+    let dir = match openat(
+        &home,
+        PROFILE_DIR_NAME,
+        directory | OFlags::NOFOLLOW,
+        Mode::empty(),
+    ) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(Errno::NOTDIR | Errno::LOOP) => return (ProfileOpen::Unsafe, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
+    };
+    match fstat(&dir) {
+        Ok(stat) if !is_kind(&stat, rustix::fs::FileType::Directory) => {
+            return (ProfileOpen::Unsafe, None)
+        }
+        Ok(stat) if open_to_others(&stat) => return (ProfileOpen::NotRead, None),
+        Ok(_) => {}
+        Err(_) => return (ProfileOpen::Unopenable, None),
+    }
+    match statat(&dir, USER_SETTINGS_FILE, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) if !sole_regular(&stat) => return (ProfileOpen::Unsafe, None),
+        Ok(_) => {}
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
+    }
+    open_settings(&dir, USER_SETTINGS_FILE)
+}
+
+/// The settings file's open, [`profile_open`]'s last step (`io.zig:238-261`).
+#[cfg(unix)]
+fn open_settings(dir: &std::os::fd::OwnedFd, name: &str) -> (ProfileOpen, Option<fs::File>) {
+    use rustix::fs::{fstat, openat, Mode, OFlags};
+    use rustix::io::Errno;
+
+    let flags =
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    let fd = match openat(dir, name, flags, Mode::empty()) {
+        Ok(fd) => fd,
+        Err(Errno::NOENT) => return (ProfileOpen::Absent, None),
+        Err(Errno::NXIO | Errno::LOOP | Errno::NOTDIR) => return (ProfileOpen::Unsafe, None),
+        Err(_) => return (ProfileOpen::Unopenable, None),
+    };
+    match fstat(&fd) {
+        Ok(stat) if !sole_regular(&stat) => (ProfileOpen::Unsafe, None),
+        Ok(_) if !blocking(&fd) => (ProfileOpen::Unopenable, None),
+        Ok(stat) if open_to_others(&stat) => (ProfileOpen::NotRead, None),
+        Ok(_) => (ProfileOpen::Read, Some(fs::File::from(fd))),
+        Err(_) => (ProfileOpen::Unopenable, None),
+    }
+}
+
+/// Opened without waiting, read blocking again (`io.zig:262`).
+#[cfg(unix)]
+fn blocking(fd: impl std::os::fd::AsFd) -> bool {
+    use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
+    fcntl_getfl(&fd).is_ok_and(|flags| fcntl_setfl(&fd, flags - OFlags::NONBLOCK).is_ok())
+}
+
+/// A regular file with no other name. None at all is a snapshot fx reads: a
+/// lookup racing a rename over the file, as xfx's own save does, returns the
+/// replaced file (`io.zig:221-224`, `:281-286`; as `usage::cache`'s).
+#[cfg(unix)]
+fn sole_regular(stat: &rustix::fs::Stat) -> bool {
+    is_kind(stat, rustix::fs::FileType::RegularFile) && stat.st_nlink <= 1
+}
+
+#[cfg(unix)]
+fn is_kind(stat: &rustix::fs::Stat, kind: rustix::fs::FileType) -> bool {
+    rustix::fs::FileType::from_raw_mode(stat.st_mode) == kind
+}
+
+/// Group or other may write to it (`mode & 0o022`, `settings_store.zig:763-765`).
+#[cfg(unix)]
+fn open_to_others(stat: &rustix::fs::Stat) -> bool {
+    u32::from(stat.st_mode) & 0o022 != 0
+}
+
+/// Without descriptors to hold, the file is opened by its path and its
+/// content decides.
+#[cfg(not(unix))]
+fn profile_open(home: &Path) -> (ProfileOpen, Option<fs::File>) {
+    match fs::File::open(home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE)) {
+        Ok(file) => (ProfileOpen::Read, Some(file)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (ProfileOpen::Absent, None),
+        Err(_) => (ProfileOpen::Unopenable, None),
+    }
+}
+
+/// The profile layer: read from the descriptor [`profile_open`] checked when
+/// it handed one back -- never the path again -- and otherwise, where no
+/// launch's refusal turns on what it holds, as any layer is read.
+fn read_user_layer(
+    opened: Option<fs::File>,
+    path: Option<&Path>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> LayerRead {
+    match (opened, path) {
+        (Some(file), _) => read_opened(file, ConfigLayer::User, diagnostics),
+        (None, Some(path)) => read_layer(path, ConfigLayer::User, diagnostics),
+        (None, None) => LayerRead::absent(),
+    }
+}
+
+/// Reads one settings file, recording why it was rejected and whether it was
+/// there at all: looked at first, following a link, so only a regular file
+/// is opened (fx's `readOptionalFile`, `config_runtime.zig:1415-1429`), then
+/// read from the descriptor opened ([`read_opened`]).
+fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>) -> LayerRead {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(
+        &mut options,
+        libc::O_NONBLOCK | libc::O_NOCTTY,
+    );
+    let opened = match fs::metadata(path) {
+        Ok(metadata) if !metadata.is_file() => Ok(None),
+        Ok(_) => options.open(path).map(Some),
+        Err(err) => Err(err),
+    };
+    let cause = match opened {
+        Ok(Some(file)) => return read_opened(file, layer, diagnostics),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return LayerRead::absent(),
+        Ok(None) => DiagnosticCause::MalformedSettings,
+        Err(_) => DiagnosticCause::UnreadableSettings,
+    };
+    diagnostics.push(Diagnostic::new(layer, cause));
+    LayerRead::rejected()
+}
+
+/// One settings layer from an open file: a regular file within
+/// [`MAX_SETTINGS_BYTES`] holding one JSON object.
+fn read_opened(file: fs::File, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>) -> LayerRead {
+    use std::io::Read;
+
+    let reject = |diagnostics: &mut Vec<Diagnostic>, cause| {
+        diagnostics.push(Diagnostic::new(layer, cause));
+        LayerRead::rejected()
+    };
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(_) => return reject(diagnostics, DiagnosticCause::UnreadableSettings),
     };
     if !metadata.is_file() {
-        diagnostics.push(Diagnostic::new(layer, DiagnosticCause::MalformedSettings));
-        return LayerRead::rejected();
+        return reject(diagnostics, DiagnosticCause::MalformedSettings);
+    }
+    #[cfg(unix)]
+    if !blocking(&file) {
+        return reject(diagnostics, DiagnosticCause::UnreadableSettings);
     }
     if metadata.len() > MAX_SETTINGS_BYTES as u64 {
-        diagnostics.push(Diagnostic::new(layer, DiagnosticCause::SettingsTooLarge));
-        return LayerRead::rejected();
+        return reject(diagnostics, DiagnosticCause::SettingsTooLarge);
     }
-
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(_) => {
-            diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
-            return LayerRead::rejected();
+    let mut bytes = Vec::new();
+    match (&file)
+        .take(MAX_SETTINGS_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+    {
+        Ok(read) if read > MAX_SETTINGS_BYTES => {
+            return reject(diagnostics, DiagnosticCause::SettingsTooLarge)
         }
+        Ok(_) => {}
+        Err(_) => return reject(diagnostics, DiagnosticCause::UnreadableSettings),
+    }
+    // Bytes that are not UTF-8 are a parse error to fx, as any bad byte
+    // (`std.json`'s scanner takes valid UTF-8 only): the file read, and is
+    // malformed.
+    let Ok(text) = String::from_utf8(bytes) else {
+        return reject(diagnostics, DiagnosticCause::MalformedSettings);
     };
-    match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(object)) => LayerRead::loaded(object),
-        Ok(_) | Err(_) => {
-            diagnostics.push(Diagnostic::new(layer, DiagnosticCause::MalformedSettings));
-            LayerRead::rejected()
-        }
+    // fx's parse, not serde_json's: no depth limit, a number past `f64`
+    // kept, a key twice refused at any depth ([`layer_json`]).
+    match layer_json::object(&text) {
+        Some(object) => LayerRead::loaded(object),
+        None => reject(diagnostics, DiagnosticCause::MalformedSettings),
+    }
+}
+
+/// The object the profile settings file at `path` holds, read the way a
+/// launch reads a layer ([`read_layer`]): `Ok(None)` when there is no file,
+/// and the cause when it is there and does not read. For a reader that only
+/// reads -- the saved MCP choices ([`crate::mcp::config::load_choices`]):
+/// what [`layer_json`] keeps of a number past `f64`, or of a value nested past
+/// 127, is no value to write back.
+pub fn read_profile_object(
+    path: &Path,
+) -> Result<Option<serde_json::Map<String, Value>>, DiagnosticCause> {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(path, ConfigLayer::User, &mut diagnostics);
+    match (read.object, diagnostics.first()) {
+        (Some(object), _) => Ok(Some(object)),
+        (None, Some(diagnostic)) => Err(diagnostic.cause),
+        (None, None) => Ok(None),
     }
 }
 
@@ -2274,6 +2810,23 @@ fn resolve_credential(env: &Environment) -> Option<Credential> {
     None
 }
 
+/// In a unit test, this environment as the process (`crate::test_env`).
+#[cfg(test)]
+impl Environment {
+    /// A fake process whose home and variables are this environment's: what
+    /// a runtime built from it reads wherever it would read the process.
+    pub(crate) fn fake_process(&self) -> crate::test_env::FakeProcess {
+        let process = self.vars.iter().fold(
+            crate::test_env::FakeProcess::new(),
+            |process, (name, value)| process.var(name, value),
+        );
+        match &self.home {
+            Some(home) => process.home(home),
+            None => process,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2293,8 +2846,10 @@ mod tests {
 
     #[test]
     fn a_typed_mode_reads_upstreams_words_in_any_case() {
-        // `types.zig:2396-2403`: `full-access`, `full access` and `yolo` are
-        // the third mode, case-insensitively, and so are the other two.
+        // `types.zig:2375-2382@481104fd`, and fx's own table for it
+        // (`config_runtime.zig:3149-3162`): `full-access`, `full access` and
+        // `yolo` are the third mode, case-insensitively, and so are the other
+        // two; nothing is trimmed.
         for (typed, mode) in [
             ("ask", PermissionMode::Ask),
             ("ASK", PermissionMode::Ask),
@@ -2302,10 +2857,11 @@ mod tests {
             ("Auto", PermissionMode::Auto),
             ("full-access", PermissionMode::Yolo),
             ("Full-Access", PermissionMode::Yolo),
+            ("FULL-ACCESS", PermissionMode::Yolo),
             ("full access", PermissionMode::Yolo),
+            ("Full Access", PermissionMode::Yolo),
             ("yolo", PermissionMode::Yolo),
             ("YOLO", PermissionMode::Yolo),
-            ("  auto ", PermissionMode::Auto),
         ] {
             assert_eq!(PermissionMode::parse_choice(typed), Some(mode), "{typed:?}");
         }
@@ -2316,11 +2872,18 @@ mod tests {
             "fullaccess",
             "full  access",
             "remember",
+            "danger",
+            " full-access",
+            "full-access ",
+            " default",
+            "  auto ",
+            " ask",
+            "ask\n",
         ] {
             assert_eq!(PermissionMode::parse_choice(typed), None, "{typed:?}");
         }
-        // The wire grammar is not widened by it: a log or a settings file
-        // that says `Full Access` is not one xfx wrote.
+        // The wire grammar is not widened by it: a session log that says
+        // `Full Access` is not one xfx wrote.
         assert_eq!(PermissionMode::parse("full-access"), None);
         assert_eq!(PermissionMode::parse("YOLO"), None);
     }
@@ -2389,6 +2952,86 @@ mod tests {
             d.cause == DiagnosticCause::InvalidValue
                 && d.setting_key.as_deref() == Some("yolo_acknowledged")
         }));
+    }
+
+    #[test]
+    fn a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one() {
+        // fx reads the settings key (`config_runtime.zig:1691@481104fd`), this
+        // workspace's entry, and `FX_PERMISSION_MODE`
+        // (`app_lifecycle.zig:1556-1560`) with one parse (`types.zig:2375-2382`):
+        // any case, three spellings of the third, nothing trimmed. A value it
+        // does not take leaves what was below it.
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        let key = serde_json::to_string(canonical.to_str().expect("utf-8")).expect("a key");
+        let settings = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+        let load = |profile: String, vars: &[(&str, &str)]| {
+            fs::write(&settings, profile).expect("a profile");
+            let vars = vars.iter().map(|(k, v)| (k.to_string(), v.to_string()));
+            let env = Environment::new(Some(home.clone()), vars.collect());
+            RuntimeConfig::load_with(&env, &workspace).expect("load")
+        };
+        let invalid = |config: &RuntimeConfig, key: &str| {
+            config.diagnostics.iter().any(|d| {
+                d.cause == DiagnosticCause::InvalidValue && d.setting_key.as_deref() == Some(key)
+            })
+        };
+        for (word, mode) in [
+            ("ASK", Some(PermissionMode::Ask)),
+            ("Auto", Some(PermissionMode::Auto)),
+            ("FULL-ACCESS", Some(PermissionMode::Yolo)),
+            ("Full Access", Some(PermissionMode::Yolo)),
+            ("YOLO", Some(PermissionMode::Yolo)),
+            ("sometimes", None),
+            (" ask", None),
+            ("full", None),
+        ] {
+            let quoted = serde_json::to_string(word).expect("a value");
+            // The profile's key: one fx's parse refuses leaves the default.
+            let global = load(format!(r#"{{"permission_mode": {quoted}}}"#), &[]);
+            let want = mode.unwrap_or(PermissionMode::Auto);
+            assert_eq!(global.permission_mode, want, "{word:?}");
+            assert_eq!(
+                invalid(&global, "permission_mode"),
+                mode.is_none(),
+                "{word:?}"
+            );
+            // Below the entry and the variable, a mode other than the word's,
+            // and other than ` ask` would be if it were trimmed.
+            let base = if word.trim().eq_ignore_ascii_case("ask") {
+                PermissionMode::Auto
+            } else {
+                PermissionMode::Ask
+            };
+            let want = mode.unwrap_or(base);
+            let entry = load(
+                format!(
+                    r#"{{"permission_mode": "{}", "workspaces": {{{key}: {{"permission_mode": {quoted}}}}}}}"#,
+                    base.label()
+                ),
+                &[],
+            );
+            assert_eq!(entry.permission_mode, want, "entry {word:?}");
+            let profile = format!(r#"{{"permission_mode": "{}"}}"#, base.label());
+            let env = load(profile, &[(ENV_PERMISSION_MODE, word)]);
+            assert_eq!(env.permission_mode, want, "variable {word:?}");
+            assert_eq!(
+                invalid(&env, ENV_PERMISSION_MODE),
+                mode.is_none(),
+                "{word:?}"
+            );
+        }
+        // A blank variable is no override and no complaint.
+        let blank = load(
+            r#"{"permission_mode": "ask"}"#.to_string(),
+            &[(ENV_PERMISSION_MODE, " ")],
+        );
+        assert_eq!(blank.permission_mode, PermissionMode::Ask);
+        assert!(!invalid(&blank, ENV_PERMISSION_MODE));
     }
 
     #[test]
@@ -3976,5 +4619,1038 @@ mod tests {
             assert_eq!(config.user_settings_path, None, "HOME={home:?}");
             assert_eq!(config.home(), None, "HOME={home:?}");
         }
+    }
+
+    /// fx v0.0.16's `validateModel` over a profile's `model`, edge by edge
+    /// (`settings_store.zig:894-902@481104fd`): its own trim set and ASCII
+    /// controls, not xfx's [`usable_model`].
+    #[test]
+    fn a_launch_refuses_the_models_fx_refuses_and_no_other() {
+        let refused = |model: Value| {
+            let mut object = serde_json::Map::new();
+            object.insert("model".to_string(), model);
+            fx_first_error_refuses(&object, true, false) == Some(true)
+        };
+        for model in ["", " a", "a ", "\ta", "a\r", "a\n", "a\u{1}b", "a\u{7f}b"] {
+            assert!(refused(serde_json::json!(model)), "{model:?}");
+        }
+        assert!(refused(serde_json::json!("m".repeat(1025))));
+        for model in [
+            serde_json::json!(5),
+            serde_json::json!(null),
+            serde_json::json!(true),
+            serde_json::json!(["a"]),
+        ] {
+            assert!(refused(model.clone()), "{model}");
+        }
+        for model in [
+            "openai/gpt-5".to_string(),
+            "openai/gpt 5".to_string(),
+            "\u{a0}openai/gpt-5".to_string(),
+            "모델".to_string(),
+            "m".repeat(1024),
+        ] {
+            assert!(!refused(serde_json::json!(model)), "{model:?}");
+        }
+        assert_eq!(
+            fx_first_error_refuses(&serde_json::Map::new(), true, false),
+            None
+        );
+        let retired = serde_json::json!({"skill_match_fuzzy": true, "model": " a"});
+        assert_eq!(
+            fx_first_error_refuses(retired.as_object().unwrap(), true, false),
+            Some(false)
+        );
+    }
+
+    /// Which profiles a launch refuses, read as a load reads them: the
+    /// profile's own file and this workspace's entry, never the project file
+    /// or another workspace's entry; an unsafe path ahead of what it holds.
+    #[test]
+    fn the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only() {
+        fn load(settings: impl Fn(&Path) -> String, project: Option<&str>) -> RuntimeConfig {
+            let root = tempfile::tempdir().expect("a root");
+            let home = root.path().join("home");
+            let workspace = root.path().join("workspace");
+            fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile");
+            private(&home.join(PROFILE_DIR_NAME), 0o700);
+            fs::create_dir_all(&workspace).expect("a workspace");
+            let workspace = workspace.canonicalize().expect("canonical");
+            let file = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+            fs::write(&file, settings(&workspace)).expect("the profile");
+            private(&file, 0o600);
+            if let Some(project) = project {
+                fs::write(workspace.join(PROJECT_SETTINGS_FILE), project).expect("project");
+            }
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load")
+        }
+        let key = |workspace: &Path| serde_json::json!(workspace.display().to_string()).to_string();
+        // A name, the profile for a workspace, the project file, the refusal.
+        type Case<'a> = (
+            &'a str,
+            Box<dyn Fn(&Path) -> String>,
+            Option<&'a str>,
+            Option<ProfileRefusal>,
+        );
+        let cases: [Case; 7] = [
+            ("valid", Box::new(|_| "{}".into()), None, None),
+            (
+                "torn",
+                Box::new(|_| "{".into()),
+                None,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "a torn project file",
+                Box::new(|_| "{}".into()),
+                Some("{"),
+                None,
+            ),
+            (
+                "a project model fx would refuse",
+                Box::new(|_| "{}".into()),
+                Some(r#"{"model":" a"}"#),
+                None,
+            ),
+            (
+                "another workspace's entry not an object",
+                Box::new(|_| r#"{"workspaces":{"/elsewhere":5}}"#.into()),
+                None,
+                None,
+            ),
+            (
+                "this workspace's entry not an object",
+                Box::new(move |w| format!(r#"{{"workspaces":{{{}:5}}}}"#, key(w))),
+                None,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "this workspace's model",
+                Box::new(move |w| format!(r#"{{"workspaces":{{{}:{{"model":"a\n"}}}}}}"#, key(w))),
+                None,
+                Some(ProfileRefusal::Rejected),
+            ),
+        ];
+        for (name, settings, project, expected) in cases {
+            assert_eq!(load(settings, project).profile_refusal, expected, "{name}");
+        }
+
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let file = home.path().join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+        fs::create_dir_all(&file).expect("a directory where the file belongs");
+        private(&home.path().join(PROFILE_DIR_NAME), 0o700);
+        let unsafe_dir = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(unsafe_dir.profile_refusal, Some(ProfileRefusal::Unsafe));
+        let refusals = |config: &RuntimeConfig| {
+            [Launch::Ask, Launch::Interactive, Launch::Status].map(|l| config.launch_refusal(l))
+        };
+        let refused = Some(PROFILE_REFUSAL);
+        assert_eq!(refusals(&unsafe_dir), [refused, None, None]);
+        assert_eq!(
+            refusals(&load(|_| "[]".into(), None)),
+            [refused, refused, None]
+        );
+        assert_eq!(refusals(&loaded_with(None, &[])), [None, None, None]);
+        let stopped = load(|_| r#"{"provider":"acme"}"#.into(), None);
+        assert_eq!(refusals(&stopped), [Some("UnknownConfiguredProvider"); 3]);
+    }
+
+    /// What fx v0.0.16's parse of the profile refuses, as the oracle ran each
+    /// profile (`.prd/tui-phase5/receipts/profile-refuse-typed-keys/`,
+    /// `fx-fixtures.txt`): the layer's first error decides, a broken
+    /// `provider` or `models` stops with that error's name, and a connection
+    /// name nothing defines stops with `UnknownConfiguredProvider`. `{ROOT}`
+    /// is this workspace's entry.
+    #[test]
+    fn a_launch_refuses_what_fxs_parse_of_the_profile_refuses() {
+        fn refusal(profile: &str, project: Option<&str>) -> Option<ProfileRefusal> {
+            let root = tempfile::tempdir().expect("a root");
+            let home = root.path().join("home");
+            let workspace = root.path().join("workspace");
+            fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+            private(&home.join(PROFILE_DIR_NAME), 0o700);
+            fs::create_dir_all(&workspace).expect("a workspace");
+            let workspace = workspace.canonicalize().expect("canonical");
+            let key = serde_json::json!(workspace.to_str().expect("utf-8")).to_string();
+            let file = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+            fs::write(&file, profile.replace("\"{ROOT}\"", &key)).expect("the profile");
+            private(&file, 0o600);
+            if let Some(project) = project {
+                fs::write(workspace.join(PROJECT_SETTINGS_FILE), project).expect("project");
+            }
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load")
+                .profile_refusal
+        }
+        use ProfileRefusal::{Rejected, Stopped};
+        let unknown = Some(Stopped("UnknownConfiguredProvider"));
+        let cases: &[(&str, Option<ProfileRefusal>)] = &[
+            // A key of the wrong type, or a value fx's grammar does not take.
+            (r#"{"fast_mode": "yes"}"#, Some(Rejected)),
+            (r#"{"permission": {"bash": "perhaps"}}"#, Some(Rejected)),
+            (
+                r#"{"workspaces": {"{ROOT}": {"fast_mode": "yes"}}}"#,
+                Some(Rejected),
+            ),
+            (r#"{"max_agent_steps": "seven"}"#, Some(Rejected)),
+            (r#"{"max_agent_steps": -1}"#, Some(Rejected)),
+            (r#"{"max_agent_steps": 5.0}"#, Some(Rejected)),
+            (
+                r#"{"max_agent_steps": 9223372036854775808}"#,
+                Some(Rejected),
+            ),
+            (r#"{"effort": 5}"#, Some(Rejected)),
+            (r#"{"effort": "!!"}"#, Some(Rejected)),
+            (r#"{"permission_mode": "sometimes"}"#, Some(Rejected)),
+            (r#"{"permission_mode": " ask"}"#, Some(Rejected)),
+            (r#"{"notifications": {"max": "loud"}}"#, Some(Rejected)),
+            (r#"{"statusLine": 5}"#, Some(Rejected)),
+            (r#"{"statusLine": {"workspace": "x"}}"#, Some(Rejected)),
+            (r#"{"prompt_history": {"enabled": "x"}}"#, Some(Rejected)),
+            (
+                r#"{"fast_mode": "yes", "provider": "gateway"}"#,
+                Some(Rejected),
+            ),
+            (r#"{"model": " a", "provider": "gateway"}"#, Some(Rejected)),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": 5}, "fast_mode": "yes"}"#,
+                Some(Rejected),
+            ),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": "OFF"}, "fast_mode": "yes"}"#,
+                Some(Rejected),
+            ),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": "1__0"}, "fast_mode": "yes"}"#,
+                Some(Rejected),
+            ),
+            // A key twice, at any depth, as decoded.
+            (
+                r#"{"permission_mode": "auto", "permission_mode": "ask"}"#,
+                Some(Rejected),
+            ),
+            (
+                r#"{"permission": {"bash": "allow", "bash": "deny"}}"#,
+                Some(Rejected),
+            ),
+            (r#"{"zzz": {"a": 1, "a": 2}}"#, Some(Rejected)),
+            (
+                r#"{"workspaces": {"{ROOT}": {"model": "a/b", "model": "a/c"}}}"#,
+                Some(Rejected),
+            ),
+            (
+                r#"{"fast_mode": true, "fast\u005fmode": true}"#,
+                Some(Rejected),
+            ),
+            // A broken `provider` or `models`: the load fails, naming it.
+            (r#"{"provider": "not-a-provider"}"#, unknown),
+            (r#"{"provider": 5}"#, Some(Stopped("InvalidProviderType"))),
+            (
+                r#"{"provider": "not a provider"}"#,
+                Some(Stopped("InvalidProviderValue")),
+            ),
+            (
+                r#"{"workspaces": {"{ROOT}": {"provider": "not-a-provider"}}}"#,
+                unknown,
+            ),
+            (
+                r#"{"fast_mode": "yes", "provider": "not-a-provider"}"#,
+                unknown,
+            ),
+            (
+                r#"{"models": {"gateway": " openai/gpt-5"}}"#,
+                Some(Stopped("InvalidModelValue")),
+            ),
+            (r#"{"models": 5}"#, Some(Stopped("InvalidModelType"))),
+            (
+                r#"{"models": {"not a provider": "openai/gpt-5"}}"#,
+                Some(Stopped("InvalidProviderValue")),
+            ),
+            (
+                r#"{"models": {"gateway": 5}}"#,
+                Some(Stopped("InvalidModelType")),
+            ),
+            (
+                r#"{"model": " a", "models": {"gateway": " b"}}"#,
+                Some(Stopped("InvalidModelValue")),
+            ),
+            (
+                r#"{"skill_match_fuzzy": true, "provider": 5}"#,
+                Some(Stopped("RetiredSkillMatchFuzzy")),
+            ),
+            (
+                r#"{"model": " a", "provider": 5}"#,
+                Some(Stopped("InvalidModelValue")),
+            ),
+            // fx starts: the first error is one no launch refuses, or none.
+            (r#"{"workspaces": {"{ROOT}": {"statusLine": 5}}}"#, None),
+            (
+                r#"{"workspaces": {"{ROOT}": {"statusLine": {"workspace": "x"}}}}"#,
+                None,
+            ),
+            (r#"{"skill_symlink_authorities": 5}"#, None),
+            (
+                r#"{"skill_symlink_authorities": 5, "notifications": 5}"#,
+                None,
+            ),
+            (r#"{"context_limits": "x", "fast_mode": "yes"}"#, None),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": "+5"}, "fast_mode": "yes"}"#,
+                None,
+            ),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": -1}, "fast_mode": "yes"}"#,
+                None,
+            ),
+            (
+                r#"{"context_limits": {"nope": 5}, "fast_mode": "yes"}"#,
+                None,
+            ),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": "_1"}, "fast_mode": "yes"}"#,
+                None,
+            ),
+            (
+                r#"{"context_limits": {"skill_chunk_bytes": ""}, "fast_mode": "yes"}"#,
+                None,
+            ),
+            (r#"{"additional_directories": 5}"#, None),
+            (r#"{"provider": "GATEWAY"}"#, None),
+            (
+                r#"{"provider": "not-a-provider", "workspaces": {"{ROOT}": {"provider": "gateway"}}}"#,
+                None,
+            ),
+            (r#"{"models": {"llmux": "anthropic/claude-x"}}"#, None),
+            (r#"{"models": {"gateway": "openai/gpt 5"}}"#, None),
+            (r#"{"permission_mode": "ASK"}"#, None),
+            // Round 2: the global connections, read first and bound last.
+            (r#"{"provider": "missing", "providers": {}}"#, unknown),
+            (r#"{"providers": 5}"#, Some(Stopped("InvalidObject"))),
+            (r#"{"providers": null}"#, Some(Stopped("InvalidObject"))),
+            (r#"{"workspaces": {"{ROOT}": {"providers": 5}}}"#, None),
+            // Round 2: the models, in the order the file wrote them.
+            (
+                r#"{"models": {"zz": 5, "aa": " x"}}"#,
+                Some(Stopped("InvalidModelType")),
+            ),
+            (r#"{"models": {"GATEWAY": "a/b", "gateway": "a/c"}}"#, None),
+            // Where xfx does not copy fx (`docs/parity.md`): keys only xfx
+            // reads, a key only fx reads, xfx's own provider, providers xfx
+            // has no registry for, a connection's own checks, and the name
+            // of an error a key only fx reads makes first. fx refuses or
+            // stops on all but the first.
+            (r#"{"backend": 5, "llmux_url": 5}"#, None),
+            (r#"{"theme": 5}"#, None),
+            (r#"{"provider": "llmux"}"#, None),
+            (r#"{"provider": "codex"}"#, None),
+            (r#"{"providers": {"x": 5}}"#, None),
+            (
+                r#"{"auto_compact_percent": "x", "provider": 5}"#,
+                Some(Stopped("InvalidProviderType")),
+            ),
+        ];
+        for (profile, expected) in cases {
+            assert_eq!(refusal(profile, None), *expected, "{profile}");
+        }
+        // One preference per provider, at most 35 in a layer and in the two
+        // merged; the `model` counts in a whole parse (`model_preferences.zig`).
+        let names = |first: u32, last: u32, value: &str| {
+            let names = (first..=last).map(|i| format!(r#""p{i:02}": {value}"#));
+            names.collect::<Vec<_>>().join(", ")
+        };
+        let too_many = Some(Stopped("TooManyModelPreferences"));
+        // A connection fx's registry takes: one it does not name is unknown;
+        // one it does, a registry xfx does not have (`docs/parity.md`).
+        let connection = r#"{"protocol": "openai-chat-completions", "base_url": "http://127.0.0.1:9/v1", "auth": {"type": "none"}}"#;
+        for (profile, expected) in [
+            (
+                format!(r#"{{"provider": "missing", "providers": {{"other": {connection}}}}}"#),
+                unknown,
+            ),
+            (
+                format!(r#"{{"provider": "acme", "providers": {{"acme": {connection}}}}}"#),
+                None,
+            ),
+            (
+                format!(r#"{{"models": {{{}}}}}"#, names(1, 35, r#""m/x""#)),
+                None,
+            ),
+            (
+                format!(r#"{{"models": {{{}}}}}"#, names(1, 36, r#""m/x""#)),
+                too_many,
+            ),
+            (
+                format!(
+                    r#"{{"model": "a/b", "models": {{{}}}}}"#,
+                    names(1, 35, r#""m/x""#)
+                ),
+                Some(Rejected),
+            ),
+            (
+                format!(
+                    r#"{{"models": {{{}}}, "workspaces": {{"{{ROOT}}": {{"models": {{{}}}}}}}}}"#,
+                    names(1, 20, r#""m/x""#),
+                    names(21, 40, r#""m/x""#)
+                ),
+                too_many,
+            ),
+            (
+                format!(r#"{{"providers": {{{}}}}}"#, names(1, 33, "1")),
+                Some(Stopped("LimitExceeded")),
+            ),
+            // Round 3: each limit's edge starts -- 32 connections (fx's
+            // `count() > max_providers`), a `models` Gateway in place of the `model`'s
+            // (`putOwned` replaces), and two layers naming the same 35, a
+            // built-in in either case (`mergeOwnedFrom` counts what is new).
+            (
+                format!(r#"{{"providers": {{{}}}}}"#, names(1, 32, connection)),
+                None,
+            ),
+            (
+                format!(
+                    r#"{{"model": "a/b", "models": {{"gateway": "c/d", {}}}}}"#,
+                    names(1, 34, r#""m/x""#)
+                ),
+                None,
+            ),
+            (
+                format!(
+                    r#"{{"models": {{{0}}}, "workspaces": {{"{{ROOT}}": {{"models": {{{0}}}}}}}}}"#,
+                    names(1, 35, r#""m/x""#)
+                ),
+                None,
+            ),
+            (
+                format!(
+                    r#"{{"models": {{"GATEWAY": "a/b", {0}}}, "workspaces": {{"{{ROOT}}": {{"models": {{"gateway": "c/d", {0}}}}}}}}}"#,
+                    names(1, 34, r#""m/x""#)
+                ),
+                None,
+            ),
+        ] {
+            assert_eq!(refusal(&profile, None), expected, "{profile}");
+        }
+        let twice = r#"{"max_agent_steps": 1, "max_agent_steps": 2}"#;
+        assert_eq!(refusal(r#"{"permission_mode": "auto"}"#, Some(twice)), None);
+    }
+
+    /// Every key the profile alone may set, of a type no key takes, is one
+    /// fx's parse fails at -- but the keys only xfx reads (`backend`,
+    /// `llmux_url`), `workspaces` (looked up, not parsed), and one fx reads
+    /// that xfx does not (`credential_source`): a key added to
+    /// [`PROFILE_ONLY_KEYS`] must be added to fx's checks too, or here. So
+    /// are the project-safe keys xfx checks as fx's `parseProjectSafeFields`
+    /// does (`config_runtime.zig:1898-1953`).
+    #[test]
+    fn every_profile_key_xfx_reads_is_one_fxs_parse_checks() {
+        let not_checked = ["backend", "llmux_url", "workspaces", "credential_source"];
+        let project_safe = ["max_agent_steps", "context_limits"];
+        for key in PROFILE_ONLY_KEYS
+            .iter()
+            .chain(&project_safe)
+            .filter(|key| !not_checked.contains(key))
+        {
+            let layer = serde_json::json!({ *key: [[1]] });
+            let layer = layer.as_object().expect("an object");
+            let routing_fails = fx_routing(layer, true).is_err();
+            assert!(
+                fx_first_error_refuses(layer, true, routing_fails).is_some(),
+                "{key}"
+            );
+        }
+    }
+
+    /// fx's parse refuses a settings file naming a key twice, in either
+    /// layer: the project file is then `malformed_settings` and not applied
+    /// (`config_runtime.zig:538-562`), where serde_json would keep the last.
+    #[test]
+    fn a_key_twice_is_a_file_that_does_not_parse_in_either_layer() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let path = dir.path().join(PROJECT_SETTINGS_FILE);
+        let read = |text: &str| {
+            fs::write(&path, text).expect("a file");
+            let mut diagnostics = Vec::new();
+            let read = read_layer(&path, ConfigLayer::Project, &mut diagnostics);
+            let causes: Vec<_> = diagnostics.iter().map(|d| d.cause).collect();
+            (read.object.is_some(), causes)
+        };
+        let malformed = (false, vec![DiagnosticCause::MalformedSettings]);
+        assert_eq!(
+            read(r#"{"max_agent_steps": 1, "max_agent_steps": 2}"#),
+            malformed
+        );
+        assert_eq!(read(r#"{"a": [{"b": 1, "b": 1}]}"#), malformed);
+        assert_eq!(read(r#"{"a": 1, "\u0061": 1}"#), malformed);
+        let apart = r#"{"a": {"b": 1}, "b": {"a": 1}, "c": [{"a": 1}, {"a": 1}]}"#;
+        assert_eq!(read(apart), (true, vec![]));
+    }
+
+    /// Every key xfx reads from a settings layer.
+    fn keys_xfx_reads() -> impl Iterator<Item = &'static str> {
+        PROFILE_ONLY_KEYS.iter().copied().chain([
+            "max_agent_steps",
+            "context_limits",
+            "providers",
+            crate::workspace::access::ADDITIONAL_DIRECTORIES_KEY,
+        ])
+    }
+
+    /// What each reader of a layer decides over `text` -- the profile's and
+    /// the project's parse, the permission table, fx's refusal (for the
+    /// workspace `/w`), the ignored-key notes, the saved directories -- its
+    /// notes aside; and the notes.
+    fn decisions(text: &str) -> (String, Vec<String>) {
+        let root = Path::new("/w");
+        let object = layer_json::object(text).expect("it reads");
+        let mut diagnostics = Vec::new();
+        let profile = parse_layer(
+            &object,
+            LayerKind::Profile,
+            ConfigLayer::User,
+            &mut diagnostics,
+        );
+        let project = parse_layer(
+            &object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        let table = permission_table(&object, &mut diagnostics).ok();
+        report_ignored_profile_keys(&object, &mut diagnostics);
+        let entry = exact_workspace_entry(&object, root, &mut diagnostics)
+            .map(|entry| entry.map(crate::workspace::access::saved_from_entry));
+        let causes: Vec<_> = diagnostics
+            .iter()
+            .map(|d| (d.layer, d.cause, d.setting_key.clone()))
+            .collect();
+        let decided = format!(
+            "{profile:?} {project:?} {table:?} {entry:?} {:?} {causes:?}",
+            fx_profile_refusal(&object, root)
+        );
+        let notes: Vec<_> = diagnostics.into_iter().filter_map(|d| d.note).collect();
+        (decided, notes)
+    }
+
+    /// Each key's value, in the global object and in `/w`'s entry: what each
+    /// reader decides, and the notes.
+    fn decisions_at(key: &str, value: &str) -> ((String, String), (Vec<String>, Vec<String>)) {
+        let global = decisions(&format!(r#"{{"{key}": {value}}}"#));
+        let entry = decisions(&format!(
+            r#"{{"workspaces": {{"/w": {{"{key}": {value}}}}}}}"#
+        ));
+        ((global.0, entry.0), (global.1, entry.1))
+    }
+
+    /// Bytes that are not UTF-8 are a file fx's parse refuses, as any bad
+    /// byte: `std.json`'s scanner takes valid UTF-8 only (`Scanner.zig:16-34@0.17.0`),
+    /// so it is `malformed_settings` in either layer -- not
+    /// `unreadable_settings`, which is a file that would not open or read.
+    #[test]
+    fn bytes_that_are_not_utf8_are_malformed_settings_in_either_layer() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let path = dir.path().join("settings.json");
+        for layer in [ConfigLayer::User, ConfigLayer::Project] {
+            for bytes in [&b"{\"zzz\": \"\xff\"}"[..], b"{\"a\": 1}\xc3", b"\xef\xbb"] {
+                fs::write(&path, bytes).expect("a file");
+                let mut diagnostics = Vec::new();
+                let read = read_layer(&path, layer, &mut diagnostics);
+                let causes: Vec<_> = diagnostics.iter().map(|d| d.cause).collect();
+                assert_eq!(
+                    (read.object.is_some(), causes),
+                    (false, vec![DiagnosticCause::MalformedSettings]),
+                    "{layer:?} {bytes:?}"
+                );
+            }
+        }
+    }
+
+    /// No key xfx reads looks past the depth [`layer_json`] keeps: for every
+    /// one, a value 200 deep -- kept 128 deep, the last container empty --
+    /// decides what the same shape 8 deep does, in each reader of a layer:
+    /// the profile's and the project's parse, the permission table, fx's
+    /// refusal (in the global object and this workspace's entry), the
+    /// ignored-key notes and the saved directories. One reader quotes the
+    /// value it cannot read, a permission action's (`TableError::BadAction`),
+    /// and it quotes the value as read, not the file's text: an action that
+    /// starts 4 deep is kept 125 deep, its last container empty, where the
+    /// file has 200 levels and a `1` -- an object chain and an array chain
+    /// alike. fx quotes nothing there: its launch refuses the file
+    /// (`.prd/tui-phase5/receipts/profile-json-limits/permission-note.txt`).
+    #[test]
+    fn no_key_xfx_reads_looks_past_the_depth_kept() {
+        let arrays = |depth: usize| format!("{}1{}", "[".repeat(depth), "]".repeat(depth));
+        let objects = |depth: usize| format!("{}1{}", r#"{"a": "#.repeat(depth), "}".repeat(depth));
+        let mut quoted = Vec::new();
+        for key in keys_xfx_reads() {
+            for nested in [&arrays as &dyn Fn(usize) -> String, &objects] {
+                let at = |depth| decisions_at(key, &nested(depth));
+                let (deep, shallow) = (at(200), at(8));
+                assert_eq!(deep.0, shallow.0, "{key} {}", nested(1));
+                if deep.1 != shallow.1 {
+                    quoted.push((key, deep.1 .0));
+                }
+            }
+        }
+        let says =
+            |action: &str| format!("`{action}` is not a permission action; use allow, ask or deny");
+        // `{"permission": {"a": {"a": <the action>}}}`: the file's action is
+        // 198 objects and a `1`; the one read starts 4 deep, so it is 125
+        // objects, the last empty.
+        let kept = format!("{}{{}}{}", r#"{"a":"#.repeat(124), "}".repeat(124));
+        assert_eq!(quoted.len(), 1, "{quoted:?}");
+        assert_eq!(quoted[0].0, PERMISSION_KEY);
+        assert_eq!(quoted[0].1, [says(&kept)]);
+        // A pattern's action that is an array chain (`{"permission": {"bash":
+        // {"*": <the action>}}}`): it decides what 8 deep does, and the note
+        // quotes 125 `[` and as many `]`, where the file has 200 and a `1`.
+        let action = |depth| {
+            format!(
+                r#"{{"permission": {{"bash": {{"*": {}}}}}}}"#,
+                arrays(depth)
+            )
+        };
+        let (deep, shallow) = (decisions(&action(200)), decisions(&action(8)));
+        assert_eq!(deep.0, shallow.0);
+        let kept = format!("{}{}", "[".repeat(125), "]".repeat(125));
+        assert_eq!(deep.1, [says(&kept)]);
+    }
+
+    /// No key xfx reads takes a number past `f64` as anything but a number
+    /// that is no integer: for every one, `1e400` and a 400-digit integer
+    /// decide what `1.5` does and `-1e400` what `-1.5` does, notes and all.
+    /// fx's `.number_string` is the same to its readers as a `.float`: none
+    /// in `src/core/config` takes either (`fx-src.txt` section 4).
+    #[test]
+    fn no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float() {
+        let huge = "7".repeat(400);
+        for key in keys_xfx_reads() {
+            for (past, float) in [("1e400", "1.5"), (huge.as_str(), "1.5"), ("-1e400", "-1.5")] {
+                assert_eq!(
+                    decisions_at(key, past),
+                    decisions_at(key, float),
+                    "{key}: {past}"
+                );
+            }
+        }
+    }
+
+    /// fx starts on a number past `f64` and on any nesting at a key nothing
+    /// reads (`.prd/tui-phase5/receipts/profile-json-limits/fx-fixtures.txt`),
+    /// and refuses one at `max_agent_steps` that is no integer
+    /// (`value != .integer`, `config_runtime.zig:1936@481104fd`): past `f64`,
+    /// past `i64`, `1e-400` and `-0` alike. A number `std.json` keeps as its
+    /// text leaves the others in the file as written: `max_agent_steps: 3`
+    /// beside it is 3.
+    #[test]
+    fn a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it() {
+        use ProfileRefusal::Rejected;
+        let load = |profile: &str| {
+            let dir = tempfile::tempdir().expect("a directory");
+            let home = dir.path().join("home");
+            let workspace = dir.path().join("work");
+            fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+            private(&home.join(PROFILE_DIR_NAME), 0o700);
+            fs::create_dir_all(&workspace).expect("a workspace");
+            let workspace = workspace.canonicalize().expect("canonical");
+            let key = serde_json::json!(workspace.to_str().expect("utf-8")).to_string();
+            let file = home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE);
+            fs::write(&file, profile.replace("\"{ROOT}\"", &key)).expect("the profile");
+            private(&file, 0o600);
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load")
+        };
+        let deep = |depth: usize| format!("{}{}", "[".repeat(depth - 1), "]".repeat(depth - 1));
+        let huge = "7".repeat(400);
+        let thirty = "123456789012345678901234567890";
+        for value in ["1e400", "-1e400", &huge, thirty, "1e-400", "-0", &deep(129)] {
+            for profile in [
+                format!(r#"{{"zzz": {value}}}"#),
+                format!(r#"{{"workspaces": {{"{{ROOT}}": {{"zzz": {value}}}}}}}"#),
+            ] {
+                let config = load(&profile);
+                assert_eq!(config.profile_refusal, None, "{profile}");
+                assert!(
+                    config.diagnostics.is_empty(),
+                    "{profile}: {:?}",
+                    config.diagnostics
+                );
+            }
+            for profile in [
+                format!(r#"{{"max_agent_steps": {value}}}"#),
+                format!(r#"{{"workspaces": {{"{{ROOT}}": {{"max_agent_steps": {value}}}}}}}"#),
+            ] {
+                assert_eq!(load(&profile).profile_refusal, Some(Rejected), "{profile}");
+            }
+        }
+        // 32,753 is the deepest 64 KiB holds beside `"max_agent_steps": 3`.
+        for depth in [128, 1_000, 32_753] {
+            let profile = format!(r#"{{"zzz": {}, "max_agent_steps": 3}}"#, deep(depth));
+            assert!(profile.len() <= MAX_SETTINGS_BYTES, "{depth}");
+            let config = load(&profile);
+            assert_eq!(config.profile_refusal, None, "{depth}");
+            assert_eq!(config.max_agent_steps, 3, "{depth}");
+        }
+        let config = load(r#"{"zzz": 1e400, "yyy": -1e400, "max_agent_steps": 3}"#);
+        assert_eq!((config.profile_refusal, config.max_agent_steps), (None, 3));
+    }
+
+    /// The project file: one fx reads -- a number past `f64` or a value 200
+    /// deep at a key nothing reads -- is applied, where serde_json made it
+    /// `malformed_settings`; one at `max_agent_steps` is that key's
+    /// `invalid_value`, as `5.0` there is.
+    #[test]
+    fn a_project_file_fx_reads_is_applied() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let path = dir.path().join(PROJECT_SETTINGS_FILE);
+        let read = |text: &str| {
+            fs::write(&path, text).expect("a file");
+            let mut diagnostics = Vec::new();
+            let read = read_layer(&path, ConfigLayer::Project, &mut diagnostics);
+            let Some(object) = read.object else {
+                return (None, diagnostics.iter().map(|d| (d.cause, None)).collect());
+            };
+            let layer = parse_layer(
+                &object,
+                LayerKind::Project,
+                ConfigLayer::Project,
+                &mut diagnostics,
+            );
+            let keys: Vec<_> = diagnostics
+                .iter()
+                .map(|d| (d.cause, d.setting_key.clone()))
+                .collect();
+            (layer.max_agent_steps, keys)
+        };
+        let deep = format!("{}{}", "[".repeat(200), "]".repeat(200));
+        for value in ["1e400", "-1e400", deep.as_str()] {
+            let text = format!(r#"{{"zzz": {value}, "max_agent_steps": 3}}"#);
+            assert_eq!(read(&text), (Some(3), vec![]), "{value}");
+        }
+        let key = Some("max_agent_steps".to_string());
+        let invalid = (None, vec![(DiagnosticCause::InvalidValue, key)]);
+        for value in ["1e400", "5.0", deep.as_str()] {
+            assert_eq!(
+                read(&format!(r#"{{"max_agent_steps": {value}}}"#)),
+                invalid,
+                "{value}"
+            );
+        }
+    }
+
+    /// Sets `path`'s mode bits, whatever the umask made them.
+    fn private(path: &Path, mode: u32) {
+        #[cfg(unix)]
+        fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(mode))
+            .expect("set a mode");
+        #[cfg(not(unix))]
+        let _ = (path, mode);
+    }
+
+    /// fx's read-only open of the profile, step by step
+    /// (`settings_store.zig:340-391`, `:716-748`, `io.zig:213-286@481104fd`):
+    /// unsafe before anything is opened, an open that fails before the mode,
+    /// a mode open to group or other before any byte is read -- so a torn
+    /// file nobody but its owner may write is refused, and the same file
+    /// group may write to, or in a `~/.xfx` group may write to, is not.
+    #[cfg(unix)]
+    #[test]
+    fn the_profile_is_opened_in_fxs_order_before_what_it_holds_counts() {
+        type Lay = fn(&Path, &Path);
+        fn torn(dir: &Path, file: &Path) {
+            fs::create_dir_all(dir).expect("dir");
+            private(dir, 0o700);
+            fs::write(file, "{").expect("file");
+            private(file, 0o600);
+        }
+        let cases: [(&str, Lay, ProfileOpen, Option<ProfileRefusal>); 12] = [
+            ("nothing", |_, _| {}, ProfileOpen::Absent, None),
+            (
+                "a HOME nobody may list",
+                |dir, file| {
+                    torn(dir, file);
+                    fs::write(file, "{}").expect("a valid file");
+                    private(dir.parent().expect("home"), 0o300);
+                },
+                ProfileOpen::Unopenable,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "torn",
+                torn,
+                ProfileOpen::Read,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "torn, group may write the file",
+                |dir, file| {
+                    torn(dir, file);
+                    private(file, 0o664);
+                },
+                ProfileOpen::NotRead,
+                None,
+            ),
+            (
+                "torn, other may write the file",
+                |dir, file| {
+                    torn(dir, file);
+                    private(file, 0o602);
+                },
+                ProfileOpen::NotRead,
+                None,
+            ),
+            (
+                "torn, group may write the directory",
+                |dir, file| {
+                    torn(dir, file);
+                    private(dir, 0o770);
+                },
+                ProfileOpen::NotRead,
+                None,
+            ),
+            (
+                "write-only, open to all",
+                |dir, file| {
+                    torn(dir, file);
+                    private(file, 0o222);
+                },
+                ProfileOpen::Unopenable,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "a directory nobody may list",
+                |dir, file| {
+                    torn(dir, file);
+                    private(dir, 0o300);
+                },
+                ProfileOpen::Unopenable,
+                Some(ProfileRefusal::Rejected),
+            ),
+            (
+                "a second hard link",
+                |dir, file| {
+                    torn(dir, file);
+                    fs::hard_link(file, dir.with_file_name("other")).expect("link");
+                },
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+            (
+                // Unsafe on the look, before an open that would fail.
+                "a second hard link nobody may read",
+                |dir, file| {
+                    torn(dir, file);
+                    fs::hard_link(file, dir.with_file_name("other")).expect("link");
+                    private(file, 0o000);
+                },
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+            (
+                "a FIFO",
+                |dir, file| {
+                    fs::create_dir_all(dir).expect("dir");
+                    private(dir, 0o700);
+                    let made = crate::process::status(crate::process::command("mkfifo").arg(file))
+                        .expect("run mkfifo");
+                    assert!(made.success(), "a FIFO");
+                },
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+            (
+                "a file where the directory belongs",
+                |dir, _| fs::write(dir, "{}").expect("a file"),
+                ProfileOpen::Unsafe,
+                Some(ProfileRefusal::Unsafe),
+            ),
+        ];
+        for (name, lay, opened, refusal) in cases {
+            let home = tempfile::tempdir().expect("a home");
+            let workspace = tempfile::tempdir().expect("a workspace");
+            let dir = home.path().join(PROFILE_DIR_NAME);
+            let file = dir.join(USER_SETTINGS_FILE);
+            lay(&dir, &file);
+            // A reader the mode bits do not stop (root) cannot make these.
+            let unstopped = match name {
+                "write-only, open to all" | "a second hard link nobody may read" => {
+                    fs::read(&file).is_ok()
+                }
+                "a directory nobody may list" => fs::read_dir(&dir).is_ok(),
+                "a HOME nobody may list" => fs::read_dir(home.path()).is_ok(),
+                _ => false,
+            };
+            if !unstopped {
+                assert_eq!(profile_open(home.path()).0, opened, "{name}");
+                let config = RuntimeConfig::load_with(
+                    &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+                    workspace.path(),
+                )
+                .expect("load");
+                assert_eq!(config.profile_refusal, refusal, "{name}");
+            }
+            private(home.path(), 0o700);
+            if dir.is_dir() {
+                private(&dir, 0o700);
+            }
+        }
+    }
+
+    /// The settings file's open on its own, the path standing as it may stand
+    /// by the time the open comes, after the look: a link is not followed, a
+    /// FIFO is not waited on, a second name or an open mode is seen on the
+    /// open descriptor (`io.zig:238-261`, `settings_store.zig:744-746`).
+    #[cfg(unix)]
+    #[test]
+    fn the_open_checks_what_it_opened_not_what_was_looked_at() {
+        let root = tempfile::tempdir().expect("a root");
+        let dir_path = root.path().join("profile");
+        fs::create_dir(&dir_path).expect("dir");
+        private(&dir_path, 0o700);
+        let dir = rustix::fs::open(
+            &dir_path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY,
+            rustix::fs::Mode::empty(),
+        )
+        .expect("the directory");
+        let name = "settings.json";
+        let file = dir_path.join(name);
+        let fresh = |text: &str, mode: u32| {
+            let _ = fs::remove_file(&file);
+            fs::write(&file, text).expect("a file");
+            private(&file, mode);
+        };
+
+        fresh("{}", 0o600);
+        assert_eq!(open_settings(&dir, name).0, ProfileOpen::Read);
+        fresh("{}", 0o664);
+        assert_eq!(open_settings(&dir, name).0, ProfileOpen::NotRead);
+
+        fresh("{}", 0o600);
+        fs::rename(&file, dir_path.join("real.json")).expect("move");
+        std::os::unix::fs::symlink("real.json", &file).expect("a link");
+        assert_eq!(open_settings(&dir, name).0, ProfileOpen::Unsafe, "a link");
+
+        fresh("{}", 0o600);
+        fs::hard_link(&file, dir_path.join("other.json")).expect("a second name");
+        assert_eq!(
+            open_settings(&dir, name).0,
+            ProfileOpen::Unsafe,
+            "a hard link"
+        );
+
+        // A FIFO nobody writes to: an open that waited would wait forever, so
+        // it runs on a thread, freed by a writer opened without waiting.
+        let _ = fs::remove_file(&file);
+        let made = crate::process::status(crate::process::command("mkfifo").arg(&file))
+            .expect("run mkfifo");
+        assert!(made.success(), "a FIFO");
+        let (sent, got) = std::sync::mpsc::channel();
+        let opener = {
+            let dir = dir.try_clone().expect("the descriptor");
+            std::thread::spawn(move || sent.send(open_settings(&dir, name).0))
+        };
+        // A failure joins the thread only once it has ended, within a bound;
+        // one still running is left, so the test fails and never waits.
+        let ended = |opener: std::thread::JoinHandle<_>| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !opener.is_finished() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            opener.is_finished().then(|| opener.join())
+        };
+        match got.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(opened) => assert_eq!(opened, ProfileOpen::Unsafe, "a FIFO"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("the open stopped without an answer: {:?}", ended(opener))
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let mut writer = fs::OpenOptions::new();
+                std::os::unix::fs::OpenOptionsExt::custom_flags(
+                    writer.write(true),
+                    libc::O_NONBLOCK,
+                );
+                // Opens only while the waiting open is there to free, and is
+                // held while the thread is given its time to end.
+                let _writer = writer.open(&file);
+                let _ = ended(opener);
+                panic!("the open waited on a FIFO");
+            }
+        }
+    }
+
+    /// Any other layer is looked at before it is opened, as fx's
+    /// `readOptionalFile` checks before its open (`config_runtime.zig:1415-1429`):
+    /// a socket in the project file's place is not a file, not an open that
+    /// fails.
+    #[cfg(unix)]
+    #[test]
+    fn a_project_file_is_looked_at_before_it_is_opened() {
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let path = workspace.path().join(PROJECT_SETTINGS_FILE);
+        let _socket = std::os::unix::net::UnixListener::bind(&path).expect("a socket");
+        let mut diagnostics = Vec::new();
+        read_layer(&path, ConfigLayer::Project, &mut diagnostics);
+        let causes: Vec<_> = diagnostics.iter().map(|d| d.cause).collect();
+        assert_eq!(causes, [DiagnosticCause::MalformedSettings]);
+    }
+
+    /// A read-only open accepts a file with no name left: the settings save
+    /// renamed another over it after the open (`io.zig:221-224`, `:281-286`).
+    /// A second name is still unsafe.
+    #[cfg(unix)]
+    #[test]
+    fn a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not() {
+        use rustix::fs::{fstat, open, Mode, OFlags};
+        let dir = tempfile::tempdir().expect("a directory");
+        private(dir.path(), 0o700);
+        let file = dir.path().join(USER_SETTINGS_FILE);
+        fs::write(&file, "{}").expect("a file");
+        private(&file, 0o600);
+        let opened = open(&file, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty()).expect("open");
+        let next = dir.path().join("next.json");
+        fs::write(&next, "{}").expect("the next file");
+        fs::rename(&next, &file).expect("renamed over");
+        let stat = fstat(&opened).expect("the opened file");
+        assert_eq!(stat.st_nlink, 0, "no name left");
+        assert!(sole_regular(&stat), "a snapshot is not unsafe");
+
+        fs::hard_link(&file, dir.path().join("other.json")).expect("a second name");
+        let linked = open(&file, OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty()).expect("open");
+        assert!(!sole_regular(&fstat(&linked).expect("stat")), "a hard link");
+    }
+
+    /// The profile layer is read from the descriptor that was checked, not
+    /// from the path: a file put in its place after the open is not what is
+    /// judged.
+    #[cfg(unix)]
+    #[test]
+    fn the_profile_layer_is_read_from_the_descriptor_that_was_checked() {
+        let home = tempfile::tempdir().expect("a home");
+        let dir = home.path().join(PROFILE_DIR_NAME);
+        let file = dir.join(USER_SETTINGS_FILE);
+        fs::create_dir(&dir).expect("dir");
+        private(&dir, 0o700);
+        fs::write(&file, r#"{"max_agent_steps": 7}"#).expect("the profile");
+        private(&file, 0o600);
+        let (opened, descriptor) = profile_open(home.path());
+        assert_eq!(opened, ProfileOpen::Read);
+        let torn = dir.join("torn.json");
+        fs::write(&torn, "{").expect("a torn file");
+        fs::rename(&torn, &file).expect("put in its place");
+        let mut diagnostics = Vec::new();
+        let read = read_user_layer(descriptor, Some(&file), &mut diagnostics);
+        assert_eq!(
+            read.object
+                .and_then(|object| object.get("max_agent_steps").cloned()),
+            Some(serde_json::json!(7)),
+            "{diagnostics:?}"
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

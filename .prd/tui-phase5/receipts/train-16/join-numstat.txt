@@ -1,0 +1,43 @@
+# round2_numstat.py over main's side of the join, 866747ff..e0aedbf6 (outside .prd)
+# git diff --numstat 866747ff e0aedbf6 -- . ':!.prd'
+1	1	.github/preview-epoch
+57	9	.github/workflows/ci.yml
+34	3	scripts/check-no-secrets.sh
+11	1	scripts/check-preview-contract.sh
+8	1	scripts/check-xfx-identity.sh
+115	0	scripts/early-stop-env.sh
+9	0	scripts/smoke.sh
+106	2	scripts/test-check-no-secrets.sh
+135	0	scripts/test-early-stop.sh
+120	4	scripts/test-gate-env.sh
+56	2	scripts/test-preview-contract.sh
+# by class (lines out, lines in):
+  gate scripts and CI (scripts/, .github/workflows/): -22 +651
+  the preview epoch file: -1 +1
+  product code: -0 +0
+
+# and over the whole join on the train, 6137bd3d..a4452753 (the merge 75d1318c and the doc commit a4452753; outside .prd)
+# git diff --numstat 6137bd3d a4452753 -- . ':!.prd'
+1	1	.github/preview-epoch
+60	12	.github/workflows/ci.yml
+6	4	CONTRIBUTING.md
+7	4	README.md
+34	3	scripts/check-no-secrets.sh
+11	1	scripts/check-preview-contract.sh
+8	1	scripts/check-xfx-identity.sh
+115	0	scripts/early-stop-env.sh
+9	0	scripts/smoke.sh
+106	2	scripts/test-check-no-secrets.sh
+135	0	scripts/test-early-stop.sh
+120	4	scripts/test-gate-env.sh
+56	2	scripts/test-preview-contract.sh
+# by class (lines out, lines in):
+  docs (.md): -8 +13
+  gate scripts and CI (scripts/, .github/workflows/): -25 +654
+  the preview epoch file: -1 +1
+  product code: -0 +0
+
+# round 2's receipt commits, between 6137bd3d and the join: files each touches outside .prd/tui-phase5/receipts/train-16/ (git show --format= --name-only)
+  34c97078: 0 of 56
+  1b3fbdc2: 0 of 1
+  ac0b0ff5: 0 of 1

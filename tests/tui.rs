@@ -19,6 +19,7 @@ use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
 use serde_json::Value;
 use support::fake_gateway::{sent, FakeGateway};
+use support::profiles;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::{Sandbox, UNREADABLE_PROVIDER};
 use unicode_segmentation::UnicodeSegmentation;
@@ -588,7 +589,7 @@ fn assert_raw(state: TerminalState) {
 ///
 /// Every other raw-mode assertion in this suite waits on a byte that the child
 /// writes *after* the `tcsetattr` in question -- the mode set, which `resume`
-/// emits only once raw mode is back (`src/tui/mod.rs:759-760`). That works
+/// emits only once raw mode is back (`src/tui/mod.rs:772-773`). That works
 /// whenever the wire says which mode set is which. After a stop whose timing
 /// the test does not control, it does not: a session stopped *after* it
 /// announced itself has already put one mode set on the wire, so waiting for
@@ -1058,6 +1059,126 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
     assert_no_mode_bytes(&text);
     assert_eq!(before, modes(&pty), "a refused resume touched the terminal");
     assert_eq!(sandbox.session_ids(), Vec::<String>::new());
+}
+
+/// A profile fx v0.0.16 refuses stops the TUI before the terminal is
+/// taken: fx loads the startup state after its terminal check and before raw
+/// mode (`bootstrapInteractiveApp`, `app_lifecycle.zig:851-883@481104fd`),
+/// refuses (`:689-703`) and exits 1 with `fx: InvalidProfileConfiguration`
+/// (`app_entry_runtime.zig:537-539`, `main.zig:3316`). So: that one line, no
+/// mode byte, the terminal's modes as they were, and the home and the
+/// workspace untouched -- a resume too, which fx refuses before it looks for
+/// the session.
+#[test]
+fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
+    let cases = profiles::every_launch_refuses()
+        .map(|(name, profile, error)| (name, profile, error, None))
+        .chain([(
+            "not JSON, on a resume",
+            profiles::REJECTED[0].1,
+            "InvalidProfileConfiguration",
+            Some("no-such-session"),
+        )]);
+    for (name, profile, error, resume) in cases {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
+            eprintln!("skipped {name}: the mode bits do not stop this reader");
+            continue;
+        }
+        let tree_before = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut command = tui(&sandbox);
+        if let Some(id) = resume {
+            command.arg("--resume").arg(id);
+        }
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        assert_eq!(session.wait_exit().code(), Some(1), "{name}");
+        let text = session.settled_text();
+        assert_eq!(text, format!("xfx: {error}\r\n"), "{name}");
+        assert_no_mode_bytes(&text);
+        assert_eq!(
+            before,
+            modes(&pty),
+            "{name}: the refusal touched the terminal"
+        );
+        let tree_after = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        assert_eq!(tree_after, tree_before, "{name}: the refusal wrote");
+        profiles::unlock(&sandbox.home);
+    }
+}
+
+/// What only `ask` refuses (fx's `durable_path_unsafe`) starts the TUI, as
+/// fx's interactive launch, with the stored credential mode, goes on
+/// (`app_lifecycle.zig:693-696`, `:501-515`).
+#[test]
+fn a_profile_only_ask_refuses_starts_the_tui() {
+    // A linked `~/.xfx`, or a file in its place, is not here: the session
+    // store refuses one in its own words before anything is asked
+    // (`src/profile_home.rs`, whose rule `docs/parity.md` keeps), which
+    // this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE.iter().filter(|(_, profile)| {
+        !matches!(
+            profile,
+            profiles::Profile::LinkedDir | profiles::Profile::FileForDir
+        )
+    }) {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            continue;
+        }
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+        session.wait_for(READY);
+        assert!(
+            !session.text().contains("InvalidProfileConfiguration"),
+            "{name}"
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0), "{name}");
+    }
+}
+
+/// A profile that goes bad after the launch is no refusal: the session goes
+/// on and the `/status` panel says the settings could not be read where Auth
+/// would stand (`openStatusSnapshot`, `session_commands.zig:280-296@481104fd`;
+/// `p5-panels-status-badsettings`).
+#[test]
+fn a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal() {
+    let sandbox = Sandbox::new();
+    assert!(profiles::lay(
+        &sandbox.home,
+        &sandbox.workspace,
+        profiles::Profile::Text(r#"{"permission_mode": "auto"}"#)
+    ));
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    std::fs::write(
+        sandbox.settings_path(),
+        r#"{"permission_mode": "auto", "sandbox": "#,
+    )
+    .expect("the profile goes bad");
+    session.type_bytes(b"/status\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["couldn't be read: InvalidSettingsFormat"],
+        &["InvalidProfileConfiguration"],
+    );
+    session.type_bytes(b"\x1b");
+    on_screen(&session, (40, 120), &[], &["couldn't be read"]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
@@ -2200,7 +2321,7 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     // terminal's own answer rather than the 24x80 a pty with no size falls
     // back to -- and so the assertion below is about geometry.
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2275,7 +2396,7 @@ fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2335,7 +2456,7 @@ fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
     std::fs::write(&profile, "{\"startup_scrollback\":false}").expect("the profile");
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2597,7 +2718,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1809,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412` all clear the line
+    // (`tests/tui.rs:1930,2312,2887,3234,3357,4049,7769,7843,8630,9331,9527` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -3031,7 +3152,7 @@ fn the_hint_row_says_what_mode_and_which_model_a_turn_will_use() {
 fn a_session_with_no_credential_is_told_so_before_it_spends_a_prompt() {
     // The segment that leads the row, and the only one that is about the
     // machine rather than about the turn: this sandbox exports no credential of
-    // any kind (`Sandbox::CONTROLLED_VARS` are removed), so every turn it could
+    // any kind (`support::sandbox::clear_env` keeps none), so every turn it could
     // run would refuse -- which is worth knowing before typing a prompt rather
     // than after sending one.
     let sandbox = Sandbox::new();
@@ -6688,7 +6809,7 @@ fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
     on_screen(
         &session,
         (40, 120),
-        &["\u{2717} credits: provider=rejected: the `provider` setting is `not-a-provider`"],
+        &["\u{2717} credits: provider=rejected: the `provider` setting is `codex`"],
         &["MARKER-TITLE", "balance=42.17"],
     );
 
@@ -8486,14 +8607,8 @@ mod faults {
         assert_eq!(before, modes(&pty));
 
         // A torn manifest is worse than a slow exit: the session must still read.
-        let listed = xfx::process::output(
-            Command::new(env!("CARGO_BIN_EXE_xfx"))
-                .arg("session")
-                .arg("last")
-                .current_dir(&sandbox.workspace)
-                .env("HOME", &sandbox.home),
-        )
-        .expect("read the session back");
+        let listed = xfx::process::output(sandbox.command().arg("session").arg("last"))
+            .expect("read the session back");
         assert!(
             listed.status.success(),
             "the session log was left unreadable: {listed:?}"
@@ -9715,7 +9830,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:17353`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:17608`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
@@ -9753,13 +9868,16 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
 
     // And now the claim itself, on the far side of the session's knowledge:
     // the too-small screen has been observed and resolved, so `blind` is
-    // established, and Ctrl-L asks for a frame the session cannot paint.
-    // `Action::Redraw` inside the approval panel raises
-    // `Reason::ExternalDamage` (`src/tui/shell.rs:10127`) and answers nothing,
-    // which makes this a frame that is genuinely owed rather than a stretch of
-    // time in which nothing happened to want one. The old assertion could pass
-    // on a session with nothing to say; this one cannot.
-    session.type_bytes(&[0x0c]);
+    // established, and Down asks for a frame the session cannot paint. Down
+    // inside the approval panel moves the marker, which asks for a modal frame
+    // and answers nothing, so this is a frame that is genuinely owed rather
+    // than a stretch of time in which nothing happened to want one. The old
+    // assertion could pass on a session with nothing to say; this one cannot.
+    // (Down rather than Ctrl-L, which used to raise `Reason::ExternalDamage`
+    // here: Ctrl-L at a question does nothing now, as fx v0.0.16's does, so it
+    // would owe no frame. The `1` below is a digit, which the marker does not
+    // change.)
+    session.type_bytes(b"\x1b[B");
     let after_shrinking = wait_until_quiet(&session);
     assert_eq!(
         after_shrinking,

@@ -1,0 +1,24 @@
+## MUST 1(a): #[cfg(/*)*/ all(test, not(clippy)))] over a HOME read in a unit test
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:32: a cfg predicate that names clippy, under which code is never linted)
+## MUST 1(a): #[cfg /* c */ (not(clippy))] over a HOME read in a unit test
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:32: a cfg predicate that names clippy, under which code is never linted)
+## MUST 1(b): a block comment closed on a line that starts with //, then the cfg
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:33: a cfg predicate that names clippy, under which code is never linted)
+## MUST 1(c): a #[path] module file that is not .rs, its test under not(clippy)
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/hidden.inc:1: a cfg predicate that names clippy, under which code is never linted)
+## SHOULD: build.rs prints a rustc-cfg
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings passes; check-env-reads refuses (refused: build.rs:0: the build script sets a cfg (rustc-cfg), which can differ between clippy and a test build)
+## SHOULD: getpwent in a unit test
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 1 previous error; error: use of a disallowed method `libc::getpwent`); check-env-reads refuses (refused: src/test_env/tests.rs:0: libc::getpwent outside env_exception! and process_env!, unlisted (1))
+## SHOULD: a default feature
+  at 9a4d5ef2: clippy -D warnings passes; check-env-reads passes
+  at c405fb7d: clippy -D warnings passes; check-env-reads refuses (refused: Cargo.toml:0: a default feature, which the check's matrix (none, all) never turns off)
+## MUST 2: a nested env! whose dep-info is emptied (the check run once to build, the .d files emptied, run again)
+  at 9a4d5ef2: with its dep-info, check-env-reads refuses (refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name | refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name); 68 .d files emptied; then check-env-reads passes
+  at c405fb7d: with its dep-info, check-env-reads refuses (refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name | refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name); 48 .d files emptied; then check-env-reads refuses (refused: src/lib.rs:0: built with no dep-info to say what it read at compile time | refused: src/lib.rs:0: built with no dep-info to say what it read at compile time | refused: src/main.rs:0: built with no dep-info to say what it read at compile time)

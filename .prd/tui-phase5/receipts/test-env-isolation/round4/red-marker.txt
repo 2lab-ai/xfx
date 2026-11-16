@@ -1,0 +1,8 @@
+# at a327dd8a: tests/permissions.rs, --exact auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook
+marker round 3 (1): exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.04s; refused: no; reads under the sentinel home: 2 ['permission::authority::minimal_environment\tHOME']; sentinel values in output: 0
+marker well-formed: exit 101; test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.03s; refused: no; reads under the sentinel home: 2 ['permission::authority::minimal_environment\tHOME']; sentinel values in output: 0
+
+# at dcb9c12a: tests/permissions.rs, --exact auto_does_not_run_git_in_a_directory_whose_configuration_defines_a_hook
+marker round 3 (1): exit 101; no test result; refused: no case runs: the marker is not a name the copy's parent made; reads under the sentinel home: 0 []; sentinel values in output: 0
+marker well-formed: exit 101; no test result; refused: no case runs: HOME is not empty, so it is not the one made for the copy; reads under the sentinel home: 0 []; sentinel values in output: 0
+

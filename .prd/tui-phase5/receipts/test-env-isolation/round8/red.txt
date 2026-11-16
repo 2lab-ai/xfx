@@ -1,0 +1,4 @@
+## MUST: opus's cfg_select!, its clippy arm empty, a HOME read in the other
+  at 217d793a: clippy -D warnings passes; check-env-reads passes
+  at 92b6ebca: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:32: a cfg_select! arm whose predicate names clippy, under which code is never linted)
+red exit 0

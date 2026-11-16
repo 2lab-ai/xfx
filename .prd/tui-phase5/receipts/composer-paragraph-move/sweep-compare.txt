@@ -1,0 +1,40 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/sweep-base/pairs.json <scratch>/sweep-head/pairs.json
+# base: xfx v0.1.0-3f2d6e7 (sha256 ffc659e9fda1...), head: v0.1.0-45d9ad1 (sha256 a13a00514dc4...); fx v0.0.16 both; this branch's scenarios; both rescored (--rescore) with this branch's ledger after its refs were re-pointed;
+# --only composer* fulltranscript* p5-modified-arrows* p5-modified-page-keys question* p5-question* p5-input-* slash* model* p5-paragraph-move*, 40x120, --jobs 2, both in one suite-lock slot (1022 s each)
+change p5-paragraph-move/alt-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 12 -> 0
+change p5-paragraph-move/alt-down2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 12 -> 0
+change p5-paragraph-move/alt-down3: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 14 -> 0
+change p5-paragraph-move/alt-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-paragraph-move/alt-up3: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-paragraph-move/alt-up5: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-paragraph-move/alt-up7: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-paragraph-move/ctrl-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 9 -> 0
+change p5-paragraph-move/empty-alt-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move/empty-ctrl-shift-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move/empty-shift-alt-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move/empty-shift-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move/empty-super-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move/full-typed: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 9 -> 0
+change p5-paragraph-move/full-typed2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 9 -> 0
+change p5-paragraph-move/full-typed3: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 9 -> 0
+change p5-paragraph-move/shift-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 14 -> 0
+change p5-paragraph-move/shift-up2: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 9 -> 0
+change p5-paragraph-move/super-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 14 -> 0
+change p5-paragraph-move/super-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 14 -> 0
+change p5-paragraph-move/super-up3: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 14 -> 0
+change p5-paragraph-move-column/shift-up-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move-menus/at-alt-up: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 11 -> 0
+change p5-paragraph-move-menus/at-alt-up-typed: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 13 -> 0
+change p5-paragraph-move-menus/effort-alt-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-paragraph-move-menus/effort-super-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-paragraph-move-menus/slash-alt-up: unresolved-defect -> normalized-identical; causes ['menu-shift'] -> []; uncaused 0 -> 0
+change p5-paragraph-move-menus/slash-alt-up-typed: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move-menus/slash-super-up: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 0 -> 0
+change p5-paragraph-move-menus/slash-super-up-typed: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-paragraph-move-menus/statusline-ctrl-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-paragraph-move-menus/statusline-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-paragraph-move-menus/statusline-shift-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+change p5-paragraph-move-menus/statusline-super-down: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 4 -> 0
+base: 399 pairs, 299 pass, 41 with uncaused rows
+head: 399 pairs, 333 pass, 9 with uncaused rows
+drops: 0

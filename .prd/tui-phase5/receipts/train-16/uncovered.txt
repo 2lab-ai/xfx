@@ -1,0 +1,7 @@
+# pairs with a row no cause covers: base 164, head 165
+# the base's alone: [('p5-panels-badsettings', 'launch')]
+# the head's alone: [('p5-slash-leading-ws', 'vers-recall'), ('p5-slash-leading-ws', 'vers-run')]
+  head p5-slash-leading-ws vers-recall: [('fx ', '* version: <build>'), ('xfx', '* version: <build>')]; first differing cell 16: fx [(16, 'd', (('fg', 250),)), (17, '>', (('fg', 250),))] / xfx [(16, 'd', ()), (17, '>', (('fg', 250),))]
+  head p5-slash-leading-ws vers-run: [('fx ', '* version: <build>'), ('xfx', '* version: <build>')]; first differing cell 16: fx [(16, 'd', (('fg', 250),)), (17, '>', (('fg', 250),))] / xfx [(16, 'd', ()), (17, '>', (('fg', 250),))]
+  base p5-panels-sweep-a version: [('fx ', '* version: <build>'), ('xfx', '* version: <build>')]; first differing cell 16: fx [(16, 'd', (('fg', 250),)), (17, '>', (('fg', 250),))] / xfx [(16, 'd', ()), (17, '>', (('fg', 250),))]
+  base p5-panels-sweep-a alias: [('fx ', '* version: <build>'), ('xfx', '* version: <build>')]; first differing cell 16: fx [(16, 'd', (('fg', 250),)), (17, '>', (('fg', 250),))] / xfx [(16, 'd', ()), (17, '>', (('fg', 250),))]

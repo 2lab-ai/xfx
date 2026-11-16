@@ -1,0 +1,3 @@
+# 1408 shared snaps
+fx: .ansi moved 142 (compare.py's count); moved, by class: txt-masked 103, txt-other 39, ansi-only 2; 144 in all, 2 of them a .txt move whose .ansi did not move; snaps not read: 0
+xfx: .ansi moved 298 (compare.py's count); moved, by class: txt-masked 99, txt-other 200, ansi-only 0; 299 in all, 1 of them a .txt move whose .ansi did not move; snaps not read: 0

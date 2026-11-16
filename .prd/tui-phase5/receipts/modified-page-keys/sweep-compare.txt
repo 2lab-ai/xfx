@@ -1,0 +1,9 @@
+# python3 -I ../approval-vertical-spellings/cmp_sweeps.py <scratch>/sweep-base/pairs.json <scratch>/sweep-head/pairs.json
+# base: xfx v0.1.0-fab7a21 (sha256 1376a67c5fa2...), head: v0.1.0-0c10d6e (sha256 2c784c3e9f28...); fx v0.0.16 both; this branch's scenarios; both rescored (--rescore) with this branch's ledger after its refs were re-pointed;
+# --only fulltranscript* p5-page-keys* composer* p5-tilde* p5-modified-page-keys (p5-page-keys* selects nothing at fab7a217), 40x120, --jobs 2, both in one suite-lock slot
+change p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> []; uncaused 26 -> 2
+change p5-modified-page-keys/full-kp-ctrl-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> []; uncaused 26 -> 2
+change p5-modified-page-keys/typed: unresolved-defect -> identical; causes [] -> []; uncaused 4 -> 0
+base: 64 pairs, 44 pass, 5 with uncaused rows
+head: 64 pairs, 45 pass, 4 with uncaused rows
+drops: 0

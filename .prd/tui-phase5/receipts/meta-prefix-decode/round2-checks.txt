@@ -1,0 +1,13 @@
+# Round 2 checks at 873328ab (code head 873328ab), 2026-11-16, in the worktree, TMPDIR=<tmp>
+## cargo fmt --check
+exit=0
+## cargo clippy --locked --all-targets -- -D warnings
+exit=0 (0 warnings or errors)
+## cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit=0 (0 warnings or errors)
+## fx_src.sh over README.md and the unit's added lines (git diff df45025c -- src tests scripts/fxcap/scenarios; the word diff of docs/parity.md)
+295 citations checked, 0 outside fx-src.txt's ranges
+## refs.py df45025c
+refs: 16 checked, 0 wrong, 0 without an expected text
+## the unit's 14 tests (green.txt's names), plain
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 4801 filtered out; finished in 0.09s

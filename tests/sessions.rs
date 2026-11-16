@@ -23,7 +23,7 @@ mod support;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -44,7 +44,9 @@ use support::fake_gateway::{
     content_only, finish, sse_body, text_delta, tool_call, FakeGateway, Reply,
 };
 
-/// Environment variables that must never leak in from the developer's shell.
+/// The names of xfx's own settings and credential: none may be written into
+/// a session file. (What reaches the binary is `support::sandbox::clear_env`'s
+/// business: nothing of the developer's.)
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
@@ -1543,12 +1545,10 @@ impl Sandbox {
     }
 
     fn run_in(&self, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(cwd);
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         for (key, value) in env {
             command.env(key, value);
         }
@@ -3523,7 +3523,7 @@ fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {
 }
 
 /// Writes one amended session and returns it as `xfx session` renders it: the
-/// same snapshot `src/app.rs:280` prints, in both output shapes.
+/// same snapshot `src/app.rs:285` prints, in both output shapes.
 fn amended_session_view(name: &str, sentence: &str) -> (String, Value) {
     let (profile, workspace) = (Profile::new(), Workspace::new());
     let store = profile.store();

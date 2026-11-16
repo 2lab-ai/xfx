@@ -1,0 +1,9 @@
+# git diff --stat d7916178 9dd02bc3 -- src tests; then, per file, the added and removed lines in hunks that start above its `mod tests {` (git diff -U0)
+ src/tui/approval.rs |   3 +-
+ src/tui/input.rs    |   9 +-
+ src/tui/shell.rs    | 313 +++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 3 files changed, 320 insertions(+), 5 deletions(-)
+src/tui/shell.rs (mod tests at 16688): outside tests +15/-1
+src/tui/input.rs (mod tests at 1527): outside tests +6/-3
+src/tui/approval.rs (mod tests at 1328): outside tests +2/-1
+# #[test] added / removed: 5 / 0; APPROVAL-DRAFT-KEYS' round 2 (git diff 09077f5f d7916178 -- src tests): 2 / 0

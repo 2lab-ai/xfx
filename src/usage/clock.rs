@@ -54,7 +54,7 @@ const MAX_CLOCK_BYTES: u64 = 32;
 /// pinned clock in a build with debug assertions whose environment names
 /// one, the system clock otherwise.
 pub fn now_ms() -> i64 {
-    now_ms_with(|name| std::env::var_os(name))
+    now_ms_with(|name| process_env!("usage::clock::now_ms", var_os(name)))
 }
 
 /// [`now_ms`] with the environment as a lookup, so a test can name a file
@@ -175,7 +175,11 @@ mod tests {
         assert!(near_system(now_ms_with(naming(&missing))), "missing");
         assert!(near_system(now_ms_with(naming(dir.path()))), "a directory");
         assert!(near_system(now_ms_with(|_| None)), "unset");
-        assert!(near_system(now_ms()), "the process's own environment");
+        // `now_ms` itself, in a process that names no file (`crate::test_env`).
+        assert!(
+            near_system(crate::test_env::FakeProcess::new().run(now_ms)),
+            "a process that names no clock file"
+        );
     }
 
     /// The pinned clock hands back any `i64` as it is, the extremes and a

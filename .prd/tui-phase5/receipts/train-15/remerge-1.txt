@@ -1,0 +1,249 @@
+commit 2ff302c51ea3eb00ca9ccb4247e8b3b13720d39d
+Merge: 753b0a72 72fc9672
+
+Merge P5 train 15, 1 of 5: CATALOG-WAIT-CLOCK (fix/p5-catalog-wait-clock @ 72fc9672)
+
+Carries one unit: CATALOG-WAIT-CLOCK, head 72fc9672 (17 commits since its
+base afd891af, train 13's head). Test-only: the catalog-wait stop tests on
+tokio's paused clock, the stop sent when the band hears the first turn
+start, and one [dev-dependencies] line in Cargo.toml.
+
+One conflict, src/tui/worker.rs, one block, by hand (train-15/byhand.py 1):
+main's IMAGE-LOSS-COPY-FX (train 14) deleted the history-notice tests E and
+the ledger test and renamed D without the notice; this unit moved E and D
+onto its harness. E and the ledger test stay deleted; D keeps main's name
+and its notice-free body, with the unit's harness (merged clean below the
+block), its `held` assert, and its doc's account of when the stop is sent.
+
+Checked before the commit: cargo check --all-targets with and without
+fault-injection, cargo fmt --check, both clippy runs (check-merge.sh).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+remerge CONFLICT (content): Merge conflict in src/tui/worker.rs
+index acedb133..4623b080 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -20602,216 +20602,19 @@ mod tests {
+     }
+ 
+     #[test]
+-<<<<<<< 753b0a72 (Merge P5 train 14: the @ picker stack, CTRLO-OTHER-PICKERS, PAGE-KEYS-SETTINGS-COLUMN, IMAGE-LOSS-COPY-FX (#93))
+     fn a_stop_through_a_dropped_compaction_tells_it_once_before_the_turn_that_runs() {
+         // Train 10, join check 2 (COMPACT-NOTICE-LATE x a stop before the
+         // request), on the real `turn_loop`. Three submissions: a prompt
+         // stopped in its catalog wait before its request (`WindowRetry`), a
+         // `/compact` queued behind it, and a prompt after them. A Ctrl-C
+-        // quoting the first two, 300 ms in: the compaction the stop dropped
+-        // before it began is told the band once, `Dropped`, inside the stop
++        // quoting the first two, sent when the band hears the first turn
++        // start, as [`first_of_two_and_a_stop`] sends one, on the paused
++        // clock a retry run takes: the compaction the stop dropped before it
++        // began is told the band once, `Dropped`, inside the stop
+         // (`Queue::abandon` -> `try_send_terminal`), before the next turn
+         // starts; and every place is given back.
+         let (_home, _workspace, state, first, held) = waiting_in(CatalogWait::WindowRetry);
+-=======
+-    fn a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn() {
+-        // xfx says once per conversation what the history could not carry --
+-        // here, an image a tool returned whose saved copy is not there (the
+-        // `/image` row of docs/parity.md). Upstream has no such line: it tells
+-        // the model of a tool image it cannot load, not the screen
+-        // (`execution_memory.zig:1013-1018@481104fd`), and refuses a session a
+-        // prompt image's blob is gone from (`session_adapter.zig:2876`,
+-        // `:2881-2893`). Its `[context]` lines, said once a
+-        // session (`claimContextNotice`, `session.zig:1551-1561`), survive such
+-        // a stop too: a project file's is claimed and written at submission
+-        // (`refreshProjectContext`, `app_agent_runtime.zig:906-938`, from
+-        // `main.zig:1200`), and the skill and MCP catalogs' are claimed, then
+-        // queued, only past the turn's stop checks (`orchestrator.zig:5950`,
+-        // `:6001`, after `:5893-5919` and `:5923-5948`). So a turn stopped in
+-        // its catalog wait -- the default model's window behind a retry, a
+-        // prompt image behind the first load -- sends nothing and hands
+-        // nothing on: the notice is the next turn's, which sends the history
+-        // it is about. Without the stop, the first turn says it and the second
+-        // does not say it again.
+-        let cancelled = Some(bridge::TURN_CANCELLED.to_string());
+-        let mut got = Vec::new();
+-        let mut want = Vec::new();
+-        for wait in [CatalogWait::WindowRetry, CatalogWait::PromptImageFirstLoad] {
+-            for stop in [true, false] {
+-                let (_home, _workspace, mut state, first, held) = waiting_in(wait);
+-                unreadable_tool_images(&mut state);
+-                let log = first_of_two_and_a_stop(state, first, stop, held);
+-                let mut ends = Vec::new();
+-                let mut said: Vec<usize> = Vec::new();
+-                for (_, event) in &log {
+-                    match event {
+-                        UiEvent::TurnStarted { .. } => said.push(0),
+-                        UiEvent::TurnEnded { failure } => ends.push(failure.clone()),
+-                        UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
+-                            *said.last_mut().expect("a notice inside a turn") += 1;
+-                        }
+-                        _ => {}
+-                    }
+-                }
+-                got.push((wait, stop, ends, said));
+-                want.push(if stop {
+-                    (wait, true, vec![cancelled.clone(), None], vec![0, 1])
+-                } else {
+-                    (wait, false, vec![None, None], vec![1, 0])
+-                });
+-            }
+-        }
+-        assert_eq!(
+-            got, want,
+-            "each: both turns' ends, and how many times each turn said the history's notice"
+-        );
+-    }
+-
+-    #[test]
+-    fn the_history_notice_ledger_goes_with_its_conversation() {
+-        // `one_turn` records a history notice said once `send_ui` queues it.
+-        // The screen drops a notice it took only on a reset (its drain, and
+-        // the screen it clears) and on a resume's or a fork's replay
+-        // (`shell::tests::a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation`)
+-        // -- and each comes with this runtime dropping the conversation that
+-        // recorded it, ledger and all: no ledger keeps a line its screen never
+-        // painted. So: said once (one), not again (two); a resume away and
+-        // back binds a new conversation of the same session, which says it
+-        // again (three); a reset starts one whose history has nothing to say
+-        // (four). The session is resumed once before (one) too, so every
+-        // conversation reads the image back and finds it gone: one and three
+-        // say the same line, and only a ledger per conversation says it twice.
+-        let model = "anthropic/claude-sonnet-5";
+-        let (_home, _workspace, mut state) = under_model(model);
+-        state.selector.set_fetcher_for_test(Box::new(Answering {
+-            entries: vec![published(model)],
+-            asked: Arc::new(AtomicUsize::new(0)),
+-        }));
+-        state.provider = Some(Bundle {
+-            id: ProviderId::Gateway,
+-            stream: Box::new(ScriptedProvider::new(vec![
+-                answers("one"),
+-                answers("two"),
+-                answers("three"),
+-                answers("four"),
+-            ])),
+-        });
+-        unreadable_tool_images(&mut state);
+-        let first = state
+-            .conversation
+-            .as_ref()
+-            .expect("a conversation")
+-            .recorder
+-            .id()
+-            .clone();
+-        let other = a_saved_session(&state.config, &Grant::new("edit_file", "x".to_string()));
+-        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(8);
+-        for work in [
+-            TurnWork::Resume(other.to_string()),
+-            TurnWork::Resume(first.to_string()),
+-            TurnWork::Submit("one".to_string()),
+-            TurnWork::Submit("two".to_string()),
+-            TurnWork::Resume(other.to_string()),
+-            TurnWork::Resume(first.to_string()),
+-            TurnWork::Submit("three".to_string()),
+-        ] {
+-            work_tx.try_send(work).expect("room");
+-        }
+-        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+-        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+-        let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+-        let outstanding = AtomicUsize::new(4);
+-        let log = on_a_runtime(async {
+-            let run = turn_loop(
+-                state,
+-                &events,
+-                &mut work_rx,
+-                &mut changes,
+-                ControlChannel::new(control_rx),
+-                Cancellation::new(CancelToken::new()),
+-                &outstanding,
+-            );
+-            let watch = async {
+-                let mut work_tx = Some(work_tx);
+-                let mut log = Vec::new();
+-                let mut ends = 0;
+-                while ends < 4 {
+-                    match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
+-                        Ok(Some(event)) => {
+-                            let ended = matches!(event, UiEvent::TurnEnded { .. });
+-                            log.push(event);
+-                            if ended {
+-                                ends += 1;
+-                            }
+-                            // The reset first: control is taken before work.
+-                            if ended && ends == 3 {
+-                                control_tx
+-                                    .send(TurnControl::Reset { through: 0 })
+-                                    .expect("alive");
+-                                work_tx
+-                                    .as_ref()
+-                                    .expect("open")
+-                                    .try_send(TurnWork::Submit("four".to_string()))
+-                                    .expect("room");
+-                            }
+-                        }
+-                        _ => break,
+-                    }
+-                }
+-                // Closed: the loop runs out of work and returns.
+-                drop(work_tx.take());
+-                log
+-            };
+-            let (_, log) = tokio::join!(run, watch);
+-            log
+-        });
+-        let mut said: Vec<usize> = Vec::new();
+-        let mut lines: Vec<String> = Vec::new();
+-        let (mut resumed, mut fresh) = (0, 0);
+-        for event in &log {
+-            match event {
+-                UiEvent::TurnStarted { .. } => said.push(0),
+-                UiEvent::Notice(notice) if notice.text().contains(NOT_SENT_AGAIN) => {
+-                    *said.last_mut().expect("a notice inside a turn") += 1;
+-                    lines.push(notice.text());
+-                }
+-                UiEvent::Resumed(_) => resumed += 1,
+-                UiEvent::Fresh { .. } => fresh += 1,
+-                UiEvent::ResumeFailed { .. } => panic!("a resume failed: {event:?}"),
+-                _ => {}
+-            }
+-        }
+-        assert_eq!(
+-            (said, resumed, fresh),
+-            (vec![1, 0, 1, 0], 4, 1),
+-            "how many times each turn said the history's notice, the resumes, the reset"
+-        );
+-        assert!(
+-            lines.len() == 2 && lines[0] == lines[1] && lines[0].contains("could not be read back"),
+-            "both conversations say the one line a resume finds: {lines:?}"
+-        );
+-    }
+-
+-    #[test]
+-    fn a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs(
+-    ) {
+-        // Train 10, join check 2 (COMPACT-NOTICE-LATE x HISTORY-NOTICE-STOP),
+-        // on the real `turn_loop`. Three submissions: a prompt stopped in its
+-        // catalog wait before its request (HISTORY-NOTICE-STOP's `WindowRetry`
+-        // case), a `/compact` queued behind it, and a prompt after them. A
+-        // Ctrl-C quoting the first two, sent when the band hears the first
+-        // turn start, as [`first_of_two_and_a_stop`] sends one, on the paused
+-        // clock a retry run takes: the stopped turn hands no
+-        // history notice on, so the notice is the third submission's turn's,
+-        // said once (`one_turn` marks it said only once `send_ui` has queued
+-        // it); the compaction the stop dropped before it began is told the
+-        // band once, `Dropped`, inside the stop (`Queue::abandon` ->
+-        // `try_send_terminal`), before the next turn starts; and every place
+-        // is given back.
+-        let (_home, _workspace, mut state, first, held) = waiting_in(CatalogWait::WindowRetry);
+         assert!(matches!(held, Held::Retry(_)), "WindowRetry is a retry");
+-        unreadable_tool_images(&mut state);
+->>>>>>> 72fc9672 (docs(receipt): CATALOG-WAIT-CLOCK round 4 -- gates4.txt at 60af13cf, 22 steps, 0 failed)
+         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
+         work_tx.try_send(first).expect("room");
+         work_tx.try_send(TurnWork::Compact).expect("room");

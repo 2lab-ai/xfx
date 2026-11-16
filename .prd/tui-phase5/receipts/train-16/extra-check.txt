@@ -1,0 +1,50 @@
+# extra_check.py at 15c9744b (the second re-point: EXTRA alone)
+ok  docs/parity.md src/gateway/mod.rs:1005-1006 -> 1009-1010: the citing text with the new number once and the old nowhere: True; src/gateway/mod.rs:1009-1010 holds ['pub(crate) fn is_retryable_status(status: u16) -> bool {', 'matches!(status, 429 | 500 | 502 | 503 | 504)']
+ok  scripts/fxcap/capfile.py :15785-15787 -> 15860-15862: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:15860-15862 holds ['if self.owner != ScreenOwner::Primary {', 'return None;', '}']
+ok  src/tui/shell.rs :3535 -> 3594: the citing text with the new number once and the old nowhere: True; src/tui/worker.rs:3594 holds ['queue.outstanding.fetch_sub(1, Ordering::Release);']
+ok  src/tui/shell.rs :6418 -> 6423: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:6423 holds ['let mut repaint = false;']
+# 4 checked at 15c9744b: 4 ok, 0 bad
+# exit 0
+
+# extra_check.py at adb809f5 --text (EXTRA and TEXT)
+ok  docs/parity.md src/gateway/mod.rs:1005-1006 -> 1009-1010: the citing text with the new number once and the old nowhere: True; src/gateway/mod.rs:1009-1010 holds ['pub(crate) fn is_retryable_status(status: u16) -> bool {', 'matches!(status, 429 | 500 | 502 | 503 | 504)']
+ok  scripts/fxcap/capfile.py :15785-15787 -> 15860-15862: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:15860-15862 holds ['if self.owner != ScreenOwner::Primary {', 'return None;', '}']
+ok  src/tui/shell.rs :3535 -> 3594: the citing text with the new number once and the old nowhere: True; src/tui/worker.rs:3594 holds ['queue.outstanding.fetch_sub(1, Ordering::Release);']
+ok  src/tui/shell.rs :6418 -> 6423: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:6423 holds ['let mut repaint = false;']
+# 4 checked at adb809f5: 4 ok, 0 bad
+TEXT tests/tui.rs: the new span once and the old nowhere: True; the base span once at 866747ff: True
+  ok  866747ff's :1809 -> :1930 mapped, written :1930; tests/tui.rs:1930 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :1809 did: True
+  ok  866747ff's :2191 -> :2312 mapped, written :2312; tests/tui.rs:2312 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2191 did: True
+  ok  866747ff's :2766 -> :2887 mapped, written :2887; tests/tui.rs:2887 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2766 did: True
+  ok  866747ff's :3113 -> :3234 mapped, written :3234; tests/tui.rs:3234 holds 'session.type_bytes(&[0x05, 0x15, 0x04]);', as 866747ff's :3113 did: True
+  ok  866747ff's :3236 -> :3357 mapped, written :3357; tests/tui.rs:3357 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3236 did: True
+  ok  866747ff's :3928 -> :4049 mapped, written :4049; tests/tui.rs:4049 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3928 did: True
+  ok  866747ff's :7648 -> :7769 mapped, written :7769; tests/tui.rs:7769 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7648 did: True
+  ok  866747ff's :7722 -> :7843 mapped, written :7843; tests/tui.rs:7843 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7722 did: True
+  ok  866747ff's :8515 -> :8630 mapped, written :8630; tests/tui.rs:8630 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :8515 did: True
+  ok  866747ff's :9216 -> :9331 mapped, written :9331; tests/tui.rs:9331 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9216 did: True
+  ok  866747ff's :9412 -> :9527 mapped, written :9527; tests/tui.rs:9527 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9412 did: True
+# TEXT: 1 span(s) at adb809f5, 0 bad
+# exit 0
+
+# extra_check.py at 6137bd3d --text (EXTRA and TEXT)
+ok  docs/parity.md src/gateway/mod.rs:1005-1006 -> 1009-1010: the citing text with the new number once and the old nowhere: True; src/gateway/mod.rs:1009-1010 holds ['pub(crate) fn is_retryable_status(status: u16) -> bool {', 'matches!(status, 429 | 500 | 502 | 503 | 504)']
+ok  scripts/fxcap/capfile.py :15785-15787 -> 15860-15862: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:15860-15862 holds ['if self.owner != ScreenOwner::Primary {', 'return None;', '}']
+ok  src/tui/shell.rs :3535 -> 3594: the citing text with the new number once and the old nowhere: True; src/tui/worker.rs:3594 holds ['queue.outstanding.fetch_sub(1, Ordering::Release);']
+ok  src/tui/shell.rs :6418 -> 6423: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:6423 holds ['let mut repaint = false;']
+# 4 checked at 6137bd3d: 4 ok, 0 bad
+TEXT tests/tui.rs: the new span once and the old nowhere: True; the base span once at 866747ff: True
+  ok  866747ff's :1809 -> :1930 mapped, written :1930; tests/tui.rs:1930 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :1809 did: True
+  ok  866747ff's :2191 -> :2312 mapped, written :2312; tests/tui.rs:2312 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2191 did: True
+  ok  866747ff's :2766 -> :2887 mapped, written :2887; tests/tui.rs:2887 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2766 did: True
+  ok  866747ff's :3113 -> :3234 mapped, written :3234; tests/tui.rs:3234 holds 'session.type_bytes(&[0x05, 0x15, 0x04]);', as 866747ff's :3113 did: True
+  ok  866747ff's :3236 -> :3357 mapped, written :3357; tests/tui.rs:3357 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3236 did: True
+  ok  866747ff's :3928 -> :4049 mapped, written :4049; tests/tui.rs:4049 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3928 did: True
+  ok  866747ff's :7648 -> :7769 mapped, written :7769; tests/tui.rs:7769 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7648 did: True
+  ok  866747ff's :7722 -> :7843 mapped, written :7843; tests/tui.rs:7843 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7722 did: True
+  ok  866747ff's :8515 -> :8630 mapped, written :8630; tests/tui.rs:8630 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :8515 did: True
+  ok  866747ff's :9216 -> :9331 mapped, written :9331; tests/tui.rs:9331 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9216 did: True
+  ok  866747ff's :9412 -> :9527 mapped, written :9527; tests/tui.rs:9527 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9412 did: True
+# TEXT: 1 span(s) at 6137bd3d, 0 bad
+# exit 0
+

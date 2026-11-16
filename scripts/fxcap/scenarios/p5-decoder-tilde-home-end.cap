@@ -1,0 +1,56 @@
+# The tilde Home and End (DECODER-TILDE-HOME-END). fx v0.0.16 reads
+# `CSI 7 ~` and `CSI 8 ~` (rxvt's spellings) as Home and End, and
+# `CSI 1`, `4`, `7` or `8 ; <mod> ~` as a move to the line's edge -- the
+# draft's under Ctrl, a selection under Shift
+# (escape_parser.zig:628-635, :699-707@481104fd). Each key here takes the
+# caret to an edge of a one-line draft, where the line's edge and the
+# draft's are one place, and the letter typed after it shows where it went.
+# No Shift: fx's would extend a selection the next letter replaces, and
+# xfx's composer has none (COMPOSER-SELECTION-EXTEND). The bytes go to the
+# pane as they are (`key -H`): tmux sends its own spellings for the keys it
+# names, and none of these.
+wait 4
+xfx: wait 3
+type abc def
+wait 0.5
+snap typed
+# CSI 7 ~
+key -H 1b 5b 37 7e
+type A
+wait 0.5
+snap home-7
+# CSI 8 ~
+key -H 1b 5b 38 7e
+type B
+wait 0.5
+snap end-8
+# CSI 1 ; 5 ~, Ctrl-Home
+key -H 1b 5b 31 3b 35 7e
+type C
+wait 0.5
+snap ctrl-home-1
+# CSI 4 ; 3 ~, Alt-End
+key -H 1b 5b 34 3b 33 7e
+type D
+wait 0.5
+snap alt-end-4
+# CSI 7 ; 9 ~, Super-Home
+key -H 1b 5b 37 3b 39 7e
+type E
+wait 0.5
+snap super-home-7
+# CSI 8 ; 5 ~, Ctrl-End
+key -H 1b 5b 38 3b 35 7e
+type F
+wait 0.5
+snap ctrl-end-8
+# CSI 1 ; 3 ~, Alt-Home
+key -H 1b 5b 31 3b 33 7e
+type G
+wait 0.5
+snap alt-home-1
+# CSI 4 ; 13 ~, Ctrl-Super-End
+key -H 1b 5b 34 3b 31 33 7e
+type H
+wait 0.5
+snap ctrl-super-end-4

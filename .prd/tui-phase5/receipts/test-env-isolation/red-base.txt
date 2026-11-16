@@ -1,0 +1,72 @@
+# RED on the base: test_env::tests at 0d7e89f2 (base 32afd307 + the cases only)
+# binary built at that head; run: TMPDIR=<short> sentinel-run.sh <bin> test_env::tests
+
+running 8 tests
+test test_env::tests::the_usage_clock_file_is_refused ... FAILED
+test test_env::tests::whether_the_tui_runs_is_refused ... FAILED
+test test_env::tests::the_variables_that_choose_gits_configuration_are_refused ... FAILED
+test test_env::tests::the_environment_xfx_loads_with_is_refused ... FAILED
+test test_env::tests::the_link_bases_are_refused ... FAILED
+test test_env::tests::the_gateway_endpoint_is_refused ... FAILED
+test test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir ... FAILED
+test test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home ... FAILED
+
+failures:
+
+---- test_env::tests::the_usage_clock_file_is_refused stdout ----
+
+thread 'test_env::tests::the_usage_clock_file_is_refused' (<tid>) panicked at src/test_env/tests.rs:35:17:
+usage::clock::now_ms read the real process environment in a unit test
+
+---- test_env::tests::whether_the_tui_runs_is_refused stdout ----
+
+thread 'test_env::tests::whether_the_tui_runs_is_refused' (<tid>) panicked at src/test_env/tests.rs:35:17:
+tui::should_run read the real process environment in a unit test
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- test_env::tests::the_variables_that_choose_gits_configuration_are_refused stdout ----
+
+thread 'test_env::tests::the_variables_that_choose_gits_configuration_are_refused' (<tid>) panicked at src/test_env/tests.rs:35:17:
+permission::GitEnvironment::from_process read the real process environment in a unit test
+
+---- test_env::tests::the_environment_xfx_loads_with_is_refused stdout ----
+
+thread 'test_env::tests::the_environment_xfx_loads_with_is_refused' (<tid>) panicked at src/test_env/tests.rs:35:17:
+config::Environment::from_process read the real process environment in a unit test
+
+---- test_env::tests::the_link_bases_are_refused stdout ----
+
+thread 'test_env::tests::the_link_bases_are_refused' (<tid>) panicked at src/test_env/tests.rs:35:17:
+permission::LinkBase::from_environment read the real process environment in a unit test
+
+---- test_env::tests::the_gateway_endpoint_is_refused stdout ----
+
+thread 'test_env::tests::the_gateway_endpoint_is_refused' (<tid>) panicked at src/test_env/tests.rs:35:17:
+gateway::Endpoint::from_process read the real process environment in a unit test
+
+---- test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir stdout ----
+
+thread 'test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir' (<tid>) panicked at src/test_env/tests.rs:177:5:
+assertion `left == right` failed: a child of a unit test inherited 6 more variables (HOME among them: true)
+  left: 6
+ right: 0
+
+---- test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home stdout ----
+
+thread 'test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home' (<tid>) panicked at src/test_env/tests.rs:137:5:
+the plan was decided by the process HOME's git configuration (configured hooks: true)
+
+
+failures:
+    test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir
+    test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home
+    test_env::tests::the_environment_xfx_loads_with_is_refused
+    test_env::tests::the_gateway_endpoint_is_refused
+    test_env::tests::the_link_bases_are_refused
+    test_env::tests::the_usage_clock_file_is_refused
+    test_env::tests::the_variables_that_choose_gits_configuration_are_refused
+    test_env::tests::whether_the_tui_runs_is_refused
+
+test result: FAILED. 0 passed; 8 failed; 0 ignored; 0 measured; 4624 filtered out; finished in 0.04s
+
+sentinel-run: exit 101

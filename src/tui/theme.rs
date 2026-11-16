@@ -11,7 +11,7 @@
 //!    ignored rather than guessed at.
 //! 2. The terminal's own answer to an `OSC 11` background query ([`QUERY`]),
 //!    read back off standard input with a [`DEADLINE`].
-//! 3. [`COLORFGBG`], which some terminals export and most do not.
+//! 3. `COLORFGBG`, which some terminals export and most do not.
 //!
 //! and when none of them says anything, **dark** -- the assumption the terminal
 //! world defaults to, and the one upstream falls back on
@@ -40,18 +40,6 @@ use super::check::Color;
 ///
 /// Upstream's `FX_THEME` (`theme_detection.zig:16`), under xfx's own prefix.
 pub(crate) const ENV: &str = "XFX_THEME";
-
-/// The variable some terminals export their foreground and background indices
-/// in (`theme_detection.zig:31`).
-pub(crate) const COLORFGBG: &str = "COLORFGBG";
-
-/// The variable a terminal claims 24-bit colour in
-/// (`theme_protocol.zig:44-48`), which reaches the Ultra mark alone
-/// ([`ultra_marker`]).
-pub(crate) const COLORTERM: &str = "COLORTERM";
-
-/// The variable a terminal names itself in (`theme_protocol.zig:49-51`).
-pub(crate) const TERM_PROGRAM: &str = "TERM_PROGRAM";
 
 /// The background colour query (`OSC 11 ; ? ST`), as upstream spells it
 /// (`terminal.zig:9`).

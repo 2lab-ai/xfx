@@ -1,0 +1,80 @@
+# FX_TRACE_LOG of probe.cap's fx v0.0.16 run (scopes input,permission,auth,catalog,provider,turn,worker,compaction), timestamps cut, [catalog] lines left out
+[auth] prompt credential prewarm start outcome=not_needed
+[input] submit requested stream_active=false queued=0 input_bytes=69
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=0
+[permission] event=rule_management_prepare_start tool=write_file
+[permission] event=rule_management_prepare_done kind=file_mutation
+[permission] event=rule_management_prompt_published
+[permission] approval response submitted request_id=1 decision=deny
+[input] submit requested stream_active=false queued=0 input_bytes=69
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=0
+[permission] event=rule_management_prepare_start tool=write_file
+[permission] event=rule_management_prepare_done kind=file_mutation
+[permission] event=rule_management_prompt_published
+[permission] approval response submitted request_id=2 decision=once
+[input] submit requested stream_active=false queued=0 input_bytes=68
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=1
+[permission] event=rule_management_prepare_start tool=write_file
+[permission] event=rule_management_prepare_done kind=file_mutation
+[permission] event=rule_management_prompt_published
+[permission] approval response submitted request_id=3 decision=deny
+[input] submit requested stream_active=false queued=0 input_bytes=53
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=1
+[permission] event=rule_management_prepare_start tool=read_file
+[permission] event=rule_management_prepare_done kind=structured_tool
+[permission] event=rule_management_prompt_published
+[input] cancel approval operation queued=0
+[input] submit requested stream_active=false queued=0 input_bytes=53
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=1
+[permission] event=rule_management_prepare_start tool=read_file
+[permission] event=rule_management_prepare_done kind=structured_tool
+[permission] event=rule_management_prompt_published
+[permission] approval response submitted request_id=5 decision=once
+[input] submit requested stream_active=false queued=0 input_bytes=7
+[worker] turn start hold acquired
+[input] event=pending_prompt_installed turn_id=1 prompt_bytes=7 images=0 skill_spans=0
+[input] event=pending_prompt_frame_committed turn_id=1
+[input] event=pending_prompt_adopted turn_id=1
+[worker] queued prompt bytes=7 queue_depth=1 fast_mode=false effort=auto
+[worker] event=prompt_enqueue turn_id=1 prompt_bytes=7 queue_depth=1 fast_mode=false effort=auto
+[worker] turn start hold released
+[input] event=pending_prompt_queued turn_id=1
+[worker] begin prompt bytes=7 remaining_queue=0 fast_mode=false effort=auto
+[worker] event=worker_begin turn_id=1 prompt_bytes=7 remaining_queue=0 cancel_reset=true fast_mode=false effort=auto
+[input] event=pending_prompt_cleared turn_id=1 reason=worker_begin_presented phase=queued
+[worker] event=steering_boundary_check turn_id=1 kind=model outcome=none
+[permission] event=before_permission_wait turn_id=1 step_id=6 call_id=call_1_0 tool_name=read_file permission_mode=auto local_grants=0 outside_workspace=false
+[permission] event=permission_requested turn_id=1 step_id=6 call_id=call_1_0 tool_name=read_file permission_mode=auto outside_workspace=false
+[permission] event=after_permission_decision turn_id=1 step_id=6 call_id=call_1_0 tool_name=read_file permission_mode=auto decision=policy_denied approval_source=denied outside_workspace=false
+[permission] event=permission_decision turn_id=1 step_id=6 call_id=call_1_0 tool_name=read_file permission_mode=auto decision=policy_denied approval_source=denied outside_workspace=false
+[worker] event=steering_boundary_check turn_id=1 kind=model outcome=none
+[worker] event=assistant_chunk_received chunk_bytes=10
+[worker] event=steering_boundary_check turn_id=1 kind=finalizing outcome=none
+[worker] event=assistant_chunk_received chunk_bytes=1
+[worker] finish processing queued=0
+[worker] event=assistant_chunk_applied chunk_bytes=10
+[worker] event=assistant_chunk_applied chunk_bytes=1
+[input] submit requested stream_active=false queued=0 input_bytes=69
+[permission] event=rule_management_begin action=remember
+[permission] event=rule_management_session_ready
+[permission] event=rule_management_snapshot_start
+[permission] event=rule_management_snapshot_done rules=2
+[permission] event=rule_management_prepare_start tool=write_file
+[permission] event=rule_management_prepare_done kind=file_mutation
+[permission] event=rule_management_prompt_published
+[input] cancel approval operation queued=0

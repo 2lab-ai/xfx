@@ -1,0 +1,112 @@
+# RED at 5fadcf22 (the base b3a19ede's code with this unit's tests added; git diff b3a19ede 5fadcf22 -- src adds tests only)
+# cargo test --locked --lib -- undo_redo_and_yank_do_nothing_in_a_draft tab_in_a_draft_changes_nothing every_key_fxs_draft_takes an_edit_and_enter_in_one_read_send_nothing tab_enters_the_draft_of_an_eligible a_draft_has_no_undo_redo_or_yank
+running 6 tests
+test tui::approval_amendment::tests::a_draft_has_no_undo_redo_or_yank_as_fxs_has_none ... FAILED
+test tui::approval::tests::tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one ... FAILED
+test tui::shell::tests::tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does ... FAILED
+test tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft ... FAILED
+test tui::shell::tests::every_key_fxs_draft_takes_still_edits_it_and_holds_the_enter_until_a_frame ... ok
+test tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do ... FAILED
+
+failures:
+
+---- tui::approval_amendment::tests::a_draft_has_no_undo_redo_or_yank_as_fxs_has_none stdout ----
+
+thread 'tui::approval_amendment::tests::a_draft_has_no_undo_redo_or_yank_as_fxs_has_none' (468325077) panicked at src/tui/approval_amendment.rs:549:13:
+assertion `left == right` failed: Undo changed the draft
+  left: ""
+ right: "x"
+
+---- tui::approval::tests::tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one stdout ----
+
+thread 'tui::approval::tests::tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one' (468325076) panicked at src/tui/approval.rs:2595:9:
+assertion `left == right` failed
+  left: Ignored
+ right: Moved
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does stdout ----
+
+thread 'tui::shell::tests::tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does' (468325080) panicked at src/tui/shell.rs:23557:13:
+assertion `left == right` failed: the band: Tab and Enter in one read answered before a frame
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab ") })
+ right: None
+
+---- tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft stdout ----
+
+thread 'tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft' (468325078) panicked at src/tui/shell.rs:23277:13:
+assertion `left == right` failed: ctrl-w then ctrl-y: the Enter after the frame did not send the draft it showed
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab cd") })
+ right: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab ") })
+
+---- tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do stdout ----
+
+thread 'tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do' (468325081) panicked at src/tui/shell.rs:23542:9:
+[
+    "the band, ctrl-y: it touched the receipt",
+    "the band, ctrl-y, then Enter: None",
+    "the band, ctrl-y and Enter in one read: None",
+    "the band, kitty ctrl-y: it touched the receipt",
+    "the band, kitty ctrl-y, then Enter: None",
+    "the band, kitty ctrl-y and Enter in one read: None",
+    "the band, xterm ctrl-y: it touched the receipt",
+    "the band, xterm ctrl-y, then Enter: None",
+    "the band, xterm ctrl-y and Enter in one read: None",
+    "the band, ctrl-_: it touched the receipt",
+    "the band, ctrl-_, then Enter: None",
+    "the band, ctrl-_ and Enter in one read: None",
+    "the band, kitty ctrl-_: it touched the receipt",
+    "the band, kitty ctrl-_, then Enter: None",
+    "the band, kitty ctrl-_ and Enter in one read: None",
+    "the band, super-z: it touched the receipt",
+    "the band, super-z, then Enter: None",
+    "the band, super-z and Enter in one read: None",
+    "the band, xterm super-z: it touched the receipt",
+    "the band, xterm super-z, then Enter: None",
+    "the band, xterm super-z and Enter in one read: None",
+    "the band, super-shift-z: it touched the receipt",
+    "the band, super-shift-z, then Enter: None",
+    "the band, super-shift-z and Enter in one read: None",
+    "the band, xterm super-shift-z: it touched the receipt",
+    "the band, xterm super-shift-z, then Enter: None",
+    "the band, xterm super-shift-z and Enter in one read: None",
+    "the review plane, ctrl-y: it touched the receipt",
+    "the review plane, ctrl-y, then Enter: None",
+    "the review plane, ctrl-y and Enter in one read: None",
+    "the review plane, kitty ctrl-y: it touched the receipt",
+    "the review plane, kitty ctrl-y, then Enter: None",
+    "the review plane, kitty ctrl-y and Enter in one read: None",
+    "the review plane, xterm ctrl-y: it touched the receipt",
+    "the review plane, xterm ctrl-y, then Enter: None",
+    "the review plane, xterm ctrl-y and Enter in one read: None",
+    "the review plane, ctrl-_: it touched the receipt",
+    "the review plane, ctrl-_, then Enter: None",
+    "the review plane, ctrl-_ and Enter in one read: None",
+    "the review plane, kitty ctrl-_: it touched the receipt",
+    "the review plane, kitty ctrl-_, then Enter: None",
+    "the review plane, kitty ctrl-_ and Enter in one read: None",
+    "the review plane, super-z: it touched the receipt",
+    "the review plane, super-z, then Enter: None",
+    "the review plane, super-z and Enter in one read: None",
+    "the review plane, xterm super-z: it touched the receipt",
+    "the review plane, xterm super-z, then Enter: None",
+    "the review plane, xterm super-z and Enter in one read: None",
+    "the review plane, super-shift-z: it touched the receipt",
+    "the review plane, super-shift-z, then Enter: None",
+    "the review plane, super-shift-z and Enter in one read: None",
+    "the review plane, xterm super-shift-z: it touched the receipt",
+    "the review plane, xterm super-shift-z, then Enter: None",
+    "the review plane, xterm super-shift-z and Enter in one read: None",
+]
+
+
+failures:
+    tui::approval::tests::tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one
+    tui::approval_amendment::tests::a_draft_has_no_undo_redo_or_yank_as_fxs_has_none
+    tui::shell::tests::an_edit_and_enter_in_one_read_send_nothing_until_a_frame_shows_the_draft
+    tui::shell::tests::tab_in_a_draft_changes_nothing_and_holds_the_enter_until_a_frame_as_fxs_does
+    tui::shell::tests::undo_redo_and_yank_do_nothing_in_a_draft_as_fxs_do
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 4648 filtered out; finished in 0.12s
+
+error: test failed, to rerun pass `--lib`

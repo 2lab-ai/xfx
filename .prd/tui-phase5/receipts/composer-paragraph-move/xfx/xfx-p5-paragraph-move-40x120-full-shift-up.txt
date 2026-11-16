@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-45d9ad1 [debug] · Run /help for commands
+
+  2026-11-10 22:18:22.037 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  tools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,
+  +4 more)
+  mcp: none
+
+  2026-11-10 22:18:27.284 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 104ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-11-10 22:18:27.111 UTC · Prompt
+┃ hello
+
+  2026-11-10 22:18:27.241 UTC · Response
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  2026-11-10 22:18:27.319 UTC · Usage
+  0s (↑2 ↓40)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a

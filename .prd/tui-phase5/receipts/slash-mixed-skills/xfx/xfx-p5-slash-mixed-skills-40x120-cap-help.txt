@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-83dae68 [debug] · Run /help for commands
+
+┃ /Help
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Results 2
+
+  pointer   Run x /help for the usage                                                                 workspace skills/
+  tidy      Clear the notes and rename the help                                                       workspace skills/
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

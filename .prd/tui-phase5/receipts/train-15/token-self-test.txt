@@ -1,0 +1,293 @@
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (profile-refuse-at-launch) dropped: found
+  self-test ledger, a deleted entry (xfx-debug-banner-wrap) back: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`status`') as the other side has it: found
+  self-test parity, a row a side changed ('`sessions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/help`') as the other side has it: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/fork`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/mcp`') as the other side has it: found
+  self-test parity, a row a side changed ('`/skills`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`/settings`') as the other side has it: found
+  self-test parity, a row a side changed ('`/version`') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side added ('version text') dropped: found
+  self-test parity, a row one side changed ('`status`'), two tokens swapped: found
+self-test 2ff302c5: 24 of 24 found
+# exit 0
+  self-test ledger, an entry one side changed and the other re-pointed (amendment-card-after-stop) with a word changed: found
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (profile-refuse-at-launch) dropped: found
+  self-test ledger, a deleted entry (xfx-debug-banner-wrap) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`status`') as the other side has it: found
+  self-test parity, a row a side changed ('`sessions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/help`') as the other side has it: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/fork`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/mcp`') as the other side has it: found
+  self-test parity, a row a side changed ('`/skills`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`/settings`') as the other side has it: found
+  self-test parity, a row a side changed ('`/version`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side added ('version text') dropped: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)') as ours has it: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)') as theirs has it: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`status`'), two tokens swapped: found
+self-test ed92e515: 34 of 34 found
+# exit 0
+  self-test ledger, an entry one side changed and the other re-pointed (full-transcript-shift) with a word changed: found
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (profile-refuse-at-launch) dropped: found
+  self-test ledger, a deleted entry (xfx-debug-banner-wrap) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (ctrl-o-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (ctrl-o-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`status`') as the other side has it: found
+  self-test parity, a row a side changed ('`sessions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/help`') as the other side has it: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/fork`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/mcp`') as the other side has it: found
+  self-test parity, a row a side changed ('`/skills`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`/settings`') as the other side has it: found
+  self-test parity, a row a side changed ('`/version`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('full-screen TUI') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side added ('version text') dropped: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)') as ours has it: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)') as theirs has it: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full transcript (`C-o`)'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`status`'), two tokens swapped: found
+self-test b10ca771: 31 of 31 found
+# exit 0
+  self-test ledger, an entry one side deleted and the other re-pointed (submit-multi-card-whole) back: found
+  self-test ledger, an entry one side changed and the other re-pointed (amendment-card-after-stop) with a word changed: found
+  self-test ledger, an entry one side changed and the other re-pointed (full-transcript-shift) with a word changed: found
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (profile-refuse-at-launch) dropped: found
+  self-test ledger, a deleted entry (submit-multi-card-whole) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`status`') as the other side has it: found
+  self-test parity, a row a side changed ('`sessions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/help`') as the other side has it: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/fork`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/permissions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/mcp`') as the other side has it: found
+  self-test parity, a row a side changed ('`/skills`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`/settings`') as the other side has it: found
+  self-test parity, a row a side changed ('`/version`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('session event log') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side added ('version text') dropped: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`status`'), two tokens swapped: found
+self-test 88e83a68: 35 of 35 found
+# exit 0
+  self-test ledger, an entry one side changed and the other re-pointed (full-transcript-shift) with a word changed: found
+  self-test parity, a token a side added, dropped: found
+  self-test ledger, an added entry (profile-refuse-at-launch) dropped: found
+  self-test ledger, a deleted entry (xfx-debug-banner-wrap) back: found
+  self-test ledger, a comment line dropped: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a word changed: found
+  self-test ledger, a numbers-only entry (answer-drawn-wider-named) with a reference dropped: found
+  self-test parity, a row a side changed ('`status`') as the other side has it: found
+  self-test parity, a row a side changed ('`sessions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/help`') as the other side has it: found
+  self-test parity, a row a side changed ('`/resume`') as the other side has it: found
+  self-test parity, a row a side changed ('`/fork`') as the other side has it: found
+  self-test parity, a row a side changed ('`/model`') as the other side has it: found
+  self-test parity, a row a side changed ('`/effort`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/permissions`') as the other side has it: found
+  self-test parity, a row a side changed ('`/skills`') as the other side has it: found
+  self-test parity, a row a side changed ('`/image`') as the other side has it: found
+  self-test parity, a row a side changed ('`/settings`') as the other side has it: found
+  self-test parity, a row a side changed ('`/version`') as the other side has it: found
+  self-test parity, a row a side changed ('session resume') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('`@` file picker') as the other side has it: found
+  self-test parity, a row a side changed ('terminal program status (OSC 7501)') as the other side has it: found
+  self-test parity, a row a side added ('version text') dropped: found
+  self-test parity, a row both sides changed ('`/mcp`') as ours has it: found
+  self-test parity, a row both sides changed ('`/mcp`') as theirs has it: found
+  self-test parity, a row both sides changed ('`/mcp`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`/mcp`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row both sides changed ('`ask_user_question`') as ours has it: found
+  self-test parity, a row both sides changed ('`ask_user_question`') as theirs has it: found
+  self-test parity, a row both sides changed ('`ask_user_question`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`ask_user_question`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`status`'), two tokens swapped: found
+self-test 07eefa89: 38 of 38 found
+# exit 0
+  self-test parity, a token a side added, dropped: found
+  self-test parity, a token a side deleted, back: found
+  self-test ledger, an added entry (approval-settled-every-approval) dropped: found
+  self-test ledger, a comment line dropped: found
+  self-test parity, a row a side changed ('`interactive`') as the other side has it: found
+  self-test parity, a row a side changed ('`/provider`') as the other side has it: found
+  self-test parity, a row a side changed ('`/permissions`') as the other side has it: found
+  self-test parity, a row a side changed ('`write_file`') as the other side has it: found
+  self-test parity, a row a side changed ('`ask_user_question`') as the other side has it: found
+  self-test parity, a row a side changed ('tool permission modes') as the other side has it: found
+  self-test parity, a row a side changed ('profile home `~/.xfx`') as the other side has it: found
+  self-test parity, a row a side changed ('environment overrides') as the other side has it: found
+  self-test parity, a row a side changed ('full transcript (`C-o`)') as the other side has it: found
+  self-test parity, a row a side changed ('notifications and status line') as the other side has it: found
+  self-test parity, a row a side changed ('colored and hyperlinked TTY output') as the other side has it: found
+  self-test parity, a row a side changed ('version text') as the other side has it: found
+  self-test parity, a row both sides changed ('`/mcp`') as ours has it: found
+  self-test parity, a row both sides changed ('`/mcp`') as theirs has it: found
+  self-test parity, a row both sides changed ('`/mcp`'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('`/mcp`'), a side's clause moved whole with its anchors: found
+  self-test parity, a row both sides changed ('full-screen TUI') as ours has it: found
+  self-test parity, a row both sides changed ('full-screen TUI') as theirs has it: found
+  self-test parity, a row both sides changed ('full-screen TUI'), two tokens of a side's clause swapped: found
+  self-test parity, a row both sides changed ('full-screen TUI'), a side's clause moved whole with its anchors: found
+  self-test parity, a row one side changed ('`interactive`'), two tokens swapped: found
+self-test a14df710: 25 of 25 found
+# exit 0
+
+# token_control.py: the two token cases planted on every merged row both sides changed
+merge 2ff302c5: no docs/parity.md row both sides changed; nothing to plant
+merge ed92e515: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(`-settings-24x120-empty-up`,') dropped from the merged row: found
+  a token ours deleted ('(`input_completion_runtime.zig') put back in the merged row: found
+  a token theirs added ('(APPROVAL-PASTE-SPACES,') dropped from the merged row: found
+  a token theirs deleted ('(`:82-83`),') put back in the merged row: found
+merge ed92e515: row 'full transcript (`C-o`)', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(CTRLO-AT-KEYS,') dropped from the merged row: found
+  a token ours deleted ('(`app_input_runtime.zig:973-99') put back in the merged row: found
+  a token theirs added ('(COMPOSER-SELECTION-EXTEND)') dropped from the merged row: found
+  a token theirs deleted ('(`app_input_runtime.zig:973-99') put back in the merged row: found
+merge b10ca771: row 'full transcript (`C-o`)', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(COMPOSER-SELECTION-EXTEND)') dropped from the merged row: found
+  a token ours deleted ('(COMPOSER-SELECTION-EXTEND),') put back in the merged row: found
+  a token theirs added ('(`appendAssistantCodeBlockOwne') dropped from the merged row: found
+merge 88e83a68: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('"...') dropped from the merged row: found
+  a token ours deleted ('(`:82-83`),') put back in the merged row: found
+  a token theirs added ('!=') dropped from the merged row: found
+  a token theirs deleted ('!…approval_ready(id)`),') put back in the merged row: found
+merge 07eefa89: row '`/mcp`', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(`-wrapped-up`,') dropped from the merged row: found
+  a token ours deleted ('argument,') put back in the merged row: found
+  a token theirs added ('(QUESTION-CTRL-J),') dropped from the merged row: found
+merge 07eefa89: row '`ask_user_question`', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ("(Super's") dropped from the merged row: found
+  a token ours deleted ('(`escape_parser.zig:99-106@481') put back in the merged row: found
+  a token theirs added ("'\\n'`") dropped from the merged row: found
+  a token theirs deleted ('(proposed)') put back in the merged row: found
+merge 07eefa89: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('!=') dropped from the merged row: found
+  a token ours deleted ('!…approval_ready(id)`),') put back in the merged row: found
+  a token theirs added ('queued:') dropped from the merged row: found
+  a token theirs deleted ('proposed:') put back in the merged row: found
+merge a14df710: row '`/mcp`', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('(QUESTION-CTRL-J,') dropped from the merged row: found
+  a token theirs added ('Grok):') dropped from the merged row: found
+  a token theirs deleted ('#88') put back in the merged row: found
+merge a14df710: row 'full-screen TUI', changed by both sides; self_test's plant on a side's text of it finds nothing to replace (the merged row is neither side text)
+  a token ours added ('!=') dropped from the merged row: found
+  a token ours deleted ('!…approval_ready(id)`),') put back in the merged row: found
+  a token theirs added ('1.') dropped from the merged row: found
+  a token theirs deleted ('(`.prd/03-tui-port.md`') put back in the merged row: found
+# 33 of 33 found
+# exit 0
+
+# word_control.py: a word planted in `why` of every ledger entry both sides changed in numbers alone
+## 2ff302c5
+# 0 of 0 found
+# exit 1
+## ed92e515
+  at-resize-band-at-the-bottom: `why`'s first word doubled: found
+  session-record: `why`'s first word doubled: found
+  transcript-page-offset: `why`'s first word doubled: found
+  toolgroup-ctrlo-record-short: `why`'s first word doubled: found
+  safe-page-edge: `why`'s first word doubled: found
+  cancel-page-edge: `why`'s first word doubled: found
+  amendment-card-after-stop: `why`'s first word doubled: found
+  full-transcript-shift: `why`'s first word doubled: found
+  resize-document-repaint: `why`'s first word doubled: found
+# 9 of 9 found
+# exit 0
+## b10ca771
+  answer-modifier-sequence-wider: `why`'s first word doubled: found
+# 1 of 1 found
+# exit 0
+## 88e83a68
+  session-record: `why`'s first word doubled: found
+  transcript-page-offset: `why`'s first word doubled: found
+  toolgroup-ctrlo-record-short: `why`'s first word doubled: found
+  safe-page-edge: `why`'s first word doubled: found
+  cancel-page-edge: `why`'s first word doubled: found
+  amendment-card-after-stop: `why`'s first word doubled: found
+  resize-document-repaint: `why`'s first word doubled: found
+# 7 of 7 found
+# exit 0
+## 07eefa89
+  at-resize-band-at-the-bottom: `why`'s first word doubled: found
+  session-record: `why`'s first word doubled: found
+  transcript-page-offset: `why`'s first word doubled: found
+  toolgroup-ctrlo-record-short: `why`'s first word doubled: found
+  safe-page-edge: `why`'s first word doubled: found
+  cancel-page-edge: `why`'s first word doubled: found
+  amendment-card-after-stop: `why`'s first word doubled: found
+  stats-bytes: `why`'s first word doubled: found
+  resize-document-repaint: `why`'s first word doubled: found
+  activity-tokens-before-request: `why`'s first word doubled: found
+# 10 of 10 found
+# exit 0
+## a14df710
+# 0 of 0 found
+# exit 1

@@ -1,0 +1,16 @@
+# Round 4 checks at b34fac46 (code head 4788ff6d), 2026-11-16, in the worktree, TMPDIR=<tmp>
+## cargo fmt --check
+exit=0
+## cargo clippy --locked --all-targets -- -D warnings
+exit=0 (0 warnings or errors)
+## cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+exit=0 (0 warnings or errors)
+## fx_src.sh over README.md and the unit's added lines
+337 citations checked, 0 outside fx-src.txt's ranges
+## refs.py df45025c
+refs: 16 checked, 0 wrong, 0 without an expected text
+## no production code change: src/tui/input.rs above mod tests, comment lines left out, e869c826 against HEAD
+identical (984 lines)
+## files changed since e869c826 under src/
+ src/tui/input.rs | 77 +++++++++++++++++++++++++++++++++++++++++---------------
+ 1 file changed, 57 insertions(+), 20 deletions(-)

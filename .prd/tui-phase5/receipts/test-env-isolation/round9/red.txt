@@ -1,0 +1,9 @@
+## MUST (r8-probe/d.rs): a comma-less arm after `if .. else`, then `not(clippy)` over a HOME read
+  at 09e9d822: clippy -D warnings passes; check-env-reads passes
+    --list: test_env::tests::where_clippy_never_looks: test; run alone under sentinel-run.sh: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4645 filtered out; finished in 0.00s
+  at 1490f498: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:34: a cfg_select! arm whose predicate names clippy, under which code is never linted)
+    --list: test_env::tests::where_clippy_never_looks: test; run alone under sentinel-run.sh: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4645 filtered out; finished in 0.00s
+## MUST (r8-probe/b.rs): a generic comma in an arm, a clippy lint allowed inside it
+  at 09e9d822: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:34: a cfg_select! arm whose predicate names clippy, under which code is never linted)
+  at 1490f498: clippy -D warnings passes; check-env-reads passes
+red exit 0

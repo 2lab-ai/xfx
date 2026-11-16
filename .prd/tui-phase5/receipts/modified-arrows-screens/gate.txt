@@ -1,0 +1,131 @@
+# Round 2: the brief's gate, once, under the suite lock in one normal slot, on a --no-local clone at 72984456 (its remote removed), TMPDIR=<tmp> (short).
+# 72984456's src/ is the code head 8b5aacaa's but for comment lines and the tests (33cfeac4, 0f8c6e6a):
+# the changed lines of `git diff -U0 8b5aacaa 72984456 -- src` in the hunks above each file's `mod tests`, but the comment lines:
+(empty: every non-test change is a comment)
+
+head 72984456
+tree before: 0 changed paths under src tests Cargo.*
+STEP fmt exit=0 2s
+STEP clippy exit=0 26s
+STEP clippy-fi exit=0 15s
+STEP test exit=0 148s
+  15 result lines: 5706 passed, 0 failed, 7 ignored
+STEP test-fi exit=0 136s
+  15 result lines: 5743 passed, 0 failed, 7 ignored
+STEP identity exit=0 1s
+STEP stubs exit=0 9s
+STEP secrets exit=0 56s
+STEP local-paths exit=0 3s
+tree after: 0 changed paths under src tests Cargo.*; head 72984456
+(no catalog-wait failure in this run: the plain suite is 0 failed)
+## identity
+check-xfx-identity: ok (20454 tracked file(s) scanned)
+## stubs
+check-no-stubs: ok
+## secrets
+check-no-secrets: ok (20454 tracked file(s) scanned)
+## local-paths
+check-no-local-paths: ok (20454 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+## cargo test, its result lines
+test result: ok. 4782 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 50.08s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.09s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.88s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.71s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.40s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+## cargo test-fi, its result lines
+test result: ok. 4805 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 48.28s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.05s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.73s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.13s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.03s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.17s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.95s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.54s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+# Round 1 below.
+# The brief's gate, once, under the suite lock in one normal slot, TMPDIR=<tmp>/gate (short), in the worktree at 5e985efb.
+# 5e985efb's src/ is the code head 8b5aacaa's but for 33cfeac4's comment lines (5e985efb and bc188108 change docs/parity.md, the ledger and receipt files only):
+$ git diff --stat 8b5aacaa 5e985efb -- src tests Cargo.toml Cargo.lock
+ src/tui/input.rs    | 11 ++++++-----
+ src/tui/question.rs |  2 +-
+ src/tui/shell.rs    |  2 +-
+ 3 files changed, 8 insertions(+), 7 deletions(-)
+$ git diff -U0 8b5aacaa 5e985efb -- src | grep -E '^[+-][^+-]' | grep -vE '^[+-]\s*//'
+(empty: every changed line is a comment)
+
+head 5e985efb
+tree before: 0 changed paths under src tests Cargo.*
+STEP fmt exit=0 2s
+STEP clippy exit=0 6s
+STEP clippy-fi exit=0 18s
+STEP test exit=0 137s
+  15 result lines: 5706 passed, 0 failed, 7 ignored
+STEP test-fi exit=0 156s
+  15 result lines: 5743 passed, 0 failed, 7 ignored
+STEP identity exit=0 1s
+STEP stubs exit=0 11s
+STEP secrets exit=0 95s
+STEP local-paths exit=0 6s
+tree after: 0 changed paths under src tests Cargo.*; head 5e985efb
+(no catalog-wait failure in this run: the plain suite is 0 failed)
+## identity
+check-xfx-identity: ok (20445 tracked file(s) scanned)
+## stubs
+check-no-stubs: ok
+## secrets
+check-no-secrets: ok (20445 tracked file(s) scanned)
+## local-paths
+check-no-local-paths: ok (20445 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+
+## cargo test, its result lines
+test result: ok. 4782 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.33s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.76s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.75s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.11s
+test result: ok. 188 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.78s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+## cargo test-fi, its result lines
+test result: ok. 4805 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.08s
+test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.88s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.25s
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.10s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.01s
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.71s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s

@@ -1,0 +1,5 @@
+pairs that gained a differing row: 2
+    main unresolved-defect -> head unresolved-defect: 2
+  2  other
+    links full (unresolved-defect -> unresolved-defect): fx '  skills: loading' / xfx '  +4 more)'
+    p5-transcript-question full-60 (unresolved-defect -> unresolved-defect): fx '<banner>' / xfx ' (debug 2026-11-11-1059-2c575f52db5d) · Run /help…'

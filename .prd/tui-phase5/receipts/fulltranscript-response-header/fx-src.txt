@@ -1,0 +1,1746 @@
+# fx v0.0.16 (481104fd), every line this receipt cites, as git show 481104fd:<path> prints it, numbered.
+
+## src/ui/full_transcript_screen.zig:5934-5974
+ 5934      fn beforeEntry(
+ 5935          context: *anyopaque,
+ 5936          entry_id: u32,
+ 5937          out: *std.Io.Writer.Allocating,
+ 5938      ) !void {
+ 5939          const self = fromOpaque(context);
+ 5940          try self.builder.markEntry(entry_id);
+ 5941          const entry = self.entries[self.entry_index];
+ 5942          std.debug.assert(entry.id() == entry_id);
+ 5943          if (metadataKind(entry)) |kind| {
+ 5944              var header_buf: [80]u8 = undefined;
+ 5945              if (full_transcript_metadata.formatHeader(
+ 5946                  &header_buf,
+ 5947                  self.metadataCreatedAtMs(entry),
+ 5948                  kind,
+ 5949              )) |header| {
+ 5950                  try out.writer.writeAll(self.builder.styles().dim_style);
+ 5951                  try out.writer.writeAll("  ");
+ 5952                  try out.writer.writeAll(header);
+ 5953                  try out.writer.writeAll(self.builder.styles().reset_style);
+ 5954                  try out.writer.writeByte('\n');
+ 5955              }
+ 5956          }
+ 5957          if (self.anchor_entry_id != null and self.anchor_entry_id.? == entry_id) {
+ 5958              try self.builder.markAnchor();
+ 5959          }
+ 5960      }
+ 5961  
+ 5962      fn metadataCreatedAtMs(
+ 5963          self: *const ProjectionComposeContext,
+ 5964          entry: transcript_blocks.TranscriptEntry,
+ 5965      ) i64 {
+ 5966          switch (entry) {
+ 5967              .raw_bytes => |raw| if (raw.class == .tool_status) {
+ 5968                  if (self.source_index.detailForEntry(entry.id())) |detail| {
+ 5969                      if (detail.created_at_ms > 0) return detail.created_at_ms;
+ 5970                  }
+ 5971              },
+ 5972              else => {},
+ 5973          }
+ 5974          return entry.createdAtMs();
+
+## src/ui/full_transcript_screen.zig:6028-6056
+ 6028  fn metadataKind(
+ 6029      entry: transcript_blocks.TranscriptEntry,
+ 6030  ) ?full_transcript_metadata.Kind {
+ 6031      return switch (entry) {
+ 6032          .user_turn => |user| if (std.mem.startsWith(
+ 6033              u8,
+ 6034              std.mem.trimStart(u8, user.turn.text, " \t\r\n"),
+ 6035              "/issue",
+ 6036          ))
+ 6037              .issue
+ 6038          else
+ 6039              .prompt,
+ 6040          .assistant_turn => .response,
+ 6041          .semantic_notice => |notice| if (notice.tone == .@"error")
+ 6042              .error_notice
+ 6043          else
+ 6044              .notice,
+ 6045          .raw_bytes => |raw| switch (raw.class) {
+ 6046              .tool_status => .tool,
+ 6047              .subagent_status => .task,
+ 6048              .turn_summary => .usage,
+ 6049              else => null,
+ 6050          },
+ 6051          .assistant_table,
+ 6052          .assistant_code_block,
+ 6053          .assistant_thematic_rule,
+ 6054          => null,
+ 6055      };
+ 6056  }
+
+## src/core/output/full_transcript_metadata.zig:1-38
+    1  const std = @import("std");
+    2  const local_time = @import("../shared/local_time.zig");
+    3  
+    4  pub const Kind = enum {
+    5      prompt,
+    6      response,
+    7      tool,
+    8      task,
+    9      issue,
+   10      notice,
+   11      error_notice,
+   12      usage,
+   13  
+   14      pub fn label(self: Kind) []const u8 {
+   15          return switch (self) {
+   16              .prompt => "Prompt",
+   17              .response => "Response",
+   18              .tool => "Tool",
+   19              .task => "Task",
+   20              .issue => "Issue",
+   21              .notice => "Notice",
+   22              .error_notice => "Error",
+   23              .usage => "Usage",
+   24          };
+   25      }
+   26  };
+   27  
+   28  /// Formats `<local date and time> <zone> · <kind>` into `buf`. Returns null
+   29  /// for timestamps outside the supported range or when `buf` is too small.
+   30  pub fn formatHeader(
+   31      buf: []u8,
+   32      timestamp_ms: i64,
+   33      kind: Kind,
+   34  ) ?[]const u8 {
+   35      if (timestamp_ms <= 0) return null;
+   36      const reading = local_time.local(timestamp_ms) orelse return null;
+   37      return std.mem.print(buf, "{f} · {s}", .{ reading, kind.label() }) catch null;
+   38  }
+
+## src/ui/render_engine/transcript_blocks.zig:300-330
+  300  pub const TranscriptEntry = union(enum) {
+  301      /// Banners, command-output summaries, system notices, spinners:
+  302      /// content with a fixed byte shape that does not reshape across
+  303      /// widths. Entry owns the byte slice; freed with the entry.
+  304      raw_bytes: RawBytesEntry,
+  305      /// One retained semantic notice. Topic and body are owned by the entry;
+  306      /// paint-time rendering supplies theme, width, marker, and spacing.
+  307      semantic_notice: SemanticNoticeEntry,
+  308      /// One user prompt. Stored as its logical text plus images and optional
+  309      /// display-only skill spans; the bordered card is rebuilt at paint time
+  310      /// at the current cols so reshape is correct at any width.
+  311      user_turn: UserTurnEntry,
+  312      /// One assistant response, populated incrementally as the pacer
+  313      /// emits tokens. Reflowed at paint time for the current cols.
+  314      assistant_turn: AssistantTurnEntry,
+  315      /// One completed Markdown table, retained as cells so it can be
+  316      /// re-laid out at the active terminal width.
+  317      assistant_table: AssistantTableEntry,
+  318      /// One completed Markdown code block, retained as literal source so it
+  319      /// can be re-laid out at the active terminal width.
+  320      assistant_code_block: AssistantCodeBlockEntry,
+  321      /// One completed Markdown thematic rule, retained semantically so it
+  322      /// can fill the active terminal width.
+  323      assistant_thematic_rule: AssistantThematicRuleEntry,
+  324  
+  325      pub const RawBytesEntry = struct {
+  326          id: u32,
+  327          created_at_ms: i64 = 0,
+  328          inline_hidden: bool = false,
+  329          bytes: []const u8,
+  330          class: RawEntryClass = .unknown_raw,
+
+## src/ui/render_engine/transcript_blocks.zig:400-410
+  400      pub fn createdAtMs(self: TranscriptEntry) i64 {
+  401          return switch (self) {
+  402              .raw_bytes => |e| e.created_at_ms,
+  403              .semantic_notice => |e| e.created_at_ms,
+  404              .user_turn => |e| e.created_at_ms,
+  405              .assistant_turn => |e| e.created_at_ms,
+  406              .assistant_table => |e| e.created_at_ms,
+  407              .assistant_code_block => |e| e.created_at_ms,
+  408              .assistant_thematic_rule => |e| e.created_at_ms,
+  409          };
+  410      }
+
+## src/ui/render_engine/transcript_blocks.zig:1997-2046
+ 1997          .assistant_turn => |e| blk: {
+ 1998              const wrapped = try assistant_wrap.wrapTranscriptAssistantTextWithFinalityInterruptible(
+ 1999                  alloc,
+ 2000                  e.segments.text.items,
+ 2001                  cols,
+ 2002                  checkpoint,
+ 2003              );
+ 2004              const trimmed = trimAssistantBlockHead(wrapped.bytes);
+ 2005              const trimmed_head_bytes = wrapped.bytes.len - trimmed.len;
+ 2006              var block = try normalizeOwnedRenderedBlockWithAllocation(
+ 2007                  alloc,
+ 2008                  kind,
+ 2009                  trimmed,
+ 2010                  wrapped.bytes,
+ 2011              );
+ 2012              block.assistant_finalized_prefix_bytes =
+ 2013                  wrapped.finalized_prefix_bytes -| trimmed_head_bytes;
+ 2014              break :blk block;
+ 2015          },
+ 2016          .assistant_table => |e| blk: {
+ 2017              const gutter = assistant_wrap.gutterWidth(cols);
+ 2018              const rendered = try renderTableForTranscript(alloc, e.table, cols -| gutter);
+ 2019              defer alloc.free(rendered);
+ 2020              const prefixed = try assistant_wrap.prefixStructuralRows(alloc, rendered, gutter);
+ 2021              break :blk try normalizeOwnedRenderedBlock(alloc, kind, prefixed);
+ 2022          },
+ 2023          .assistant_code_block => |e| blk: {
+ 2024              const gutter = assistant_wrap.gutterWidth(cols);
+ 2025              const rendered = try renderCodeBlockForTranscriptWithTheme(
+ 2026                  alloc,
+ 2027                  e.block,
+ 2028                  cols -| gutter,
+ 2029                  styles.code_highlight_theme,
+ 2030              );
+ 2031              defer alloc.free(rendered);
+ 2032              const prefixed = try assistant_wrap.prefixStructuralRows(alloc, rendered, gutter);
+ 2033              break :blk try normalizeOwnedRenderedBlock(alloc, kind, prefixed);
+ 2034          },
+ 2035          .assistant_thematic_rule => blk: {
+ 2036              const rendered = try renderThematicRuleForTranscript(alloc, cols);
+ 2037              break :blk .{
+ 2038                  .kind = kind,
+ 2039                  .bytes = rendered,
+ 2040                  .stored_tail_newlines = 0,
+ 2041                  .allocation = rendered,
+ 2042                  .owned = true,
+ 2043              };
+ 2044          },
+ 2045      };
+ 2046  }
+
+## src/ui/render_engine/transcript_blocks.zig:2073-2122
+ 2073  pub fn renderEntriesForFullPresentationInterruptible(
+ 2074      alloc: Allocator,
+ 2075      entries: []const TranscriptEntry,
+ 2076      cols: u16,
+ 2077      styles: Styles,
+ 2078      sink: *const FullPresentationSink,
+ 2079      out: *std.Io.Writer.Allocating,
+ 2080      checkpoint: ?*build_checkpoint.BuildCheckpoint,
+ 2081  ) !void {
+ 2082      var sequence: BlockSequenceState = .{};
+ 2083  
+ 2084      for (entries, 0..) |entry, entry_index| {
+ 2085          try build_checkpoint.tick(checkpoint);
+ 2086          const entry_id = entry.id();
+ 2087          if (sink.skip_entry(sink.context, entry, entry_index)) {
+ 2088              try sink.before_entry(sink.context, entry_id, out);
+ 2089              continue;
+ 2090          }
+ 2091  
+ 2092          if (sink.override_kind(sink.context, entry)) |kind| {
+ 2093              try out.writer.splatByteAll('\n', sequence.separatorNewlineCountBefore(kind));
+ 2094              try sink.before_entry(sink.context, entry_id, out);
+ 2095              const override_ends_with_newline = try sink.append_override(sink.context, entry, out);
+ 2096              const detail = try sink.append_detail(sink.context, entry_id, out);
+ 2097              sequence.observe(
+ 2098                  kind,
+ 2099                  if (detail.attached) detail.ends_with_newline else override_ends_with_newline,
+ 2100                  0,
+ 2101              );
+ 2102              continue;
+ 2103          }
+ 2104  
+ 2105          const block = try renderEntryToBlockForPresentationInterruptible(
+ 2106              alloc,
+ 2107              entry,
+ 2108              cols,
+ 2109              styles,
+ 2110              .full,
+ 2111              checkpoint,
+ 2112          );
+ 2113          defer block.deinit(alloc);
+ 2114          if (!renderedBlockHasContent(block)) continue;
+ 2115  
+ 2116          try out.writer.splatByteAll('\n', sequence.separatorNewlineCountBefore(block.kind));
+ 2117          try sink.before_entry(sink.context, entry_id, out);
+ 2118          try out.writer.writeAll(block.bytes);
+ 2119          const detail = try sink.append_detail(sink.context, entry_id, out);
+ 2120          sequence.observe(block.kind, detail.ends_with_newline, if (detail.attached) 0 else block.stored_tail_newlines);
+ 2121      }
+ 2122  
+
+## src/ui/render_engine/transcript_blocks.zig:2226-2228
+ 2226  fn renderedBlockHasContent(block: RenderedBlock) bool {
+ 2227      return block.bytes.len > 0;
+ 2228  }
+
+## src/ui/render_engine/transcript_blocks.zig:2844-2848
+ 2844  fn trimAssistantBlockHead(text: []const u8) []const u8 {
+ 2845      var start: usize = 0;
+ 2846      while (start < text.len and text[start] == '\n') : (start += 1) {}
+ 2847      return text[start..];
+ 2848  }
+
+## src/ui/transcript/store.zig:2947-2953
+ 2947  pub fn appendAssistantTurnEntry(self: anytype, alloc: Allocator) !u32 {
+ 2948      const entry_id = self.next_entry_id;
+ 2949      self.next_entry_id +%= 1;
+ 2950      try self.entries.append(alloc, .{ .assistant_turn = .{ .id = entry_id, .created_at_ms = io_mod.milliTimestamp(), .segments = .{} } });
+ 2951      try enforceStructuredRetention(self, alloc, entry_id);
+ 2952      return entry_id;
+ 2953  }
+
+## src/ui/transcript/store.zig:2955-3075
+ 2955  /// Takes ownership of `table` only when it returns successfully.
+ 2956  pub fn appendAssistantTableOwned(
+ 2957      self: anytype,
+ 2958      alloc: Allocator,
+ 2959      table: assistant_presentation.TablePayload,
+ 2960  ) !u32 {
+ 2961      if (hasCommittedRetentionSource(self)) {
+ 2962          var shadow = try cloneRecordedMutationState(self, alloc);
+ 2963          defer shadow.deinit(alloc);
+ 2964          var trims: std.ArrayList(RetentionPrefixTrim) = .empty;
+ 2965          defer trims.deinit(alloc);
+ 2966          if (comptime @hasField(@TypeOf(shadow), "retention_prefix_trims")) shadow.retention_prefix_trims = &trims;
+ 2967          const id = try appendAssistantTableOwned(&shadow, alloc, table);
+ 2968          errdefer {
+ 2969              _ = shadow.entries.pop();
+ 2970          }
+ 2971          try commitAuthoritativeRecordedMutationState(self, &shadow, alloc, "assistant_table_append", .preserve_same_epoch);
+ 2972          return id;
+ 2973      }
+ 2974      const entry_id = self.next_entry_id;
+ 2975      try self.entries.append(alloc, .{ .assistant_table = .{
+ 2976          .id = entry_id,
+ 2977          .created_at_ms = io_mod.milliTimestamp(),
+ 2978          .table = table,
+ 2979      } });
+ 2980      errdefer {
+ 2981          _ = self.entries.pop();
+ 2982      }
+ 2983  
+ 2984      const rendered = try transcript_blocks.renderEntriesToBytes(
+ 2985          alloc,
+ 2986          self.entries.items,
+ 2987          self.layout.cols,
+ 2988          self.command_output_render.styles,
+ 2989      );
+ 2990      defer alloc.free(rendered);
+ 2991      try ensurePaintReservation(self, alloc);
+ 2992      try rebuildTranscriptFromRendered(self, alloc, rendered, "append_assistant_table");
+ 2993      try enforceStructuredRetention(self, alloc, entry_id);
+ 2994      requestTranscriptPaint(self);
+ 2995      self.next_entry_id +%= 1;
+ 2996      return entry_id;
+ 2997  }
+ 2998  
+ 2999  /// Takes ownership of `block` only when it returns successfully.
+ 3000  pub fn appendAssistantCodeBlockOwned(
+ 3001      self: anytype,
+ 3002      alloc: Allocator,
+ 3003      block: assistant_presentation.CodeBlockPayload,
+ 3004  ) !u32 {
+ 3005      if (hasCommittedRetentionSource(self)) {
+ 3006          var shadow = try cloneRecordedMutationState(self, alloc);
+ 3007          defer shadow.deinit(alloc);
+ 3008          var trims: std.ArrayList(RetentionPrefixTrim) = .empty;
+ 3009          defer trims.deinit(alloc);
+ 3010          if (comptime @hasField(@TypeOf(shadow), "retention_prefix_trims")) shadow.retention_prefix_trims = &trims;
+ 3011          const id = try appendAssistantCodeBlockOwned(&shadow, alloc, block);
+ 3012          errdefer {
+ 3013              _ = shadow.entries.pop();
+ 3014          }
+ 3015          try commitAuthoritativeRecordedMutationState(self, &shadow, alloc, "assistant_code_append", .preserve_same_epoch);
+ 3016          return id;
+ 3017      }
+ 3018      const entry_id = self.next_entry_id;
+ 3019      try self.entries.append(alloc, .{ .assistant_code_block = .{
+ 3020          .id = entry_id,
+ 3021          .created_at_ms = io_mod.milliTimestamp(),
+ 3022          .block = block,
+ 3023      } });
+ 3024      errdefer {
+ 3025          _ = self.entries.pop();
+ 3026      }
+ 3027  
+ 3028      const rendered = try transcript_blocks.renderEntriesToBytes(
+ 3029          alloc,
+ 3030          self.entries.items,
+ 3031          self.layout.cols,
+ 3032          self.command_output_render.styles,
+ 3033      );
+ 3034      defer alloc.free(rendered);
+ 3035      try ensurePaintReservation(self, alloc);
+ 3036      try rebuildTranscriptFromRendered(self, alloc, rendered, "append_assistant_code_block");
+ 3037      try enforceStructuredRetention(self, alloc, entry_id);
+ 3038      requestTranscriptPaint(self);
+ 3039      self.next_entry_id +%= 1;
+ 3040      return entry_id;
+ 3041  }
+ 3042  
+ 3043  pub fn appendAssistantThematicRule(self: anytype, alloc: Allocator) !u32 {
+ 3044      if (hasCommittedRetentionSource(self)) {
+ 3045          var shadow = try cloneRecordedMutationState(self, alloc);
+ 3046          defer shadow.deinit(alloc);
+ 3047          var trims: std.ArrayList(RetentionPrefixTrim) = .empty;
+ 3048          defer trims.deinit(alloc);
+ 3049          if (comptime @hasField(@TypeOf(shadow), "retention_prefix_trims")) shadow.retention_prefix_trims = &trims;
+ 3050          const id = try appendAssistantThematicRule(&shadow, alloc);
+ 3051          try commitAuthoritativeRecordedMutationState(self, &shadow, alloc, "assistant_rule_append", .preserve_same_epoch);
+ 3052          return id;
+ 3053      }
+ 3054      const entry_id = self.next_entry_id;
+ 3055      try self.entries.append(alloc, .{ .assistant_thematic_rule = .{
+ 3056          .id = entry_id,
+ 3057          .created_at_ms = io_mod.milliTimestamp(),
+ 3058      } });
+ 3059      errdefer {
+ 3060          _ = self.entries.pop();
+ 3061      }
+ 3062  
+ 3063      const rendered = try transcript_blocks.renderEntriesToBytes(
+ 3064          alloc,
+ 3065          self.entries.items,
+ 3066          self.layout.cols,
+ 3067          self.command_output_render.styles,
+ 3068      );
+ 3069      defer alloc.free(rendered);
+ 3070      try ensurePaintReservation(self, alloc);
+ 3071      try rebuildTranscriptFromRendered(self, alloc, rendered, "append_assistant_thematic_rule");
+ 3072      try enforceStructuredRetention(self, alloc, entry_id);
+ 3073      requestTranscriptPaint(self);
+ 3074      self.next_entry_id +%= 1;
+ 3075      return entry_id;
+
+## src/ui/transcript/store.zig:3088-3205
+ 3088  pub fn tailAssistantSegments(self: anytype) ?*AssistantTurnSegments {
+ 3089      if (self.entries.items.len == 0) return null;
+ 3090      const last = &self.entries.items[self.entries.items.len - 1];
+ 3091      return switch (last.*) {
+ 3092          .assistant_turn => |*e| if (e.inline_hidden) null else &e.segments,
+ 3093          else => null,
+ 3094      };
+ 3095  }
+ 3096  
+ 3097  const AssistantStreamAdmission = struct {
+ 3098      entry_id: u32,
+ 3099      opened_new_turn: bool,
+ 3100      retention_changed: bool = false,
+ 3101  };
+ 3102  
+ 3103  fn commitAssistantStreamChunkFast(
+ 3104      self: anytype,
+ 3105      alloc: Allocator,
+ 3106      metrics: *Metrics,
+ 3107      text: []const u8,
+ 3108  ) !?AssistantStreamAdmission {
+ 3109      const retained = retainedStructuredBytes(self);
+ 3110      if (retained > self.max_retained_transcript_bytes or
+ 3111          text.len > self.max_retained_transcript_bytes - retained)
+ 3112      {
+ 3113          return null;
+ 3114      }
+ 3115  
+ 3116      const tail_segments = tailAssistantSegments(self);
+ 3117      const entry_id = if (tail_segments != null)
+ 3118          self.entries.items[self.entries.items.len - 1].id()
+ 3119      else
+ 3120          self.next_entry_id;
+ 3121  
+ 3122      var pending_segments: AssistantTurnSegments = .{};
+ 3123      defer pending_segments.deinit(alloc);
+ 3124      if (tail_segments) |segments| {
+ 3125          try segments.text.ensureUnusedCapacity(alloc, text.len);
+ 3126      } else {
+ 3127          try pending_segments.text.appendSlice(alloc, text);
+ 3128          try self.entries.ensureUnusedCapacity(alloc, 1);
+ 3129      }
+ 3130  
+ 3131      const transcript_capacity = @min(
+ 3132          self.max_transcript_bytes,
+ 3133          self.transcript.items.len +| text.len,
+ 3134      );
+ 3135      try self.transcript.ensureTotalCapacity(alloc, transcript_capacity);
+ 3136      try self.writeTranscriptBytesFrom(alloc, metrics, text, true, entry_id);
+ 3137  
+ 3138      if (tail_segments) |segments| {
+ 3139          segments.text.appendSliceAssumeCapacity(text);
+ 3140      } else {
+ 3141          self.entries.appendAssumeCapacity(.{ .assistant_turn = .{
+ 3142              .id = entry_id,
+ 3143              .created_at_ms = io_mod.milliTimestamp(),
+ 3144              .segments = pending_segments,
+ 3145          } });
+ 3146          pending_segments = .{};
+ 3147          self.next_entry_id +%= 1;
+ 3148      }
+ 3149  
+ 3150      return .{
+ 3151          .entry_id = entry_id,
+ 3152          .opened_new_turn = tail_segments == null,
+ 3153      };
+ 3154  }
+ 3155  
+ 3156  fn streamAssistantChunkUncommitted(
+ 3157      self: anytype,
+ 3158      alloc: Allocator,
+ 3159      metrics: *Metrics,
+ 3160      text: []const u8,
+ 3161      prefix_trims: *std.ArrayList(RetentionPrefixTrim),
+ 3162  ) !AssistantStreamAdmission {
+ 3163      const entry_id = if (tailAssistantSegments(self) != null)
+ 3164          self.entries.items[self.entries.items.len - 1].id()
+ 3165      else
+ 3166          self.next_entry_id;
+ 3167      try self.writeTranscriptBytesFrom(alloc, metrics, text, true, entry_id);
+ 3168  
+ 3169      if (tailAssistantSegments(self)) |segments| {
+ 3170          try segments.text.appendSlice(alloc, text);
+ 3171          const retention_changed = try enforceStructuredRetentionWithTrims(
+ 3172              self,
+ 3173              alloc,
+ 3174              entry_id,
+ 3175              prefix_trims,
+ 3176          );
+ 3177          return .{
+ 3178              .entry_id = entry_id,
+ 3179              .opened_new_turn = false,
+ 3180              .retention_changed = retention_changed,
+ 3181          };
+ 3182      }
+ 3183  
+ 3184      var segments: AssistantTurnSegments = .{};
+ 3185      errdefer segments.deinit(alloc);
+ 3186      try segments.text.appendSlice(alloc, text);
+ 3187      try self.entries.append(alloc, .{ .assistant_turn = .{
+ 3188          .id = entry_id,
+ 3189          .created_at_ms = io_mod.milliTimestamp(),
+ 3190          .segments = segments,
+ 3191      } });
+ 3192      segments = .{};
+ 3193      self.next_entry_id +%= 1;
+ 3194      const retention_changed = try enforceStructuredRetentionWithTrims(
+ 3195          self,
+ 3196          alloc,
+ 3197          entry_id,
+ 3198          prefix_trims,
+ 3199      );
+ 3200      return .{
+ 3201          .entry_id = entry_id,
+ 3202          .opened_new_turn = true,
+ 3203          .retention_changed = retention_changed,
+ 3204      };
+ 3205  }
+
+## src/ui/transcript/store.zig:3661-3715
+ 3661  pub fn streamAssistantChunk(
+ 3662      self: anytype,
+ 3663      alloc: Allocator,
+ 3664      metrics: *Metrics,
+ 3665      text: []const u8,
+ 3666  ) !u32 {
+ 3667      if (text.len > 0) try self.assertCanMutateTranscript();
+ 3668  
+ 3669      const prior_entry_count = self.entries.items.len;
+ 3670      const prior_tail_kind: []const u8 = if (prior_entry_count == 0)
+ 3671          "empty"
+ 3672      else switch (self.entries.items[prior_entry_count - 1]) {
+ 3673          .raw_bytes => "raw_bytes",
+ 3674          .semantic_notice => "semantic_notice",
+ 3675          .user_turn => "user_turn",
+ 3676          .assistant_turn => "assistant_turn",
+ 3677          .assistant_table => "assistant_table",
+ 3678          .assistant_code_block => "assistant_code_block",
+ 3679          .assistant_thematic_rule => "assistant_thematic_rule",
+ 3680      };
+ 3681      const admission = if (try commitAssistantStreamChunkFast(self, alloc, metrics, text)) |fast|
+ 3682          fast
+ 3683      else blk: {
+ 3684          var shadow = try cloneRecordedMutationState(self, alloc);
+ 3685          defer shadow.deinit(alloc);
+ 3686          var prefix_trims: std.ArrayList(RetentionPrefixTrim) = .empty;
+ 3687          defer prefix_trims.deinit(alloc);
+ 3688          const staged = try streamAssistantChunkUncommitted(
+ 3689              &shadow,
+ 3690              alloc,
+ 3691              metrics,
+ 3692              text,
+ 3693              &prefix_trims,
+ 3694          );
+ 3695          var authoritative_source = try source_preparation.prepareTranscriptSource(&shadow, alloc, null);
+ 3696          defer authoritative_source.deinit(alloc);
+ 3697          if (staged.retention_changed) {
+ 3698              _ = try rebaseTranscriptRewrite(self, &shadow, alloc, prefix_trims.items, null);
+ 3699          }
+ 3700          commitMutationStateWithReconciliationSource(
+ 3701              self,
+ 3702              &shadow,
+ 3703              "atomic_assistant_stream_append",
+ 3704              .preserve_same_epoch,
+ 3705              authoritative_source.bytes,
+ 3706              if (staged.retention_changed) null else staged.entry_id,
+ 3707          );
+ 3708          self.forgetShimmer();
+ 3709          break :blk staged;
+ 3710      };
+ 3711  
+ 3712      if (admission.opened_new_turn) {
+ 3713          debug_trace.logf(
+ 3714              "transcript.stream_new_turn",
+ 3715              "tail={s} text_bytes={d} entries={d}",
+
+## src/core/agent/assistant_presentation.zig:45-50
+   45      pub fn requiresTextDrain(self: Event) bool {
+   46          return switch (self) {
+   47              .text => false,
+   48              .table, .code_block, .thematic_rule => true,
+   49          };
+   50      }
+
+## src/core/agent/assistant_presentation.zig:202-261
+  202      pub fn pushWithCompletions(
+  203          self: *MarkdownProcessor,
+  204          alloc: Allocator,
+  205          input: []const u8,
+  206          out: *std.ArrayList(u8),
+  207          completions: payload.MarkdownCompletions,
+  208      ) !void {
+  209          for (input) |byte| {
+  210              if (byte == '\n') {
+  211                  const line_end = self.line_buf.items.len - @intFromBool(
+  212                      self.line_buf.items.len > 0 and self.line_buf.items[self.line_buf.items.len - 1] == '\r',
+  213                  );
+  214                  try self.handleLine(alloc, self.line_buf.items[0..line_end], true, out, completions);
+  215                  self.line_buf.clearRetainingCapacity();
+  216              } else {
+  217                  try self.line_buf.append(alloc, byte);
+  218              }
+  219          }
+  220      }
+  221  
+  222      pub fn flush(self: *MarkdownProcessor, alloc: Allocator, out: *std.ArrayList(u8)) !void {
+  223          try self.flushWithCompletions(alloc, out, .{});
+  224      }
+  225  
+  226      pub fn flushWithTableCompletion(
+  227          self: *MarkdownProcessor,
+  228          alloc: Allocator,
+  229          out: *std.ArrayList(u8),
+  230          completion: ?*const payload.TableCompletion,
+  231      ) !void {
+  232          try self.flushWithCompletions(alloc, out, .{ .table = completion });
+  233      }
+  234  
+  235      pub fn flushWithCompletions(
+  236          self: *MarkdownProcessor,
+  237          alloc: Allocator,
+  238          out: *std.ArrayList(u8),
+  239          completions: payload.MarkdownCompletions,
+  240      ) !void {
+  241          defer self.active_blockquote = null;
+  242          defer self.active_definition = false;
+  243          defer self.active_footnote = null;
+  244          const had_partial_line = self.line_buf.items.len > 0;
+  245          const len_before = out.items.len;
+  246          if (self.line_buf.items.len > 0) {
+  247              try self.handleLine(alloc, self.line_buf.items, false, out, completions);
+  248              self.line_buf.clearRetainingCapacity();
+  249          }
+  250          try self.flushPendingTopLevelLine(alloc, out);
+  251          if (had_partial_line and out.items.len > len_before and out.items[out.items.len - 1] == '\n') {
+  252              out.items.len -= 1;
+  253          }
+  254          if (self.in_pipe_block) try self.finalizePipeBlock(alloc, out, completions.table);
+  255          if (self.in_code_block) {
+  256              try self.finalizeCodeBlock(alloc, out, completions.code);
+  257              self.in_code_block = false;
+  258              self.code_fence = null;
+  259          }
+  260          try self.flushFootnotes(alloc, out);
+  261      }
+
+## src/core/agent/assistant_presentation.zig:263-418
+  263      fn handleLine(
+  264          self: *MarkdownProcessor,
+  265          alloc: Allocator,
+  266          line: []const u8,
+  267          line_has_lf: bool,
+  268          out: *std.ArrayList(u8),
+  269          completions: payload.MarkdownCompletions,
+  270      ) !void {
+  271          const fs = self.footnoteSink();
+  272          defer self.previous_line_was_blank = tu.isBlankMarkdownLine(line);
+  273  
+  274          if (self.in_code_block) {
+  275              self.active_definition = false;
+  276              if (self.code_fence) |fence| {
+  277                  if (bp.closesCodeFence(line, fence)) {
+  278                      try self.finalizeCodeBlock(alloc, out, completions.code);
+  279                      self.in_code_block = false;
+  280                      self.code_fence = null;
+  281                      return;
+  282                  }
+  283              } else if (!tu.isBlankMarkdownLine(line) and !bp.hasIndentedCodePrefix(line)) {
+  284                  try self.finalizeCodeBlock(alloc, out, completions.code);
+  285                  self.in_code_block = false;
+  286                  try self.handleLine(alloc, line, line_has_lf, out, completions);
+  287                  return;
+  288              }
+  289              const code_line = if (self.code_fence) |fence|
+  290                  bp.stripFenceIndent(line, fence.indent)
+  291              else if (!tu.isBlankMarkdownLine(line))
+  292                  bp.deindentCodeLine(line)
+  293              else
+  294                  line;
+  295              try self.appendCodeLine(alloc, code_line, line_has_lf, out, completions.code);
+  296              return;
+  297          }
+  298  
+  299          if (self.in_pipe_block) {
+  300              self.active_definition = false;
+  301              if (bp.isPipeLine(line) and self.pipe_buf.items.len + line.len + 1 <= ansi.max_pipe_buffer_bytes) {
+  302                  try self.pipe_buf.appendSlice(alloc, line);
+  303                  try self.pipe_buf.append(alloc, '\n');
+  304                  self.pipe_last_line_has_lf = line_has_lf;
+  305                  return;
+  306              }
+  307              try self.finalizePipeBlock(alloc, out, completions.table);
+  308          }
+  309  
+  310          if (self.active_footnote) |active| {
+  311              if (bp.footnoteContinuationBody(line)) |body| {
+  312                  if (active.append_body) {
+  313                      var note = &self.footnotes.items[active.index];
+  314                      try note.body.append(alloc, '\n');
+  315                      try note.body.appendSlice(alloc, body);
+  316                  }
+  317                  return;
+  318              }
+  319              self.active_footnote = null;
+  320          }
+  321  
+  322          if (bp.parseFootnoteDefinition(line)) |definition| {
+  323              self.active_definition = false;
+  324              try self.flushPendingTopLevelLine(alloc, out);
+  325              try self.beginFootnoteDefinition(alloc, definition);
+  326              return;
+  327          }
+  328  
+  329          if (completions.thematic_rule != null and self.pending_top_level_line.items.len > 0) {
+  330              if (bp.parseSetextUnderline(line)) |level| {
+  331                  self.active_definition = false;
+  332                  try block_render.writeHeading(alloc, level, tu.withoutTerminalHardBreakMarker(self.pending_top_level_line.items, true), out, &fs, &link_id_counter);
+  333                  try out.append(alloc, '\n');
+  334                  self.pending_top_level_line.clearRetainingCapacity();
+  335                  return;
+  336              }
+  337              if (bp.definitionMarkerBody(line)) |body| {
+  338                  try self.flushPendingTopLevelLine(alloc, out);
+  339                  try block_render.writeDefinitionLine(alloc, body, line_has_lf, out, &fs, &link_id_counter);
+  340                  self.active_definition = true;
+  341                  return;
+  342              }
+  343              self.active_definition = false;
+  344              try self.flushPendingTopLevelLine(alloc, out);
+  345          }
+  346  
+  347          if (self.active_blockquote) |blockquote| {
+  348              self.active_definition = false;
+  349              if (bp.isLazyBlockquoteContinuation(line)) {
+  350                  try block_render.writeBlockquoteLine(alloc, blockquote, line, line_has_lf, out, &fs, &link_id_counter);
+  351                  try out.append(alloc, '\n');
+  352                  return;
+  353              }
+  354              self.active_blockquote = null;
+  355          }
+  356  
+  357          // An indented list marker continues a list, except that a plus sign in
+  358          // indented-code position stays code so diff-style lines are preserved.
+  359          const indented_list_item = bp.hasIndentedCodePrefix(line) and
+  360              (bp.parseUnorderedList(line) != null or bp.parseOrderedList(line) != null);
+  361          const plus_in_code_position = indented_list_item and self.previous_line_was_blank and tu.leftTrim(line)[0] == '+';
+  362          if (indented_list_item and !plus_in_code_position) {
+  363              self.active_definition = false;
+  364              try self.processLine(alloc, line, line_has_lf, out);
+  365              try out.append(alloc, '\n');
+  366              return;
+  367          }
+  368  
+  369          if (self.previous_line_was_blank and bp.hasIndentedCodePrefix(line)) {
+  370              self.active_definition = false;
+  371              self.in_code_block = true;
+  372              self.code_fence = null;
+  373              self.code_language.clearRetainingCapacity();
+  374              try self.appendCodeLine(alloc, bp.deindentCodeLine(line), line_has_lf, out, completions.code);
+  375              return;
+  376          }
+  377  
+  378          if (!self.in_code_block and bp.isPipeLine(line)) {
+  379              self.active_definition = false;
+  380              self.in_pipe_block = true;
+  381              try self.pipe_buf.appendSlice(alloc, line);
+  382              try self.pipe_buf.append(alloc, '\n');
+  383              self.pipe_last_line_has_lf = line_has_lf;
+  384              return;
+  385          }
+  386  
+  387          if (bp.parseCodeFence(line)) |fence| {
+  388              self.active_definition = false;
+  389              self.in_code_block = true;
+  390              self.code_fence = fence;
+  391              self.code_language.clearRetainingCapacity();
+  392              try self.code_language.appendSlice(alloc, bp.codeFenceLanguage(line));
+  393              return;
+  394          }
+  395  
+  396          if (self.active_definition) {
+  397              if (bp.definitionMarkerBody(line)) |body| {
+  398                  try block_render.writeDefinitionLine(alloc, body, line_has_lf, out, &fs, &link_id_counter);
+  399                  return;
+  400              }
+  401          }
+  402          self.active_definition = false;
+  403  
+  404          if (line_has_lf and completions.thematic_rule != null and bp.isSetextCandidate(line)) {
+  405              try self.pending_top_level_line.appendSlice(alloc, line);
+  406              return;
+  407          }
+  408  
+  409          if (bp.isHorizontalRule(line)) {
+  410              if (completions.thematic_rule) |completion| {
+  411                  try completion.deliver(completion.ctx, out);
+  412                  return;
+  413              }
+  414          }
+  415  
+  416          try self.processLine(alloc, line, line_has_lf, out);
+  417          try out.append(alloc, '\n');
+  418      }
+
+## src/core/agent/assistant_presentation.zig:483-543
+  483      fn finalizePipeBlock(
+  484          self: *MarkdownProcessor,
+  485          alloc: Allocator,
+  486          out: *std.ArrayList(u8),
+  487          completion: ?*const payload.TableCompletion,
+  488      ) !void {
+  489          const fs = self.footnoteSink();
+  490          defer {
+  491              self.pipe_buf.clearRetainingCapacity();
+  492              self.in_pipe_block = false;
+  493              self.pipe_last_line_has_lf = false;
+  494          }
+  495  
+  496          if (bp.isValidTable(self.pipe_buf.items)) {
+  497              if (completion) |sink| {
+  498                  var table = try block_render.parseTablePayloadWithFootnotes(alloc, self.pipe_buf.items, &fs, &link_id_counter);
+  499                  var delivered = false;
+  500                  errdefer if (!delivered) table.deinit(alloc);
+  501                  try sink.deliver(sink.ctx, table, out);
+  502                  delivered = true;
+  503                  return;
+  504              }
+  505              try block_render.renderTable(alloc, self.pipe_buf.items, out, &fs, &link_id_counter);
+  506              return;
+  507          }
+  508  
+  509          var start: usize = 0;
+  510          while (start < self.pipe_buf.items.len) {
+  511              const end = std.mem.findScalarPos(u8, self.pipe_buf.items, start, '\n') orelse self.pipe_buf.items.len;
+  512              const line_has_lf = if (end + 1 == self.pipe_buf.items.len) self.pipe_last_line_has_lf else true;
+  513              try self.processLine(alloc, self.pipe_buf.items[start..end], line_has_lf, out);
+  514              if (line_has_lf) try out.append(alloc, '\n');
+  515              start = end + 1;
+  516          }
+  517      }
+  518  
+  519      fn finalizeCodeBlock(
+  520          self: *MarkdownProcessor,
+  521          alloc: Allocator,
+  522          out: *std.ArrayList(u8),
+  523          completion: ?*const payload.CodeBlockCompletion,
+  524      ) !void {
+  525          defer {
+  526              self.code_buf.clearRetainingCapacity();
+  527              self.code_language.clearRetainingCapacity();
+  528          }
+  529  
+  530          const sink = completion orelse return;
+  531          var language: ?[]u8 = try alloc.dupe(u8, self.code_language.items);
+  532          errdefer if (language) |owned| alloc.free(owned);
+  533          const code = try alloc.dupe(u8, self.code_buf.items);
+  534          var block = payload.CodeBlockPayload{
+  535              .language = language.?,
+  536              .code = code,
+  537          };
+  538          language = null;
+  539          var delivered = false;
+  540          errdefer if (!delivered) block.deinit(alloc);
+  541          try sink.deliver(sink.ctx, block, out);
+  542          delivered = true;
+  543      }
+
+## src/core/agent/runtime/assistant_stream.zig:130-134
+  130      pub fn start_response(self: *StreamChunkContext) !void {
+  131          if (self.response_started) return;
+  132          try self.hooks.push_text(self.hooks.ctx, .assistant_started);
+  133          self.response_started = true;
+  134      }
+
+## src/core/agent/runtime/assistant_stream.zig:387-460
+  387  fn publishAssistantChunkResolved(stream_ctx: *StreamChunkContext, chunk: []const u8) !void {
+  388      if (chunk.len == 0) return;
+  389      const alloc = stream_ctx.alloc;
+  390      try stream_ctx.start_response();
+  391      try stream_ctx.hooks.push_text(stream_ctx.hooks.ctx, .{ .assistant_source = chunk });
+  392      if (!stream_ctx.hooks.render_assistant_text) {
+  393          if (std.mem.trim(u8, chunk, " \t\r\n").len > 0) stream_ctx.saw_visible_text = true;
+  394          stream_ctx.recordTextOutput(chunk);
+  395          return;
+  396      }
+  397  
+  398      var start: usize = 0;
+  399      var initial_prefix_to_emit: ?[]const u8 = null;
+  400      var clear_initial_line_prefix = false;
+  401      defer if (clear_initial_line_prefix) stream_ctx.initial_line_prefix.clearRetainingCapacity();
+  402      if (!stream_ctx.saw_visible_text) {
+  403          while (start < chunk.len and isTrimmedAssistantPrefixByte(chunk[start])) : (start += 1) {
+  404              switch (chunk[start]) {
+  405                  ' ', '\t' => try stream_ctx.initial_line_prefix.append(alloc, chunk[start]),
+  406                  '\n' => stream_ctx.initial_line_prefix.clearRetainingCapacity(),
+  407                  else => {},
+  408              }
+  409          }
+  410          if (start == chunk.len) return;
+  411          if (hasResponseLeadingIndentedCodePrefix(stream_ctx.initial_line_prefix.items)) {
+  412              initial_prefix_to_emit = stream_ctx.initial_line_prefix.items;
+  413          }
+  414          stream_ctx.saw_visible_text = true;
+  415          clear_initial_line_prefix = true;
+  416      }
+  417  
+  418      var out: std.ArrayList(u8) = .empty;
+  419      defer out.deinit(alloc);
+  420  
+  421      var completion = assistant_presentation.TableCompletion{
+  422          .ctx = stream_ctx,
+  423          .deliver = deliverSemanticTable,
+  424      };
+  425      var code_completion = assistant_presentation.CodeBlockCompletion{
+  426          .ctx = stream_ctx,
+  427          .deliver = deliverSemanticCodeBlock,
+  428      };
+  429      var thematic_rule_completion = assistant_presentation.ThematicRuleCompletion{
+  430          .ctx = stream_ctx,
+  431          .deliver = deliverSemanticThematicRule,
+  432      };
+  433      const table_completion: ?*const assistant_presentation.TableCompletion = if (stream_ctx.semantic_presentation != null)
+  434          &completion
+  435      else
+  436          null;
+  437      const semantic_code_completion: ?*const assistant_presentation.CodeBlockCompletion = if (stream_ctx.semantic_presentation != null)
+  438          &code_completion
+  439      else
+  440          null;
+  441      const semantic_thematic_rule_completion: ?*const assistant_presentation.ThematicRuleCompletion = if (stream_ctx.semantic_presentation != null)
+  442          &thematic_rule_completion
+  443      else
+  444          null;
+  445      if (initial_prefix_to_emit) |prefix| {
+  446          try stream_ctx.markdown.pushWithCompletions(alloc, prefix, &out, .{
+  447              .table = table_completion,
+  448              .code = semantic_code_completion,
+  449              .thematic_rule = semantic_thematic_rule_completion,
+  450          });
+  451      }
+  452      try stream_ctx.markdown.pushWithCompletions(alloc, chunk[start..], &out, .{
+  453          .table = table_completion,
+  454          .code = semantic_code_completion,
+  455          .thematic_rule = semantic_thematic_rule_completion,
+  456      });
+  457      if (out.items.len == 0) return;
+  458      try stream_ctx.hooks.push_text(stream_ctx.hooks.ctx, .{ .assistant_rendered = out.items });
+  459      stream_ctx.recordTextOutput(out.items);
+  460  }
+
+## src/core/agent/runtime/assistant_stream.zig:462-510
+  462  pub fn flushAssistantStream(stream_ctx: *StreamChunkContext) !void {
+  463      if (stream_ctx.response_language_staging()) return;
+  464      if (!stream_ctx.hooks.render_assistant_text) return;
+  465      const alloc = stream_ctx.alloc;
+  466      stream_ctx.initial_line_prefix.clearRetainingCapacity();
+  467      var out: std.ArrayList(u8) = .empty;
+  468      defer out.deinit(alloc);
+  469  
+  470      var completion = assistant_presentation.TableCompletion{
+  471          .ctx = stream_ctx,
+  472          .deliver = deliverSemanticTable,
+  473      };
+  474      var code_completion = assistant_presentation.CodeBlockCompletion{
+  475          .ctx = stream_ctx,
+  476          .deliver = deliverSemanticCodeBlock,
+  477      };
+  478      var thematic_rule_completion = assistant_presentation.ThematicRuleCompletion{
+  479          .ctx = stream_ctx,
+  480          .deliver = deliverSemanticThematicRule,
+  481      };
+  482      const table_completion: ?*const assistant_presentation.TableCompletion = if (stream_ctx.semantic_presentation != null)
+  483          &completion
+  484      else
+  485          null;
+  486      const semantic_code_completion: ?*const assistant_presentation.CodeBlockCompletion = if (stream_ctx.semantic_presentation != null)
+  487          &code_completion
+  488      else
+  489          null;
+  490      const semantic_thematic_rule_completion: ?*const assistant_presentation.ThematicRuleCompletion = if (stream_ctx.semantic_presentation != null)
+  491          &thematic_rule_completion
+  492      else
+  493          null;
+  494      try stream_ctx.markdown.flushWithCompletions(alloc, &out, .{
+  495          .table = table_completion,
+  496          .code = semantic_code_completion,
+  497          .thematic_rule = semantic_thematic_rule_completion,
+  498      });
+  499      if (out.items.len == 0) return;
+  500      const text = if (stream_ctx.trailing_newline_count >= 2 and beginsFootnoteProjection(out.items))
+  501          out.items[1..]
+  502      else
+  503          out.items;
+  504      try stream_ctx.hooks.push_text(stream_ctx.hooks.ctx, .{ .assistant_rendered = text });
+  505      stream_ctx.recordTextOutput(text);
+  506  }
+  507  
+  508  fn beginsFootnoteProjection(text: []const u8) bool {
+  509      return std.mem.startsWith(u8, text, "\n\x1b[2m[");
+  510  }
+
+## src/core/agent/runtime/assistant_stream.zig:512-564
+  512  fn deliverSemanticTable(raw: *anyopaque, table: TablePayload, out: *std.ArrayList(u8)) !void {
+  513      const stream_ctx: *StreamChunkContext = @ptrCast(@alignCast(raw));
+  514      const alloc = stream_ctx.alloc;
+  515  
+  516      if (out.items.len > 0) {
+  517          try stream_ctx.hooks.push_text(stream_ctx.hooks.ctx, .{ .assistant_rendered = out.items });
+  518          stream_ctx.recordTextOutput(out.items);
+  519          out.clearRetainingCapacity();
+  520      }
+  521  
+  522      var compatibility: std.ArrayList(u8) = .empty;
+  523      defer compatibility.deinit(alloc);
+  524      try assistant_presentation.renderTablePayload(alloc, table, &compatibility);
+  525      const sink = stream_ctx.semantic_presentation orelse return error.MissingTableSink;
+  526      try sink.table(sink.ctx, table);
+  527      stream_ctx.recordSemanticBoundary();
+  528  }
+  529  
+  530  fn deliverSemanticCodeBlock(raw: *anyopaque, block: CodeBlockPayload, out: *std.ArrayList(u8)) !void {
+  531      const stream_ctx: *StreamChunkContext = @ptrCast(@alignCast(raw));
+  532      const alloc = stream_ctx.alloc;
+  533  
+  534      if (out.items.len > 0) {
+  535          try stream_ctx.hooks.push_text(stream_ctx.hooks.ctx, .{ .assistant_rendered = out.items });
+  536          stream_ctx.recordTextOutput(out.items);
+  537          out.clearRetainingCapacity();
+  538      }
+  539  
+  540      var compatibility: std.ArrayList(u8) = .empty;
+  541      defer compatibility.deinit(alloc);
+  542      try assistant_presentation.renderCodeBlockPayload(alloc, block, &compatibility);
+  543      const sink = stream_ctx.semantic_presentation orelse return error.MissingCodeBlockSink;
+  544      try sink.code_block(sink.ctx, block);
+  545      stream_ctx.recordSemanticBoundary();
+  546  }
+  547  
+  548  fn deliverSemanticThematicRule(raw: *anyopaque, out: *std.ArrayList(u8)) !void {
+  549      const stream_ctx: *StreamChunkContext = @ptrCast(@alignCast(raw));
+  550      const alloc = stream_ctx.alloc;
+  551  
+  552      if (out.items.len > 0) {
+  553          try stream_ctx.hooks.push_text(stream_ctx.hooks.ctx, .{ .assistant_rendered = out.items });
+  554          stream_ctx.recordTextOutput(out.items);
+  555          out.clearRetainingCapacity();
+  556      }
+  557  
+  558      var compatibility: std.ArrayList(u8) = .empty;
+  559      defer compatibility.deinit(alloc);
+  560      try assistant_presentation.writeHorizontalRule(alloc, &compatibility);
+  561      const sink = stream_ctx.semantic_presentation orelse return error.MissingThematicRuleSink;
+  562      try sink.thematic_rule(sink.ctx);
+  563      stream_ctx.recordSemanticBoundary();
+  564  }
+
+## src/core/app/app_callbacks.zig:1236-1245
+ 1236          fn agentPushText(ctx: *anyopaque, emission: agent_runtime.TextEmission) !void {
+ 1237              const app: *App = @ptrCast(@alignCast(ctx));
+ 1238              switch (emission) {
+ 1239                  .assistant_started => {},
+ 1240                  .assistant_source => {},
+ 1241                  .assistant_rendered => |text| try app_worker_runtime.Runtime(App).pushText(app, text),
+ 1242                  .assistant_restarted => |text| try app_worker_runtime.Runtime(App).pushText(app, text),
+ 1243                  .operational => |text| try app_worker_runtime.Runtime(App).pushText(app, text),
+ 1244              }
+ 1245          }
+
+## src/core/app/app_callbacks.zig:1450-1498
+ 1450          fn workerBridgeAppendText(ctx: *anyopaque, text: []const u8) !void {
+ 1451              const app: *App = @ptrCast(@alignCast(ctx));
+ 1452              try app.pacer.enqueue(app.alloc, text);
+ 1453          }
+ 1454  
+ 1455          fn workerBridgeAppendTable(ctx: *anyopaque, table: assistant_presentation.TablePayload) !void {
+ 1456              const app: *App = @ptrCast(@alignCast(ctx));
+ 1457              var owned = table;
+ 1458              var handed_off = false;
+ 1459              errdefer if (!handed_off) owned.deinit(app.alloc);
+ 1460              if (comptime @hasDecl(App, "appendAssistantTable")) {
+ 1461                  try app.appendAssistantTable(owned);
+ 1462                  handed_off = true;
+ 1463                  return;
+ 1464              }
+ 1465              owned.deinit(app.alloc);
+ 1466              handed_off = true;
+ 1467          }
+ 1468  
+ 1469          fn workerBridgeAppendCodeBlock(ctx: *anyopaque, block: assistant_presentation.CodeBlockPayload) !void {
+ 1470              const app: *App = @ptrCast(@alignCast(ctx));
+ 1471              var owned = block;
+ 1472              var handed_off = false;
+ 1473              errdefer if (!handed_off) owned.deinit(app.alloc);
+ 1474              if (comptime @hasDecl(App, "appendAssistantCodeBlock")) {
+ 1475                  try app.appendAssistantCodeBlock(owned);
+ 1476                  handed_off = true;
+ 1477                  return;
+ 1478              }
+ 1479              owned.deinit(app.alloc);
+ 1480              handed_off = true;
+ 1481          }
+ 1482  
+ 1483          fn workerBridgeAppendThematicRule(ctx: *anyopaque) !void {
+ 1484              const app: *App = @ptrCast(@alignCast(ctx));
+ 1485              if (comptime @hasDecl(App, "appendAssistantThematicRule")) {
+ 1486                  try app.appendAssistantThematicRule();
+ 1487              }
+ 1488          }
+ 1489  
+ 1490          fn workerBridgeDrainAssistantText(ctx: *anyopaque) !app_worker_runtime.AssistantTextDrainResult {
+ 1491              const app: *App = @ptrCast(@alignCast(ctx));
+ 1492              try app.pacer.flushPresentationAtBoundary(
+ 1493                  app.alloc,
+ 1494                  io_mod.nanoTimestamp(),
+ 1495                  app.pacerCallbacks(),
+ 1496              );
+ 1497              return .drained;
+ 1498          }
+
+## src/core/app/app_worker_runtime.zig:551-578
+  551          pub fn pushText(app: *App, text: []const u8) !void {
+  552              if (comptime @hasDecl(App, "pushText")) {
+  553                  try app.pushText(text);
+  554              } else {
+  555                  try pushEvent(app, .{ .assistant_presentation = .{
+  556                      .text = @constCast(text),
+  557                  } });
+  558              }
+  559              debug_trace.eventf(
+  560                  "worker",
+  561                  "assistant_chunk_received",
+  562                  .{},
+  563                  "chunk_bytes={d}",
+  564                  .{text.len},
+  565              );
+  566          }
+  567  
+  568          pub fn pushTable(app: *App, table: assistant_presentation.TablePayload) !void {
+  569              try pushEvent(app, .{ .assistant_presentation = .{ .table = table } });
+  570          }
+  571  
+  572          pub fn pushCodeBlock(app: *App, block: assistant_presentation.CodeBlockPayload) !void {
+  573              try pushEvent(app, .{ .assistant_presentation = .{ .code_block = block } });
+  574          }
+  575  
+  576          pub fn pushThematicRule(app: *App) !void {
+  577              try pushEvent(app, .{ .assistant_presentation = .thematic_rule });
+  578          }
+
+## src/core/app/app_worker_runtime.zig:1024-1053
+ 1024                      .assistant_presentation => |presentation| {
+ 1025                          if (presentation.requiresTextDrain() and !try requireAssistantTextDrain(handlers)) {
+ 1026                              try retainClaimedEventAndSuffix(app, &batch, "assistant_text_drain_blocked");
+ 1027                              drain_owns_current = false;
+ 1028                              break :events;
+ 1029                          }
+ 1030                          switch (presentation) {
+ 1031                              .text => |text| {
+ 1032                                  try handlers.append_text(handlers.ctx, text);
+ 1033                                  debug_trace.eventf(
+ 1034                                      "worker",
+ 1035                                      "assistant_chunk_applied",
+ 1036                                      .{},
+ 1037                                      "chunk_bytes={d}",
+ 1038                                      .{text.len},
+ 1039                                  );
+ 1040                              },
+ 1041                              .table => |table| {
+ 1042                                  drain_owns_current = false;
+ 1043                                  try handlers.append_table(handlers.ctx, table);
+ 1044                              },
+ 1045                              .code_block => |block| {
+ 1046                                  drain_owns_current = false;
+ 1047                                  try handlers.append_code_block(handlers.ctx, block);
+ 1048                              },
+ 1049                              .thematic_rule => {
+ 1050                                  drain_owns_current = false;
+ 1051                                  try handlers.append_thematic_rule(handlers.ctx);
+ 1052                              },
+ 1053                          }
+
+## src/main.zig:2552-2567
+ 2552      pub fn pacerEmit(ctx: *anyopaque, text: []const u8) anyerror!void {
+ 2553          const self: *App = @ptrCast(@alignCast(ctx));
+ 2554          _ = try self.shell.streamAssistantChunk(self.alloc, &self.metrics, text);
+ 2555      }
+ 2556  
+ 2557      pub fn appendAssistantTable(self: *App, table: assistant_presentation.TablePayload) !void {
+ 2558          _ = try self.shell.appendAssistantTableOwned(self.alloc, table);
+ 2559      }
+ 2560  
+ 2561      pub fn appendAssistantCodeBlock(self: *App, block: assistant_presentation.CodeBlockPayload) !void {
+ 2562          _ = try self.shell.appendAssistantCodeBlockOwned(self.alloc, block);
+ 2563      }
+ 2564  
+ 2565      pub fn appendAssistantThematicRule(self: *App) !void {
+ 2566          _ = try self.shell.appendAssistantThematicRule(self.alloc);
+ 2567      }
+
+## src/ui/assistant/pacer.zig:193-196
+  193      pub fn enqueue(self: *AssistantPacer, alloc: Allocator, text: []const u8) !void {
+  194          if (text.len == 0) return;
+  195          try self.pending.appendSlice(alloc, text);
+  196      }
+
+## src/ui/assistant/pacer.zig:257-294
+  257      pub fn tick(self: *AssistantPacer, alloc: Allocator, now_ns: i128, cb: TickCallbacks) !void {
+  258          if (self.pending.items.len == 0) {
+  259              try self.fireDeferredFinish(alloc, now_ns, cb);
+  260              return;
+  261          }
+  262  
+  263          if (self.deferred_turn != null and self.deferred_started_ns == null) {
+  264              self.deferred_started_ns = now_ns;
+  265          }
+  266  
+  267          if (try self.emitPendingBlock(cb) == .drained or self.deferred_turn != null) {
+  268              if (self.pending.items.len > 0) try self.neutralizeIncompleteTail(cb);
+  269              try self.fireDeferredFinish(alloc, now_ns, cb);
+  270          }
+  271      }
+  272  
+  273      pub fn flushPresentationAtBoundary(
+  274          self: *AssistantPacer,
+  275          alloc: Allocator,
+  276          now_ns: i128,
+  277          cb: TickCallbacks,
+  278      ) !void {
+  279          if (self.pending.items.len > 0) {
+  280              switch (try self.emitPendingBlock(cb)) {
+  281                  .drained => {},
+  282                  .blocked => try self.neutralizeIncompleteTail(cb),
+  283              }
+  284          }
+  285          try self.fireDeferredFinish(alloc, now_ns, cb);
+  286      }
+  287  
+  288      fn emitPendingBlock(self: *AssistantPacer, cb: TickCallbacks) !FlushResult {
+  289          try self.emitCompletePrefix(cb);
+  290          if (self.pending.items.len == 0) {
+  291              return .drained;
+  292          }
+  293          return .blocked;
+  294      }
+
+## src/ui/assistant/pacer.zig:348-364
+  348      fn emitCompletePrefix(self: *AssistantPacer, cb: TickCallbacks) !void {
+  349          const i = self.emittablePrefixLen();
+  350          if (i == 0) return;
+  351  
+  352          // Restore tracked SGR state because other renderers may reset it between ticks.
+  353          if (self.sgr.isActive()) {
+  354              var prefix_buf: [96]u8 = undefined;
+  355              const reset = "\x1b[0m";
+  356              @memcpy(prefix_buf[0..reset.len], reset);
+  357              const opens_len = self.sgr.writeOpens(prefix_buf[reset.len..]);
+  358              try cb.emit_fn(cb.emit_ctx, prefix_buf[0 .. reset.len + opens_len]);
+  359          }
+  360  
+  361          try cb.emit_fn(cb.emit_ctx, self.pending.items[0..i]);
+  362          self.updateSgrFromEmitted(self.pending.items[0..i]);
+  363          self.consume(i);
+  364      }
+
+## src/core/app/app_session_runtime.zig:3986-4003
+ 3986              for (history) |turn| {
+ 3987                  switch (turn) {
+ 3988                      .compacted_summary => {},
+ 3989                      .assistant => |entry| {
+ 3990                          if (entry.execution.turn_summary) |summary| {
+ 3991                              sink.setCreatedAtMs(summary.started_at_ms);
+ 3992                          }
+ 3993                          try sink.appendUserTurn(entry.user, has_prior_turns.*);
+ 3994                          has_prior_turns.* = true;
+ 3995                          try writeExecutionHistoryToSink(app, sink, entry.execution, labels);
+ 3996                          if (entry.execution.turn_summary) |summary| {
+ 3997                              sink.setCreatedAtMs(summary.completed_at_ms);
+ 3998                          }
+ 3999                          if (entry.assistant.len > 0) {
+ 4000                              try writeAssistantHistoryMarkdownToSink(app, sink, entry.assistant);
+ 4001                          }
+ 4002                          if (entry.execution.turn_summary) |summary| {
+ 4003                              try sink.appendTurnSummary(summary);
+
+## src/core/app/app_session_runtime.zig:4720-4805
+ 4720  
+ 4721          fn AssistantHistoryMarkdownReplay(comptime Sink: type) type {
+ 4722              return struct {
+ 4723                  sink: *Sink,
+ 4724  
+ 4725                  const Self = @This();
+ 4726  
+ 4727                  fn flushText(self: *Self, out: *std.ArrayList(u8)) !void {
+ 4728                      if (out.items.len == 0) return;
+ 4729                      try self.sink.appendAssistantText(out.items);
+ 4730                      out.clearRetainingCapacity();
+ 4731                  }
+ 4732  
+ 4733                  fn deliverTable(
+ 4734                      raw: *anyopaque,
+ 4735                      table: assistant_presentation.TablePayload,
+ 4736                      out: *std.ArrayList(u8),
+ 4737                  ) anyerror!void {
+ 4738                      const self: *Self = @ptrCast(@alignCast(raw));
+ 4739                      try self.flushText(out);
+ 4740                      try self.sink.appendAssistantTable(table);
+ 4741                  }
+ 4742  
+ 4743                  fn deliverCodeBlock(
+ 4744                      raw: *anyopaque,
+ 4745                      block: assistant_presentation.CodeBlockPayload,
+ 4746                      out: *std.ArrayList(u8),
+ 4747                  ) anyerror!void {
+ 4748                      const self: *Self = @ptrCast(@alignCast(raw));
+ 4749                      try self.flushText(out);
+ 4750                      try self.sink.appendAssistantCodeBlock(block);
+ 4751                  }
+ 4752  
+ 4753                  fn deliverThematicRule(
+ 4754                      raw: *anyopaque,
+ 4755                      out: *std.ArrayList(u8),
+ 4756                  ) anyerror!void {
+ 4757                      const self: *Self = @ptrCast(@alignCast(raw));
+ 4758                      try self.flushText(out);
+ 4759                      try self.sink.appendAssistantThematicRule();
+ 4760                  }
+ 4761              };
+ 4762          }
+ 4763  
+ 4764          fn writeAssistantHistoryMarkdown(app: *App, text: []const u8) !void {
+ 4765              var sink = LiveHistorySink(App){ .app = app };
+ 4766              return writeAssistantHistoryMarkdownToSink(app, &sink, text);
+ 4767          }
+ 4768  
+ 4769          fn writeAssistantHistoryMarkdownToSink(
+ 4770              app: *App,
+ 4771              sink: anytype,
+ 4772              text: []const u8,
+ 4773          ) !void {
+ 4774              var processor = assistant_presentation.MarkdownProcessor{};
+ 4775              defer processor.deinit(app.alloc);
+ 4776              var out: std.ArrayList(u8) = .empty;
+ 4777              defer out.deinit(app.alloc);
+ 4778              const Sink = @TypeOf(sink.*);
+ 4779              const Replay = AssistantHistoryMarkdownReplay(Sink);
+ 4780              var replay = Replay{ .sink = sink };
+ 4781              var table_completion = assistant_presentation.TableCompletion{
+ 4782                  .ctx = &replay,
+ 4783                  .deliver = Replay.deliverTable,
+ 4784              };
+ 4785              var code_completion = assistant_presentation.CodeBlockCompletion{
+ 4786                  .ctx = &replay,
+ 4787                  .deliver = Replay.deliverCodeBlock,
+ 4788              };
+ 4789              var thematic_rule_completion = assistant_presentation.ThematicRuleCompletion{
+ 4790                  .ctx = &replay,
+ 4791                  .deliver = Replay.deliverThematicRule,
+ 4792              };
+ 4793              const completions = assistant_presentation.MarkdownCompletions{
+ 4794                  .table = &table_completion,
+ 4795                  .code = &code_completion,
+ 4796                  .thematic_rule = &thematic_rule_completion,
+ 4797              };
+ 4798  
+ 4799              try processor.pushWithCompletions(app.alloc, text, &out, completions);
+ 4800              try processor.flushWithCompletions(app.alloc, &out, completions);
+ 4801              try replay.flushText(&out);
+ 4802              try sink.appendAssistantText("\n");
+ 4803          }
+ 4804  
+ 4805          fn closeWritableSession(app: *App) void {
+
+## src/ui/transcript/resume_projection.zig:76-78
+   76  
+   77      pub fn setCreatedAtMs(self: *ResumeProjection, created_at_ms: i64) void {
+   78          if (created_at_ms > 0) self.created_at_ms = created_at_ms;
+
+## src/ui/transcript/resume_projection.zig:150-193
+  150      pub fn appendAssistantText(self: *ResumeProjection, text: []const u8) !void {
+  151          if (text.len == 0) return;
+  152          if (self.runtime.tailAssistantSegments()) |segments| {
+  153              try segments.text.appendSlice(self.alloc, text);
+  154              return;
+  155          }
+  156          var segments: transcript_runtime.AssistantTurnSegments = .{};
+  157          errdefer segments.deinit(self.alloc);
+  158          try segments.text.appendSlice(self.alloc, text);
+  159          _ = try self.appendEntry(.{ .assistant_turn = .{
+  160              .id = self.runtime.next_entry_id,
+  161              .created_at_ms = self.created_at_ms,
+  162              .segments = segments,
+  163          } });
+  164      }
+  165  
+  166      pub fn appendAssistantTable(
+  167          self: *ResumeProjection,
+  168          table: assistant_presentation.TablePayload,
+  169      ) !void {
+  170          _ = try self.appendEntry(.{ .assistant_table = .{
+  171              .id = self.runtime.next_entry_id,
+  172              .created_at_ms = self.created_at_ms,
+  173              .table = table,
+  174          } });
+  175      }
+  176  
+  177      pub fn appendAssistantCodeBlock(
+  178          self: *ResumeProjection,
+  179          block: assistant_presentation.CodeBlockPayload,
+  180      ) !void {
+  181          _ = try self.appendEntry(.{ .assistant_code_block = .{
+  182              .id = self.runtime.next_entry_id,
+  183              .created_at_ms = self.created_at_ms,
+  184              .block = block,
+  185          } });
+  186      }
+  187  
+  188      pub fn appendAssistantThematicRule(self: *ResumeProjection) !void {
+  189          _ = try self.appendEntry(.{ .assistant_thematic_rule = .{
+  190              .id = self.runtime.next_entry_id,
+  191              .created_at_ms = self.created_at_ms,
+  192          } });
+  193      }
+
+## src/core/app/app_commands.zig:2675-2747
+ 2675  noinline fn writeTranscriptTimeline(writer: *std.Io.Writer, alloc: std.mem.Allocator, entries: anytype) !void {
+ 2676      var emitted_any = false;
+ 2677      for (entries) |entry| {
+ 2678          const ts = entry.createdAtMs();
+ 2679          var rendered_payload: ?[]u8 = null;
+ 2680          defer if (rendered_payload) |text| alloc.free(text);
+ 2681          const kind: []const u8 = switch (entry) {
+ 2682              .raw_bytes => "raw",
+ 2683              .user_turn => "user",
+ 2684              .assistant_turn => "assistant",
+ 2685              .assistant_table => "assistant table",
+ 2686              .assistant_code_block => "assistant code block",
+ 2687              .assistant_thematic_rule => "assistant thematic rule",
+ 2688              .semantic_notice => "semantic notice",
+ 2689          };
+ 2690          const text: []const u8 = switch (entry) {
+ 2691              .raw_bytes => |e| e.bytes,
+ 2692              .user_turn => |e| e.turn.text,
+ 2693              .assistant_turn => |e| e.segments.text.items,
+ 2694              .assistant_table => |e| blk: {
+ 2695                  var table_text: std.ArrayList(u8) = .empty;
+ 2696                  errdefer table_text.deinit(alloc);
+ 2697                  try assistant_presentation.renderTablePayload(alloc, e.table, &table_text);
+ 2698                  rendered_payload = try table_text.toOwnedSlice(alloc);
+ 2699                  break :blk rendered_payload.?;
+ 2700              },
+ 2701              .assistant_code_block => |e| blk: {
+ 2702                  var code_text: std.ArrayList(u8) = .empty;
+ 2703                  errdefer code_text.deinit(alloc);
+ 2704                  try assistant_presentation.renderCodeBlockPayload(alloc, e.block, &code_text);
+ 2705                  rendered_payload = try code_text.toOwnedSlice(alloc);
+ 2706                  break :blk rendered_payload.?;
+ 2707              },
+ 2708              .assistant_thematic_rule => blk: {
+ 2709                  var rule_text: std.ArrayList(u8) = .empty;
+ 2710                  errdefer rule_text.deinit(alloc);
+ 2711                  try assistant_presentation.writeHorizontalRule(alloc, &rule_text);
+ 2712                  rendered_payload = try rule_text.toOwnedSlice(alloc);
+ 2713                  break :blk rendered_payload.?;
+ 2714              },
+ 2715              .semantic_notice => |e| blk: {
+ 2716                  const rendered = try transcript_blocks.renderSemanticNotice(
+ 2717                      alloc,
+ 2718                      .{
+ 2719                          .topic = e.topic,
+ 2720                          .tone = e.tone,
+ 2721                          .body = e.body,
+ 2722                          .visibility = e.visibility,
+ 2723                      },
+ 2724                      .{},
+ 2725                      std.math.maxInt(u16),
+ 2726                  );
+ 2727                  rendered_payload = rendered;
+ 2728                  break :blk rendered;
+ 2729              },
+ 2730          };
+ 2731          if (text.len == 0) continue;
+ 2732  
+ 2733          const body = switch (entry) {
+ 2734              .assistant_thematic_rule => try renderThematicRuleTimelineBody(alloc, text),
+ 2735              else => try renderTimelineEntryBody(alloc, text),
+ 2736          };
+ 2737          defer alloc.free(body);
+ 2738          if (body.len == 0) continue;
+ 2739  
+ 2740          if (emitted_any) try writer.writeByte('\n');
+ 2741          try writeTraceTimestampUtc(writer, ts);
+ 2742          try writer.print(" {s}\n", .{kind});
+ 2743          try writer.writeAll(body);
+ 2744          emitted_any = true;
+ 2745      }
+ 2746      if (!emitted_any) try writer.writeAll("(empty after filtering)\n");
+ 2747  }
+
+## src/core/agent/runtime/assistant_stream.zig:666-670
+  666  }
+  667  
+  668  fn isTrimmedAssistantPrefixByte(byte: u8) bool {
+  669      return byte == ' ' or byte == '\t' or byte == '\r' or byte == '\n';
+  670  }
+
+## src/core/agent/runtime/orchestrator.zig:7308-7325
+ 7308  
+ 7309          debug_trace.logf("agent", "step start step={d} limit={d} messages={d}", .{ current_step_index, config.agent_step_limit, gateway_instructions.items.len + gateway_messages.items.len });
+ 7310          debug_trace.eventf("agent", "step_begin", step_ctx, "step_index={d} step_limit={d} gateway_messages={d}", .{ current_step_index, config.agent_step_limit, gateway_instructions.items.len + gateway_messages.items.len });
+ 7311  
+ 7312          var stream_ctx = runtime_assistant_stream.StreamChunkContext{
+ 7313              .hooks = deps,
+ 7314              .flush_assistant_stream_per_content_chunk = deps.flush_assistant_stream_per_content_chunk,
+ 7315              .semantic_presentation = semantic_presentation,
+ 7316              .token_progress = &summary_accumulator,
+ 7317              .turn_id = turn_id,
+ 7318              .step_id = step_ctx.step_id,
+ 7319              .response_language_expected = response_language_expectation,
+ 7320              .response_language_hold_until_completion = response_language_hold_until_completion,
+ 7321              .provisional_statuses = .{
+ 7322                  .presentation_group_id = presentation_group_id,
+ 7323              },
+ 7324          };
+ 7325          defer stream_ctx.deinit();
+
+## src/ui/transcript/store.zig:1301-1323
+ 1301  fn appendSemanticNoticeEntry(
+ 1302      self: anytype,
+ 1303      alloc: Allocator,
+ 1304      notice: types.SemanticNotice,
+ 1305      pending_replacement: bool,
+ 1306  ) !u32 {
+ 1307      std.debug.assert(notice.body.len > 0);
+ 1308  
+ 1309      const owned = try types.dupeSemanticNotice(alloc, notice);
+ 1310      errdefer types.freeSemanticNotice(alloc, owned);
+ 1311      const entry_id = self.next_entry_id;
+ 1312      try self.entries.append(alloc, .{ .semantic_notice = .{
+ 1313          .id = entry_id,
+ 1314          .created_at_ms = io_mod.milliTimestamp(),
+ 1315          .topic = owned.topic,
+ 1316          .tone = owned.tone,
+ 1317          .body = owned.body,
+ 1318          .visibility = owned.visibility,
+ 1319          .pending_replacement = pending_replacement,
+ 1320      } });
+ 1321      self.next_entry_id +%= 1;
+ 1322      return entry_id;
+ 1323  }
+
+## src/ui/full_transcript_screen.zig:5886-5897
+ 5886  
+ 5887      fn skipEntry(
+ 5888          context: *anyopaque,
+ 5889          entry: transcript_blocks.TranscriptEntry,
+ 5890          entry_index: usize,
+ 5891      ) bool {
+ 5892          const self = fromOpaque(context);
+ 5893          self.entry_index = entry_index;
+ 5894          if (self.entryAction(entry) == .hide) return true;
+ 5895          if (self.source_index.renderableCommandBlockIndexForEntry(entry.id()) != null) return false;
+ 5896          if (self.source_index.commandSourceOwned(entry.id())) return true;
+ 5897          return false;
+
+## src/ui/transcript/tool_group_projection.zig:52-57
+   52      fn setOwnedGroup(self: *Projection, alloc: std.mem.Allocator, index: usize, group: GroupBlock) !void {
+   53          errdefer alloc.free(group.lines);
+   54          try self.setOwnedOverride(alloc, index, .tool_status, group.bytes);
+   55          self.owned_overrides.items[self.owned_overrides.items.len - 1].line_provenance = group.lines;
+   56          self.entry_actions.items[index].override.line_provenance = group.lines;
+   57      }
+
+## src/ui/transcript/tool_group_projection.zig:235-251
+  235  fn statusNamesAsk(entry: TranscriptEntry, detail: ?*const ToolDetailRecord) bool {
+  236      if (detail) |record| {
+  237          return record.activity_kind == .ask or
+  238              std.mem.eql(u8, record.tool_name, "ask_user_question");
+  239      }
+  240      return switch (entry) {
+  241          .raw_bytes => |raw| rawStatusNamesAskTool(raw.bytes),
+  242          else => false,
+  243      };
+  244  }
+  245  
+  246  fn isAttachedEntry(entry: TranscriptEntry) bool {
+  247      return switch (entry) {
+  248          .raw_bytes => |raw| raw.class == .command_output or raw.class == .diff_block,
+  249          else => false,
+  250      };
+  251  }
+
+## src/ui/transcript/tool_group_projection.zig:948-962
+  948  fn hideAttachedRows(
+  949      entries: []const TranscriptEntry,
+  950      entry_actions: []transcript_blocks.EntryRenderAction,
+  951      status_index: usize,
+  952  ) void {
+  953      var index = status_index + 1;
+  954      while (index < entries.len) : (index += 1) {
+  955          if (toolStatusEntryId(entries[index]) != null) break;
+  956          if (isAttachedEntry(entries[index])) {
+  957              entry_actions[index] = .hide;
+  958              continue;
+  959          }
+  960          if (!isTransparentCompactEntry(entries[index])) break;
+  961      }
+  962  }
+
+## src/ui/transcript/tool_group_projection.zig:1321-1335
+ 1321          if (presentation_group_indices[index]) |group_index| {
+ 1322              const group = &presentation_groups.items[group_index];
+ 1323              if (index != group.anchor_index) {
+ 1324                  projection.entry_actions.items[index] = .hide;
+ 1325                  index += 1;
+ 1326                  continue;
+ 1327              }
+ 1328              for (group.status_indices.items) |status_index| {
+ 1329                  projection.entry_actions.items[status_index] = .hide;
+ 1330                  hideAttachedRows(
+ 1331                      entries,
+ 1332                      projection.entry_actions.items,
+ 1333                      status_index,
+ 1334                  );
+ 1335              }
+
+## src/ui/transcript/tool_group_projection.zig:1355-1359
+ 1355          const detail = detailForEntry(details, &detail_indices, entry_id, stats);
+ 1356          if (statusNamesAsk(entries[index], detail)) {
+ 1357              index += 1;
+ 1358              continue;
+ 1359          }
+
+## src/ui/transcript/tool_group_projection.zig:1366-1383
+ 1366          while (index < entries.len) : (index += 1) {
+ 1367              try build_checkpoint.tick(checkpoint);
+ 1368              if (!transcript_blocks.isEntryVisibleInCompactPresentation(entries[index])) continue;
+ 1369              if (presentation_group_indices[index] != null) break;
+ 1370              if (toolStatusEntryId(entries[index])) |group_entry_id| {
+ 1371                  const group_detail = detailForEntry(details, &detail_indices, group_entry_id, stats);
+ 1372                  if (statusNamesAsk(entries[index], group_detail)) break;
+ 1373                  observeTool(&summary, group_detail);
+ 1374                  try status_indices.append(alloc, index);
+ 1375                  projection.entry_actions.items[index] = .hide;
+ 1376                  continue;
+ 1377              }
+ 1378              if (isAttachedEntry(entries[index])) {
+ 1379                  projection.entry_actions.items[index] = .hide;
+ 1380                  continue;
+ 1381              }
+ 1382              if (!isTransparentCompactEntry(entries[index])) break;
+ 1383          }
+
+## src/core/output/transcript_presentation.zig:144-202
+  144      /// Pins the reading position to the entry it shows on the page that
+  145      /// `item_rows` measured, so the next selection keeps that entry in view.
+  146      /// `scroll_rows` counts rows of that page; a rebuilt page whose earlier
+  147      /// entries changed height would show other content at the same offset.
+  148      pub fn pin_reading_position(self: State, item_rows: []const ItemRow) State {
+  149          if (self.follow_tail or self.bookmark_pending or self.anchor_pending) return self;
+  150          var containing: ?ItemRow = null;
+  151          for (item_rows) |item| {
+  152              if (item.row > self.scroll_rows) break;
+  153              containing = item;
+  154          }
+  155          const item = containing orelse return self;
+  156          // Synthetic full-detail records share the never-issued id 0 and cannot
+  157          // be found again; only those records precede them, so the offset holds.
+  158          if (item.entry_id == 0) return self;
+  159          var next = self;
+  160          next.bookmark_entry_id = item.entry_id;
+  161          next.bookmark_intra_row = self.scroll_rows - item.row;
+  162          next.bookmark_pending = true;
+  163          return next;
+  164      }
+  165  
+  166      pub fn select_visual_offset(
+  167          self: State,
+  168          total_rows: u32,
+  169          visible_rows: u16,
+  170          item_rows: []const ItemRow,
+  171      ) OffsetSelection {
+  172          var next = self;
+  173          const max_offset = total_rows -| visible_rows;
+  174          const anchor_rows = resolve_bookmark_row(item_rows, next.anchor_entry_id);
+  175          const offset = if (next.bookmark_pending) blk: {
+  176              next.bookmark_pending = false;
+  177              next.follow_tail = false;
+  178              const item_row = resolve_bookmark_row(
+  179                  item_rows,
+  180                  next.bookmark_entry_id,
+  181              ) orelse break :blk @min(next.scroll_rows, max_offset);
+  182              const item_end = next_bookmark_item_row(item_rows, item_row) orelse
+  183                  total_rows;
+  184              const max_intra_row = item_end -| item_row -| 1;
+  185              break :blk @min(
+  186                  item_row +| @min(next.bookmark_intra_row, max_intra_row),
+  187                  max_offset,
+  188              );
+  189          } else if (next.anchor_pending and anchor_rows != null) blk: {
+  190              next.anchor_pending = false;
+  191              next.follow_tail = false;
+  192              break :blk @min(anchor_rows.?, max_offset);
+  193          } else if (next.follow_tail)
+  194              max_offset
+  195          else
+  196              @min(next.scroll_rows, max_offset);
+  197  
+  198          next.scroll_rows = offset;
+  199          next.follow_tail = offset == max_offset;
+  200          next = next.refresh_bookmark(item_rows, offset);
+  201          return .{ .state = next, .offset = offset };
+  202      }
+
+## src/core/output/transcript_presentation.zig:278-298
+  278  fn resolve_bookmark_row(item_rows: []const ItemRow, entry_id: ?u32) ?u32 {
+  279      const target = entry_id orelse return null;
+  280      var preceding: ?ItemRow = null;
+  281      var following: ?ItemRow = null;
+  282      for (item_rows) |item| {
+  283          if (item.entry_id == target) return item.row;
+  284          if (item.entry_id < target) {
+  285              if (preceding == null or item.entry_id > preceding.?.entry_id) {
+  286                  preceding = item;
+  287              }
+  288          } else if (following == null or item.entry_id < following.?.entry_id) {
+  289              following = item;
+  290          }
+  291      }
+  292      return if (preceding) |item|
+  293          item.row
+  294      else if (following) |item|
+  295          item.row
+  296      else
+  297          null;
+  298  }

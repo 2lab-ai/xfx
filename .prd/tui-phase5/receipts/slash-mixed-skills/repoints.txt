@@ -1,0 +1,15 @@
+repoint ledger:505 src/tui/shell.rs:14024 -> src/tui/shell.rs:14035
+repoint ledger:689 src/tui/shell.rs:17043 -> src/tui/shell.rs:17054
+repoint ledger:806 src/tui/shell.rs:43059 -> src/tui/shell.rs:43070
+repoint ledger:817 src/tui/shell.rs:43059 -> src/tui/shell.rs:43070
+repoint ledger:829 src/tui/shell.rs:43059 -> src/tui/shell.rs:43070
+repoint ledger:840 src/tui/shell.rs:43059 -> src/tui/shell.rs:43070
+repoint ledger:851 src/tui/shell.rs:43059 -> src/tui/shell.rs:43070
+repoint ledger:863 src/tui/shell.rs:10603 -> src/tui/shell.rs:10614
+repoint ledger:865 src/tui/shell.rs:10603 -> src/tui/shell.rs:10614
+repoint ledger:865 :1929 -> :1930
+repoint ledger:919 src/tui/shell.rs:43059 -> src/tui/shell.rs:43070
+repoint ledger:955 src/tui/shell.rs:1854 -> src/tui/shell.rs:1855
+repoint ledger:989 src/tui/shell.rs:17043 -> src/tui/shell.rs:17054
+repoint ledger:1066 src/tui/shell.rs:4559 -> src/tui/shell.rs:4560
+14 re-points written

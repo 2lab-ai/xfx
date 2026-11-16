@@ -37,7 +37,7 @@ const BAD_GATEWAY: &str =
 
 /// The server's origin when this process is the copy, `None` in the parent.
 pub(crate) fn server_in_this_copy() -> Option<String> {
-    std::env::var(SERVER).ok()
+    env_exception!(var("XFX_TEST_PROXY_CASE_SERVER")).ok()
 }
 
 /// A `200` with a JSON body.

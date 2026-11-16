@@ -1,0 +1,22 @@
+== round 2: suite-lock.sh python3 -I mutants.py <worktree> <clone> (TMPDIR <tmp>; clone of 83ed41a0, src 5891efea)
+clone of 83ed41a0
+TMPDIR is the caller's; each test run bounded at 900 s
+M1 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:3001:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M2 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:3025:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:872:9:)
+M3 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:3026:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:872:9:)
+M4 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4963:13:)
+M5 KILLED: --lib::cli::tests::the_permission_flags_select_a_mode_and_cannot_be_combined (101; src/cli.rs:717:9:); cli::ask_takes_fxs_two_spellings_of_full_access_exactly (101; tests/cli.rs:922:9:)
+M6 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:889:5:)
+M7 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:908:9:)
+M8 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:908:9:)
+M9 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2870:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M10 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2870:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M11 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2870:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M12 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2870:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M13 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2887:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M14 KILLED: --lib::permission::slash::tests::the_line_is_trimmed_before_the_modes_parse_which_trims_nothing (101; src/permission/slash.rs:531:9:)
+M15 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:3038:9:)
+M16 KILLED: gateway::ask_help_advertises_only_the_implemented_flags (101; tests/gateway.rs:2357:13:)
+M17 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:908:9:)
+M18 KILLED: --lib::cli::tests::the_permission_flags_select_a_mode_and_cannot_be_combined (101; src/cli.rs:734:13:); cli::ask_takes_fxs_two_spellings_of_full_access_exactly (101; tests/cli.rs:936:9:)
+== 18 mutants, 18 KILLED

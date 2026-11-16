@@ -1,0 +1,54 @@
+# repeat check: 50 iterations; in each, every binary runs the three tests (A to E) once, one binary after the other; no burner, the machine's own load; one normal slot of the suite lock; each run bounded at 300 s; cores 18
+run   1  base load  8.39 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load  7.30 A:ok B:ok C:ok D:ok E:ok   9.3 s
+run   2  base load  6.49 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load  5.33 A:ok B:ok C:ok D:ok E:ok   6.0 s
+run   3  base load  6.74 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load  6.10 A:ok B:ok C:ok D:ok E:ok   6.0 s
+run   4  base load  5.77 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load  5.88 A:ok B:ok C:ok D:ok E:ok   6.1 s
+run   5  base load  5.65 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load  5.79 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run   6  base load  5.48 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load  5.31 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run   7  base load  6.81 A:ok B:ok C:ok D:ok E:ok  27.2 s  head load  6.89 A:ok B:ok C:ok D:ok E:ok   7.0 s
+run   8  base load  9.65 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load  8.71 A:ok B:ok C:ok D:ok E:ok   5.9 s
+run   9  base load  8.49 A:ok B:ok C:ok D:ok E:ok  26.1 s  head load  7.43 A:ok B:ok C:ok D:ok E:ok   9.2 s
+run  10  base load  8.41 A:ok B:ok C:ok D:ok E:ok  27.9 s  head load  8.21 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  11  base load  7.95 A:ok B:ok C:ok D:ok E:ok  27.7 s  head load 12.73 A:ok B:ok C:ok D:ok E:ok  11.6 s
+run  12  base load 11.74 A:ok B:ok C:ok D:ok E:ok  26.7 s  head load  9.43 A:ok B:ok C:ok D:ok E:ok  11.3 s
+run  13  base load  8.45 A:ok B:ok C:ok D:ok E:ok  28.9 s  head load  8.16 A:ok B:ok C:ok D:ok E:ok  11.3 s
+run  14  base load  8.79 A:ok B:ok C:ok D:ok E:ok  26.9 s  head load  7.61 A:ok B:ok C:ok D:ok E:ok   6.1 s
+run  15  base load  7.48 A:ok B:ok C:ok D:ok E:ok  27.1 s  head load  7.65 A:ok B:ok C:ok D:ok E:ok   5.9 s
+run  16  base load  7.31 A:ok B:ok C:ok D:ok E:ok  27.1 s  head load 11.98 A:ok B:ok C:ok D:ok E:ok  17.9 s
+run  17  base load 12.73 A:ok B:ok C:ok D:ok E:ok  30.0 s  head load 14.49 A:ok B:ok C:ok D:ok E:ok   7.0 s
+run  18  base load 18.13 A:ok B:ok C:ok D:ok E:ok  26.1 s  head load 13.81 A:ok B:ok C:ok D:ok E:ok   6.4 s
+run  19  base load 12.94 A:ok B:ok C:ok D:ok E:ok  28.2 s  head load  9.79 A:ok B:ok C:ok D:ok E:ok  14.6 s
+run  20  base load  9.07 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load  9.16 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  21  base load  9.22 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load 11.98 A:ok B:ok C:ok D:ok E:ok   6.7 s
+run  22  base load 11.26 A:ok B:ok C:ok D:ok E:ok  28.6 s  head load 14.73 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  23  base load 14.19 A:ok B:ok C:ok D:ok E:ok  26.4 s  head load 11.61 A:ok B:ok C:ok D:ok E:ok   6.3 s
+run  24  base load 11.16 A:ok B:ok C:ok D:ok E:ok  30.1 s  head load  9.18 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  25  base load  9.08 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load  9.04 A:ok B:ok C:ok D:ok E:ok   6.7 s
+run  26  base load  8.80 A:ok B:ok C:ok D:ok E:ok  29.5 s  head load 11.75 A:ok B:ok C:ok D:ok E:ok   6.7 s
+run  27  base load 12.17 A:ok B:ok C:ok D:ok E:ok  26.5 s  head load 10.46 A:ok B:ok C:ok D:ok E:ok   6.4 s
+run  28  base load 10.10 A:ok B:ok C:ok D:ok E:ok  30.4 s  head load 12.62 A:ok B:ok C:ok D:ok E:ok  18.9 s
+run  29  base load 14.40 A:ok B:ok C:ok D:ok E:ok  26.7 s  head load 12.23 A:ok B:ok C:ok D:ok E:ok   6.0 s
+run  30  base load 11.73 A:ok B:ok C:ok D:ok E:ok  29.4 s  head load 11.42 A:ok B:ok C:ok D:ok E:ok   6.0 s
+run  31  base load 11.95 A:ok B:ok C:ok D:ok E:ok  26.1 s  head load 10.97 A:ok B:ok C:ok D:ok E:ok   6.1 s
+run  32  base load 10.81 A:ok B:ok C:ok D:ok E:ok  28.2 s  head load 18.05 A:ok B:ok C:ok D:ok E:ok  10.2 s
+run  33  base load 16.44 A:ok B:ok C:ok D:ok E:ok  26.4 s  head load 13.96 A:ok B:ok C:ok D:ok E:ok   6.4 s
+run  34  base load 14.37 A:ok B:ok C:ok D:ok E:ok  26.5 s  head load 17.11 A:ok B:ok C:ok D:ok E:ok   9.8 s
+run  35  base load 15.96 A:ok B:ok C:ok D:ok E:ok  27.6 s  head load 14.63 A:ok B:ok C:ok D:ok E:ok   6.3 s
+run  36  base load 13.94 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 13.37 A:ok B:ok C:ok D:ok E:ok   6.4 s
+run  37  base load 12.48 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 11.92 A:ok B:ok C:ok D:ok E:ok   6.1 s
+run  38  base load 11.84 A:ok B:ok C:ok D:ok E:ok  25.8 s  head load 10.43 A:ok B:ok C:ok D:ok E:ok   6.3 s
+run  39  base load  9.92 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 12.07 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  40  base load 11.66 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 12.13 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  41  base load 13.32 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 17.14 A:ok B:ok C:ok D:ok E:ok   6.0 s
+run  42  base load 15.04 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load 12.76 A:ok B:ok C:ok D:ok E:ok   6.3 s
+run  43  base load 13.18 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 13.96 A:ok B:ok C:ok D:ok E:ok   6.2 s
+run  44  base load 13.80 A:ok B:ok C:ok D:ok E:ok  26.0 s  head load 15.18 A:ok B:ok C:ok D:ok E:ok   6.3 s
+run  45  base load 14.76 A:ok B:ok C:ok D:ok E:ok  26.1 s  head load 13.19 A:ok B:ok C:ok D:ok E:ok   6.5 s
+run  46  base load 12.54 A:ok B:ok C:ok D:ok E:ok  25.9 s  head load 11.73 A:ok B:ok C:ok D:ok E:ok   7.3 s
+run  47  base load 11.51 A:ok B:ok C:ok D:ok E:ok  29.2 s  head load 11.94 A:ok B:ok C:ok D:ok E:ok  11.2 s
+run  48  base load 11.49 A:ok B:ok C:ok D:ok E:ok  26.1 s  head load 11.31 A:ok B:ok C:ok D:ok E:ok   8.6 s
+run  49  base load 11.40 A:ok B:ok C:ok D:ok E:ok  26.9 s  head load 11.56 A:ok B:ok C:ok D:ok E:ok  14.0 s
+run  50  base load 10.62 A:ok B:ok C:ok D:ok E:ok  26.5 s  head load  9.53 A:ok B:ok C:ok D:ok E:ok   6.0 s
+
+PASSED base: A 50/50, B 50/50, C 50/50, D 50/50, E 50/50  (1-min load at its runs' start: min 5.48, median 11.33, max 18.13)
+PASSED head: A 50/50, B 50/50, C 50/50, D 50/50, E 50/50  (1-min load at its runs' start: min 5.31, median 11.58, max 18.05)

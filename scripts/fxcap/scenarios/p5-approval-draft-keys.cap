@@ -1,0 +1,54 @@
+# The keys an approval's feedback draft takes (APPROVAL-DRAFT-KEYS). fx
+# v0.0.16's draft has no undo, redo or yank: C-y and C-_ are no
+# focused-editor key and no approval byte (shortcuts.zig:31-41,
+# src/ui/input/runtime.zig:61-73, :103-108@481104fd), a kitty Ctrl+Y is the
+# same byte replayed (escape_parser.zig:255-259), and Super+Z and
+# Super+Shift+Z are composer undo and redo, no draft action
+# (escape_parser.zig:232-234; src/ui/input/runtime.zig:75-96;
+# input_approval_runtime.zig:128). So after C-w each of them leaves `ab `,
+# and the Enter sends `ab `. Tab in the draft changes nothing and asks for a
+# frame (approval_decision.zig:142-143; input_approval_runtime.zig:59-61), so
+# Tab and Enter in one write leave the question up (:191-218), and the next
+# Enter answers. One `key` line is one tmux send-keys, one write. The turns,
+# the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap edit-ask
+key Tab
+wait 0.4
+type ab cd
+wait 0.6
+snap edit-typed
+key C-w
+wait 0.6
+snap edit-ctrl-w
+key -H 19
+wait 0.6
+snap edit-ctrl-y
+key -H 1f
+wait 0.6
+snap edit-ctrl-underscore
+key -H 1b 5b 31 32 32 3b 39 75
+wait 0.6
+snap edit-super-z
+key -H 1b 5b 31 32 32 3b 31 30 75
+wait 0.6
+snap edit-super-shift-z
+key -H 1b 5b 31 32 31 3b 35 75
+wait 0.6
+snap edit-kitty-ctrl-y
+key Tab Enter
+wait 0.6
+snap edit-tab-enter
+key Enter
+wait 2.5
+snap write-ask
+gwlog

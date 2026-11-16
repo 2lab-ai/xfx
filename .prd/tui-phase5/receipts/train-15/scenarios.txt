@@ -1,0 +1,268 @@
+# join check 1: the approval amendment's scenarios
+## approval*: 18 pairs at the head (18 at the base too); pass at the head 2, at the base 2; up 0, down 0
+    approvals after-cc-cmd-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    approvals after-esc: base unresolved-defect [amendment-card-after-stop] -> head unresolved-defect [amendment-card-after-stop]
+    approvals after-esc.full: base unresolved-defect [amendment-card-after-stop] -> head unresolved-defect [amendment-card-after-stop]
+    approvals cmd2-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    approvals edit-amend-typed: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-down1: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-down3-wrap: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals edit-tab-amend: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals write-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit asked: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit end: base normalized-identical -> head normalized-identical
+    approvals-amend-limit refused: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit refused-after-edit: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-amend-limit refused-again: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    approvals-big end: base normalized-identical -> head normalized-identical
+    approvals-big write-big: base unresolved-defect [approval-scroll, approval-grant-scope] -> head unresolved-defect [approval-scroll, approval-grant-scope]
+    approvals-big write-big-walked: base unresolved-defect [approval-scroll, approval-grant-scope] -> head unresolved-defect [approval-scroll, approval-grant-scope]
+## p5-approval*: 89 pairs at the head (56 at the base too); pass at the head 2, at the base 0; up 2, down 0
+    p5-approval-ctrl-j cmd-ask: base new -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-ctrl-j cmd2-ask: base new -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-ctrl-j edit-ask: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j edit-down-ctrl-j: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j edit-up-ctrl-j: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j end: base new -> head normalized-identical
+    p5-approval-ctrl-j write-ask: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j write-letter-ctrl-j: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-ctrl-j-panel approval-arrives: base new -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-ctrl-j-panel approval-ctrl-j: base new -> head approved-divergence-cascade
+    p5-approval-ctrl-j-panel end: base new -> head approved-divergence-cascade
+    p5-approval-ctrl-j-panel open-before-approval: base new -> head approved-divergence-cascade
+    p5-approval-draft-keys edit-ask: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-ctrl-underscore: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-ctrl-w: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-ctrl-y: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-kitty-ctrl-y: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-super-shift-z: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-super-z: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-tab-enter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys edit-typed: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-draft-keys write-ask: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys alt-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys amend-alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys amend-keys: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys answered: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys back: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys ctrl-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys kitty-alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys kitty-alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys left-wrap: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys mok-alt-b: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys mok-alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys right-wrap: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys shift-alt-f: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys shift-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys shift-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys super-left: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys super-right: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys tab-back: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-horizontal-keys unpainted: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled cmd-ask: base new -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-readiness-settled cmd2-ask: base new -> head unresolved-defect [tool-schema, approval-grant-scope]
+    p5-approval-readiness-settled cmd2-down-enter: base new -> head unresolved-defect [approval-settled-every-approval]
+    p5-approval-readiness-settled edit-ask: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled edit-down-enter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled edit-down-up-enter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled edit-left-enter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled end: base new -> head normalized-identical
+    p5-approval-readiness-settled write-ask: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled write-letter-enter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-readiness-settled write-super-up-enter: base new -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-n: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-p: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-ctrl-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-kitty-alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-kitty-alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-shift-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-shift-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-super-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys amend-super-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys answered: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys choice-1: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-n: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-p: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys ctrl-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys kitty-alt-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys kitty-alt-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys shift-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys shift-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys super-down: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    p5-approval-vertical-keys super-up: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+## p5-super-arrows-approval: 16 pairs at the head (0 at the base too); pass at the head 0, at the base 0; up 0, down 0
+    p5-super-arrows-approval amend-alt-super-right: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-ctrl-end: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-ctrl-home: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-ctrl-super-left: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-shift-home: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-end: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-home: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-left: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval amend-super-right: base new -> head unresolved-defect [approval-grant-scope; a row no cause covers]
+    p5-super-arrows-approval amend-tilde-ctrl-end: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval ctrl-home: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval ctrl-super-left: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval down: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval super-end: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval super-left: base new -> head unresolved-defect [approval-grant-scope]
+    p5-super-arrows-approval super-right: base new -> head unresolved-defect [approval-grant-scope]
+
+# join check 4: full-transcript-shift's and session-record-page-bottom's scenarios, and FULLTRANSCRIPT-RESPONSE-HEADER's own
+## fulltranscript: 15 pairs at the head (15 at the base too); pass at the head 6, at the base 6; up 0, down 0
+    fulltranscript cmd-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    fulltranscript cmd-ask-ctrl-o: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    fulltranscript edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    fulltranscript end: base normalized-identical -> head normalized-identical
+    fulltranscript end.full: base normalized-identical -> head normalized-identical
+    fulltranscript full: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    fulltranscript full-esc: base normalized-identical -> head normalized-identical
+    fulltranscript full-pgdn: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    fulltranscript full-pgup: base unresolved-defect [full-transcript-shift, session-record] -> head unresolved-defect [full-transcript-shift, session-record]
+    fulltranscript full-up2: base unresolved-defect [session-record, full-transcript-shift] -> head unresolved-defect [session-record, full-transcript-shift]
+    fulltranscript full2: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    fulltranscript full2-cc: base normalized-identical -> head normalized-identical
+    fulltranscript full3: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    fulltranscript full3-close: base normalized-identical -> head normalized-identical
+    fulltranscript second: base normalized-identical -> head normalized-identical
+## fulltranscript-notice: 4 pairs at the head (4 at the base too); pass at the head 0, at the base 0; up 0, down 0
+    fulltranscript-notice end: base unresolved-defect [no cause; a row no cause covers] -> head unresolved-defect [no cause; a row no cause covers]
+    fulltranscript-notice full: base unresolved-defect [full-transcript-shift, session-record] -> head unresolved-defect [full-transcript-shift, session-record]
+    fulltranscript-notice full-pgup: base unresolved-defect [session-record, full-transcript-shift] -> head unresolved-defect [session-record, full-transcript-shift]
+    fulltranscript-notice full-top: base unresolved-defect [session-record, full-transcript-shift] -> head unresolved-defect [session-record, full-transcript-shift]
+## links: 6 pairs at the head (6 at the base too); pass at the head 5, at the base 5; up 0, down 0
+    links answered: base normalized-identical -> head normalized-identical
+    links full: base unresolved-defect [session-record, full-transcript-shift] -> head unresolved-defect [session-record]
+    links resumed: base identical -> head identical
+    links resumed.full: base normalized-identical -> head normalized-identical
+    links second: base normalized-identical -> head normalized-identical
+    links second.full: base normalized-identical -> head normalized-identical
+## read-failures: 6 pairs at the head (6 at the base too); pass at the head 5, at the base 5; up 0, down 0
+    read-failures ctrl-o: base normalized-identical -> head normalized-identical
+    read-failures ctrl-o-up1: base normalized-identical -> head normalized-identical
+    read-failures live: base normalized-identical -> head normalized-identical
+    read-failures live-ctrl-o: base normalized-identical -> head normalized-identical
+    read-failures live-ctrl-o-up1: base unresolved-defect [session-record, full-transcript-shift] -> head unresolved-defect [session-record, full-transcript-shift]
+    read-failures resumed: base identical -> head identical
+## resume-tools: 18 pairs at the head (18 at the base too); pass at the head 7, at the base 7; up 0, down 0
+    resume-tools again-stopped: base normalized-identical -> head normalized-identical
+    resume-tools cmd-ask: base unresolved-defect [grant-scope-push, approval-grant-scope] -> head unresolved-defect [grant-scope-push, approval-grant-scope]
+    resume-tools ctrl-o: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    resume-tools ctrl-o-up1: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    resume-tools ctrl-o-up2: base normalized-identical -> head normalized-identical
+    resume-tools edit-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+    resume-tools end: base normalized-identical -> head normalized-identical
+    resume-tools exit-ask: base unresolved-defect [tool-schema, approval-grant-scope] -> head unresolved-defect [tool-schema, approval-grant-scope]
+    resume-tools live-ctrl-o: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    resume-tools live-ctrl-o-up1: base unresolved-defect [full-transcript-shift, tool-schema] -> head unresolved-defect [full-transcript-shift, tool-schema]
+    resume-tools live-ctrl-o-up2: base unresolved-defect [full-transcript-shift] -> head unresolved-defect [full-transcript-shift]
+    resume-tools live-ctrl-o-up3: base unresolved-defect [session-record, full-transcript-shift] -> head unresolved-defect [session-record, full-transcript-shift]
+    resume-tools live.full: base normalized-identical -> head normalized-identical
+    resume-tools long-later: base unresolved-defect [grant-scope-push] -> head unresolved-defect [grant-scope-push]
+    resume-tools picker: base normalized-identical -> head normalized-identical
+    resume-tools resumed: base normalized-identical -> head normalized-identical
+    resume-tools resumed.full: base normalized-identical -> head normalized-identical
+    resume-tools write-ask: base unresolved-defect [approval-grant-scope] -> head unresolved-defect [approval-grant-scope]
+## timeout: 2 pairs at the head (2 at the base too); pass at the head 0, at the base 0; up 0, down 0
+    timeout live: base unresolved-defect [tool-schema; a row no cause covers] -> head unresolved-defect [tool-schema; a row no cause covers]
+    timeout live-ctrl-o: base unresolved-defect [full-transcript-shift, session-record, tool-schema] -> head unresolved-defect [full-transcript-shift, session-record, tool-schema]
+## p5-transcript-md: 5 pairs at the head (5 at the base too); pass at the head 4, at the base 3; up 1, down 0
+    p5-transcript-md answered: base identical -> head normalized-identical
+    p5-transcript-md answered.full: base normalized-identical -> head normalized-identical
+    p5-transcript-md closed: base identical -> head normalized-identical
+    p5-transcript-md full: base unresolved-defect [no cause; a row no cause covers] -> head normalized-identical
+    p5-transcript-md full-pgup: base unresolved-defect [session-record, session-record-page-bottom] -> head unresolved-defect [session-record, session-record-page-bottom]
+## p5-transcript-md-light: 5 pairs at the head (5 at the base too); pass at the head 4, at the base 3; up 1, down 0
+    p5-transcript-md-light answered: base identical -> head identical
+    p5-transcript-md-light answered.full: base normalized-identical -> head normalized-identical
+    p5-transcript-md-light closed: base identical -> head identical
+    p5-transcript-md-light full: base unresolved-defect [no cause; a row no cause covers] -> head normalized-identical
+    p5-transcript-md-light full-pgup: base unresolved-defect [session-record, session-record-page-bottom] -> head unresolved-defect [session-record, session-record-page-bottom]
+## p5-modified-page-keys: 10 pairs at the head (0 at the base too); pass at the head 9, at the base 0; up 9, down 0
+    p5-modified-page-keys answered: base new -> head identical
+    p5-modified-page-keys closed: base new -> head identical
+    p5-modified-page-keys draft: base new -> head identical
+    p5-modified-page-keys full: base new -> head normalized-identical
+    p5-modified-page-keys full-ctrl-pgup: base new -> head normalized-identical
+    p5-modified-page-keys full-pgup: base new -> head unresolved-defect [session-record, session-record-page-bottom]
+    p5-modified-page-keys full2: base new -> head normalized-identical
+    p5-modified-page-keys full2-kp-ctrl-pgdn: base new -> head normalized-identical
+    p5-modified-page-keys typed: base new -> head identical
+    p5-modified-page-keys typed2: base new -> head identical
+## fulltranscript-response-split: 14 pairs at the head (0 at the base too); pass at the head 14, at the base 0; up 14, down 0
+    fulltranscript-response-split block-first: base new -> head identical
+    fulltranscript-response-split block-last: base new -> head identical
+    fulltranscript-response-split block-only: base new -> head identical
+    fulltranscript-response-split blocks: base new -> head identical
+    fulltranscript-response-split full-block-first: base new -> head normalized-identical
+    fulltranscript-response-split full-block-last: base new -> head normalized-identical
+    fulltranscript-response-split full-block-only: base new -> head normalized-identical
+    fulltranscript-response-split full-blocks: base new -> head normalized-identical
+    fulltranscript-response-split full-rule: base new -> head normalized-identical
+    fulltranscript-response-split full-table: base new -> head normalized-identical
+    fulltranscript-response-split launch: base new -> head normalized-identical
+    fulltranscript-response-split long: base new -> head identical
+    fulltranscript-response-split rule: base new -> head identical
+    fulltranscript-response-split table: base new -> head identical
+## cause full-transcript-shift at the base: 18 pairs name it
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    links full
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    timeout live-ctrl-o
+## cause full-transcript-shift at the head: 17 pairs name it
+    fulltranscript full
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full3
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    timeout live-ctrl-o
+## cause session-record-page-bottom at the base: 2 pairs name it
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full-pgup
+## cause session-record-page-bottom at the head: 3 pairs name it
+    p5-modified-page-keys full-pgup
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full-pgup

@@ -1,0 +1,13 @@
+# head 81248004; /bin/bash 3.2.57(1)-release
+$ git diff --stat 401b3fb2 HEAD
+ .github/workflows/ci.yml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+$ git diff 401b3fb2 HEAD | grep -E "^[+-][^+-]"
+-          bash --version | head -n 1
++          bash --version | sed -n 1p
+$ actionlint .github/workflows/ci.yml: exit 0
+$ scripts/test-gate-env.sh: exit 0, test-gate-env: ok (93 cases)
+test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop on macOS and Linux rows
+test-gate-env: ok ci-bash32                      the macOS script-test rows run <path> and the log says which bash
+# tree clean after: yes

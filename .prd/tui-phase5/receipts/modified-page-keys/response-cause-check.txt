@@ -1,0 +1,17 @@
+# The cause fulltranscript-response-header, checked: round 2's two sweeps (r2 base and head, 20 pairs each) rescored twice, with 8b488ca4's ledger (no such cause) and with ceab580d's (the cause added); every pair whose class, causes or uncaused rows differ between the two, and the rows the cause took. It loads (both rescores ran) and takes, at the head, fx's second Response header and xfx's blank first row on the six tail-page snaps and nothing else.
+## base: 20 pairs
+p5-modified-page-keys/full: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> unresolved-defect; causes ['session-record'] -> ['session-record', 'fulltranscript-response-header']; uncaused 26 -> 21; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; fx row 24 (blank); fx row 27 (blank); fx row 31 (blank); fx row 34 (blank)
+p5-modified-page-keys/full2: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-modified-page-keys/full2-kp-ctrl-pgdn: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-transcript-md/full: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX KST · Response; xfx row 1 (blank)
+p5-transcript-md-light/full: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX KST · Response; xfx row 1 (blank)
+6 pairs changed; every other pair the same
+## head: 20 pairs
+p5-modified-page-keys/full: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-modified-page-keys/full-ctrl-pgup: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-modified-page-keys/full2: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-modified-page-keys/full2-kp-ctrl-pgdn: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX UTC · Response; xfx row 1 (blank)
+p5-transcript-md/full: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX KST · Response; xfx row 1 (blank)
+p5-transcript-md-light/full: unresolved-defect -> unresolved-defect; causes [] -> ['fulltranscript-response-header']; uncaused 2 -> 0; taken: fx row 32 XXXXXXXXXXXXXXXXXXXXXXX KST · Response; xfx row 1 (blank)
+6 pairs changed; every other pair the same

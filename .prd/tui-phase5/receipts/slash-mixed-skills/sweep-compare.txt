@@ -1,0 +1,30 @@
+# python3 -I cmp_sweeps.py <base>/pairs.json <head>/pairs.json -- the families' sweeps (sweeps.sh), base b9b11596's binary, then the head's (built at 83dae68e)
+change p5-slash-mixed-skills/cap-help: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 16 -> 0
+change p5-slash-mixed-skills/clear-the-notes: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/ghost-list: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 16 -> 0
+change p5-slash-mixed-skills/ghost-list-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 12 -> 0
+change p5-slash-mixed-skills/ghost-list-tab: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 16 -> 0
+change p5-slash-mixed-skills/git-log: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 10 -> 0
+change p5-slash-mixed-skills/git-log-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/git-log-esc: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-slash-mixed-skills/git-log-esc-x: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/git-log-tab: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+change p5-slash-mixed-skills/help: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/help-x: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/lead: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 16 -> 0
+change p5-slash-mixed-skills/lead-tab: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-slash-mixed-skills/notes: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 14 -> 0
+change p5-slash-mixed-skills/notes-down: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 14 -> 0
+change p5-slash-mixed-skills/notes-down-tab: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/rename: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 20 -> 0
+change p5-slash-mixed-skills/rename-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 10 -> 0
+change p5-slash-mixed-skills/rename-notes: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/rename-the-help: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 14 -> 0
+change p5-slash-mixed-skills/rename-the-help-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 8 -> 0
+change p5-slash-mixed-skills/skills-x: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/slash-space: unresolved-defect -> normalized-identical; causes ['menu-count'] -> []; uncaused 14 -> 0
+change p5-slash-mixed-skills/statusline: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+change p5-slash-mixed-skills/statusline-bell: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 6 -> 0
+base: 124 pairs, 68 pass, 44 with uncaused rows
+head: 124 pairs, 94 pass, 18 with uncaused rows
+drops: 0

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3f2d6e7 [debug] · Run /help for commands
+
+┃ hello
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑2 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

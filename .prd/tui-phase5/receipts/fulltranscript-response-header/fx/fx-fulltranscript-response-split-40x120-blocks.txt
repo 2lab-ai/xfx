@@ -1,0 +1,40 @@
+  echo only
+  ─────────
+
+  0s (↑4 ↓40)
+
+┃ ends in a block
+
+  Lead line.
+
+  ─ sh ───
+  echo end
+  ────────
+
+  0s (↑5 ↓40)
+
+┃ opens with a block
+
+  ─ sh ─────
+  echo first
+  ──────────
+
+  Then text.
+
+  0s (↑6 ↓40)
+
+┃ two blocks
+
+  ─ sh ───
+  echo one
+  ────────
+
+  ─ sh ───
+  echo two
+  ────────
+
+  0s (↑3 ↓40)
+
+┃
+
+auto · model-a

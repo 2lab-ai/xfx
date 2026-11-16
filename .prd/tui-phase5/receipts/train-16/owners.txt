@@ -1,0 +1,14 @@
+# owners.py at 15c9744b: 19 files name a unit of the eleven
+docs/parity.md:162 META-PREFIX-DECODE: ...ed). **`ESC ESC [ D` leaves a choice alone, as fx's does** (META-PREFIX-DECODE): it is fx's meta-prefixed word move (`escape_parser.zig:55...
+# per unit: mentions, of them with an owner word within 80 characters
+PROFILE-REFUSE-AT-LAUNCH: 2, 0
+PROFILE-REFUSE-TYPED-KEYS: 0, 0
+PERMISSION-MODE-CASE: 7, 0
+PROFILE-JSON-LIMITS: 0, 0
+SLASH-LEADING-WS: 4, 0
+SLASH-ARG-SKILLS: 5, 0
+SLASH-MIXED-SKILLS: 1, 0
+TEST-ENV-ISOLATION: 0, 0
+LOCAL-PATHS-WRAP: 0, 0
+APPROVAL-PASTE-SPACES: 11, 0
+META-PREFIX-DECODE: 16, 1

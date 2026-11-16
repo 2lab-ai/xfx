@@ -3,8 +3,8 @@
 //!
 //! A test that inherited the developer's `HOME` would read the developer's
 //! profile and write into the developer's session store, so a `Sandbox` is a
-//! temporary root with a home and a workspace under it and an environment with
-//! every variable xfx reads stripped out.
+//! temporary root with a home and a workspace under it and an environment
+//! built from nothing ([`clear_env`]).
 
 use std::fs;
 use std::path::PathBuf;
@@ -15,25 +15,51 @@ use tempfile::TempDir;
 use super::fake_gateway::{self, FakeGateway, Reply};
 use super::fake_llmux::FakeLlmux;
 
-/// Environment variables that must never leak in from the developer's shell.
-pub const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-    // Where `/sound` starts: a developer who silenced their own shell must not
-    // silence the cases that are about the bell.
-    "XFX_SOUND",
-];
+/// What a child the suites start is given of the developer's environment:
+/// where programs are, and where temporary files go.
+///
+/// Nothing else: not `HOME`, not an xfx variable or a credential, not what
+/// chooses git's or llmux's configuration (`XDG_CONFIG_HOME`,
+/// `GIT_CONFIG_GLOBAL`, `LLMUX_CONFIG`), not a proxy, not `TMUX`. A list of
+/// what to remove is a list of what someone remembered, and every suite's
+/// own was missing some of these; this is the list of what is kept.
+pub const INHERITED_VARS: &[&str] = &["PATH", "TMPDIR"];
+
+/// [`INHERITED_VARS`] as the developer's process holds them: the suites' one
+/// read of the process environment.
+fn inherited() -> [(&'static str, Option<std::ffi::OsString>); 2] {
+    [
+        ("PATH", xfx::env_exception!(var_os("PATH"))),
+        ("TMPDIR", xfx::env_exception!(var_os("TMPDIR"))),
+    ]
+}
+
+/// The developer's `PATH`: where a case finds `git` and the rest.
+pub fn path() -> std::ffi::OsString {
+    let [(_, path), _] = inherited();
+    path.unwrap_or_default()
+}
+
+/// Clears `command`'s environment down to [`INHERITED_VARS`]: what a case
+/// wants the child to have, it sets after this.
+pub fn clear_env(command: &mut Command) {
+    command.env_clear();
+    for (key, value) in inherited() {
+        if let Some(value) = value {
+            command.env(key, value);
+        }
+    }
+}
 
 /// A test secret that must never appear on the terminal.
 pub const TEST_KEY: &str = "xfx-test-interactive-key-must-not-appear";
 
 /// A profile whose provider xfx cannot read, which poisons every turn
 /// (`RuntimeConfig::provider_rejected`); [`Sandbox::write_profile`] writes it.
-pub const UNREADABLE_PROVIDER: &str = r#"{"provider":"not-a-provider"}"#;
+/// fx v0.0.16 has this provider; a name it would look up among configured
+/// connections (`"not-a-provider"`) stops the launch instead, as fx's load
+/// fails with `UnknownConfiguredProvider`.
+pub const UNREADABLE_PROVIDER: &str = r#"{"provider":"codex"}"#;
 
 pub struct Sandbox {
     _root: TempDir,
@@ -58,7 +84,7 @@ impl Sandbox {
     }
 
     pub fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = super::command(env!("CARGO_BIN_EXE_xfx"));
         self.apply_env(&mut command);
         command
     }
@@ -70,13 +96,11 @@ impl Sandbox {
     /// or the shelled case is running somewhere else than every other case.
     pub fn apply_env(&self, command: &mut Command) {
         command.current_dir(&self.workspace);
+        clear_env(command);
         command.env("HOME", &self.home);
         // A shell is a terminal program; a terminal that claims to be nothing
         // is still a terminal, and the shell must not depend on this.
         command.env("TERM", "dumb");
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         // A bare `xfx` on a terminal is the TUI. The controlled environment
         // pins the line shell, because that is what every suite but
         // `tests/tui.rs` drives through its pty; the TUI suite opts back in.

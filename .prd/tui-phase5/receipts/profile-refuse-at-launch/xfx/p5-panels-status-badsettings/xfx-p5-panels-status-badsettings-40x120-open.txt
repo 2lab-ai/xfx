@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-a57ba76 [debug] · Run /help for commands
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Status
+
+  Session           1794294155885-354f5936feffa5b7 · not saved yet
+  Model             fake/model-a
+  Settings          couldn't be read: InvalidSettingsFormat
+  Permissions       auto
+  Sandbox           none
+  Workspace         <work___________________________________________>
+  Turns             0
+  Session grants    0
+  Step limit        25
+  Ultrafast         not requested
+  Build             debug · a57ba760413b
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

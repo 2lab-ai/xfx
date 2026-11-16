@@ -1,0 +1,47 @@
+commit dd2ac93dabb8471781f8a73c26dd3df4cc223261
+Merge: 849f5017 dd9f5f0a
+
+Merge LOCAL-PATHS-WRAP into train 16 (fix/p5-local-paths-wrap @ dd9f5f0a)
+
+Merge 4 of 6. One unit, LOCAL-PATHS-WRAP @ dd9f5f0a (git log
+71d3e02b..dd9f5f0a, 14 commits, one of them its own join of train 12's
+head 71d3e02b, 1e023110).
+
+Conflicts: scripts/fxcap/roots.py, 1 block of its docstring, by hand
+(train-16/byhand.py 4): the unit's two new paragraphs, with main's #94
+words for the run directory's name (`fxcap.` and six digits) and its
+example kept in the sentence the unit moved.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/scripts/fxcap/roots.py b/scripts/fxcap/roots.py
+remerge CONFLICT (content): Merge conflict in scripts/fxcap/roots.py
+index 25e912e9..e2d682be 100644
+--- a/scripts/fxcap/roots.py
++++ b/scripts/fxcap/roots.py
+@@ -80,11 +80,6 @@ reading (`--check`). Conservative, on purpose: a root that ends in a gutter
+ run is refused even where it stands whole inside a row (`<local-path> ` before
+ `/notes`), as its reading without the run ends whole there too, and the view
+ cannot tell that from the run lost at a row's edge. A root with more than
+-<<<<<<< 849f5017 (Merge TEST-ENV-ISOLATION into train 16 (fix/p5-test-env-isolation @ 7c3f6c1e))
+-MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, `fxcap.` and six
+-digits) anywhere at all: it names no other path, and a root a binary cut
+-short (`<local-path>`) or whose head scrolled off a frame keeps
+-=======
+ MAX_GUTTER_RUNS runs is refused outright. A continuation mark counts as a
+ gutter character here: the view drops it at a row's start.
+ 
+@@ -104,10 +99,9 @@ a root's end with nothing path-like after it -- HOME's last bytes closing a
+ `┃↑` row, ending the file, or before a space or a quote; round 1 refused
+ those, and neither check refuses them now.
+ 
+-The run directory's own name (`--suffix`, mktemp's random tail) refuses
++The run directory's own name (`--suffix`, `fxcap.` and six digits) refuses
+ the file too, anywhere at all: it names no other path, and a root a binary cut
+-short (`<local-path>`) or whose head scrolled off a frame keeps
+->>>>>>> dd9f5f0a (docs(receipt): LOCAL-PATHS-WRAP round 5 -- split marks counted by their bytes)
++short (`<local-path>`) or whose head scrolled off a frame keeps
+ it. The file is named on standard error with what survived or why it was
+ refused, by placeholder, never the root's path, and the exit status is 3. A fragment of a root above the run
+ directory (the harness's TMPDIR or HOME) holds no run name;

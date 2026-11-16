@@ -1,0 +1,106 @@
+# cargo test --locked --lib -- model_question at 4f3c1515 (the RED commit: afd891af's src/ plus the tests),
+# TMPDIR=<tmp>; each failure's body cut to its first 14 lines (the Enter/C-j step dumps run long)
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.17s
+     Running unittests src/lib.rs (target/debug/deps/xfx-aa4745569a132798)
+
+running 12 tests
+test tui::question::tests::ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not ... FAILED
+test tui::shell::tests::the_turns_clock_stops_while_a_model_question_is_up_too ... ok
+test tui::shell::tests::a_model_question_takes_the_composers_rows_and_gives_them_back ... ok
+test tui::shell::tests::the_hint_row_under_a_model_question_is_the_questions_own ... ok
+test tui::shell::tests::a_model_question_under_the_panel_takes_the_keys_and_the_screen_and_gives_them_back ... ok
+test tui::shell::tests::escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document ... ok
+test tui::shell::tests::keys_fx_does_not_read_as_ctrl_j_do_nothing_at_a_model_question ... ok
+test tui::shell::tests::ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel ... FAILED
+test tui::shell::tests::a_model_question_over_the_menu_leaves_its_question_unpainted_until_a_frame ... ok
+test tui::shell::tests::ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read ... FAILED
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... FAILED
+test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... FAILED
+
+failures:
+
+---- tui::question::tests::ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not stdout ----
+
+thread 'tui::question::tests::ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not' panicked at src/tui/question.rs:2735:9:
+assertion `left == right` failed
+  left: None
+ right: Some(Submit)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::shell::tests::ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel stdout ----
+
+thread 'tui::shell::tests::ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel' panicked at src/tui/shell.rs:23978:9:
+[
+    "c-j: None",
+    "kitty ctrl+j: None",
+    "kitty ctrl+J: None",
+    "kitty ctrl+shift+j: None",
+    "kitty ctrl+alt+j: None",
+    "kitty ctrl+super+j: None",
+    "kitty ctrl+shift+alt+super+j: None",
+    "kitty ctrl+j, caps lock: None",
+    "kitty ctrl+j, num lock: None",
+    "kitty ctrl+j press: None",
+    "kitty ctrl+j repeat: None",
+    [... cut]
+---- tui::shell::tests::ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read stdout ----
+
+thread 'tui::shell::tests::ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read' panicked at src/tui/shell.rs:23845:9:
+[
+    "a move and two, c-j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                id: QuestionId(\
+    "a move and two, kitty ctrl+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                id: Que
+    "a move and two, kitty ctrl+J: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                id: Que
+    "a move and two, kitty ctrl+shift+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                i
+    "a move and two, kitty ctrl+alt+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                id:
+    "a move and two, kitty ctrl+super+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                i
+    "a move and two, kitty ctrl+shift+alt+super+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n       
+    "a move and two, kitty ctrl+j, caps lock: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n            
+    "a move and two, kitty ctrl+j, num lock: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n             
+    "a move and two, kitty ctrl+j press: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                i
+    "a move and two, kitty ctrl+j repeat: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    2) Quick\",\n    ),\n], Enter [\n    (\n        Some(\n            QuestionAnswer {\n                
+    [... cut]
+---- tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question stdout ----
+
+thread 'tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question' panicked at src/tui/shell.rs:23885:9:
+2050 of 2050 failed, the first: [
+    "c-j, field false: None",
+    "c-j, field true: None",
+    "kitty 106;5u, field false: None",
+    "kitty 106;5u, field true: None",
+    "kitty 106;5:1u, field false: None",
+    "kitty 106;5:1u, field true: None",
+    "kitty 106;5:2u, field false: None",
+    "kitty 106;5:2u, field true: None",
+]
+
+---- tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field stdout ----
+
+thread 'tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field' panicked at src/tui/shell.rs:23814:9:
+[
+    "at a choice, c-j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n            \"Which d
+    "at a choice, kitty ctrl+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n            
+    "at a choice, kitty ctrl+J: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n            
+    "at a choice, kitty ctrl+shift+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n      
+    "at a choice, kitty ctrl+alt+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n        
+    "at a choice, kitty ctrl+super+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n      
+    "at a choice, kitty ctrl+shift+alt+super+j: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Som
+    "at a choice, kitty ctrl+j, caps lock: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n 
+    "at a choice, kitty ctrl+j, num lock: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n  
+    "at a choice, kitty ctrl+j press: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n      
+    "at a choice, kitty ctrl+j repeat: [\n    (\n        None,\n        Some(\n            \"Which depth?\",\n        ),\n        \"    1) Thorough                      reads every file\",\n    ),\n    (\n        None,\n        Some(\n     
+    [... cut]
+failures:
+    tui::question::tests::ctrl_j_is_enter_to_a_model_question_and_the_newline_keys_are_not
+    tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field
+    tui::shell::tests::ctrl_j_at_a_model_question_over_the_status_panel_answers_the_question_not_the_panel
+    tui::shell::tests::ctrl_j_in_one_read_answers_a_model_question_as_enter_does_in_that_read
+    tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question
+
+test result: FAILED. 7 passed; 5 failed; 0 ignored; 0 measured; 4762 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `--lib`
+
+# The one-read test's paste case with the byte C-j, its entry in full (the four steps at C-j, then Enter's):
+# writes `3`, the paste with the key behind its end marker, the key alone, `1`. The first two steps match; at the third Enter answers and C-j does nothing.
+behind a paste's end marker, c-j: [ (None, Some( "Which depth?",), "    3)  ",), (None, Some( "Which depth?",), "    3) new ",), (None, Some( "Which depth?",), "    3) new ",), (None, Some( "Which depth?",), "    3) new1 ",), ], Enter [ (None, Some( "Which depth?",), "    3)  ",), (None, Some( "Which depth?",), "    3) new ",), (None, Some( "Ship it?",), "    1) Yes",), ( Some( QuestionAnswer { id: QuestionId( 1,), answers: [ "new", "Yes", ], },), None, "",), ]

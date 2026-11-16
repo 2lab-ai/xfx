@@ -1,0 +1,38 @@
+# base: mutants.py on a git clone --no-local at afd891af; the catalog-wait tests (A, B, C, D, E) per mutant -- the whole lib suite for ['image-route-read-ignores-stop', 'window-first-load-ignores-stop'] -- bounded at 900 s
+base first-load-late-turn-read-thread-12000: killed (failed: C E B)
+      left: [(true, [], [], false, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+     right: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+      left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled")], [0]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+     right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+      left: None
+     right: Some(Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"))
+    test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 67.55s
+base first-load-late-turn-read-xthread-12000: killed (failed: C E B)
+      left: [(true, [], [], false, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+     right: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+      left: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [], [0]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+     right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+      left: None
+     right: Some(Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"))
+    test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 47.50s
+base retry-wait-stop-late-thread-12000: killed (failed: D E A B)
+      left: ([Some("the turn was cancelled")], [0], [(1, "Dropped")])
+     right: ([Some("the turn was cancelled"), None], [0, 1], [(1, "Dropped")])
+      left: [(WindowRetry, true, [Some("the turn was cancelled")], [0]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+     right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+      left: None
+     right: Some(None)
+      left: None
+     right: Some(Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"))
+    test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 85.91s
+base retry-wait-stop-late-xthread-12000: killed (failed: D E A B)
+      left: ([], [0], [(1, "Dropped")])
+     right: ([Some("the turn was cancelled"), None], [0, 1], [(1, "Dropped")])
+      left: [(WindowRetry, true, [], [0]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+     right: [(WindowRetry, true, [Some("the turn was cancelled"), None], [0, 1]), (WindowRetry, false, [None, None], [1, 0]), (PromptImageFirstLoad, true, [Some("the turn was cancelled"), None], [0, 1]), (PromptImageFirstLoad, false, [None, None], [1, 0])]
+      left: None
+     right: Some(None)
+      left: None
+     right: Some(Some("Ultra mode is unavailable for this model; run /ultrafast off or choose a model that offers it"))
+    test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 4763 filtered out; finished in 55.98s
+clone after: clean

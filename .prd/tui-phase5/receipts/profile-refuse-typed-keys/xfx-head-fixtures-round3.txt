@@ -1,0 +1,659 @@
+== probe.sh xfx <xfx at 990be66e, round 3> <run> (every fixture, 113)
+binary sha256 before: 11754744a2bd
+== truncated
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== toolarge
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=484B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== at-ceiling
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=284B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-space
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=openai/gpt-5|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mod
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-nonstring
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=491B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-inner-space
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=model|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=291B stderr=xfx: config user: invalid_value; key=model|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-long
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=model|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=284B stderr=xfx: config user: invalid_value; key=model|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== ws-nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=491B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-model
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=openai/gpt-5|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mod
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-key
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== provider
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== models-bad
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+== dir-settings
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=286B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== link-settings
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=489B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=287B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== link-profile
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/link-profile/home/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/link-profile/home/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives| | touched: 
+== unreadable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== project-malformed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config project: malformed_settings|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=291B stderr=xfx: config project: malformed_settings|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== retired-then-model
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=495B stderr= | touched: 
+    stdout: [status] model=openai/gpt-5|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mod
+  interactive            still running after 6 s exit= tty=395B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=293B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== group-writable
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=490B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== group-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: malformed_settings|xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=495B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=293B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== group-writable-model
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=a|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode=auto|[sta
+  interactive            still running after 6 s exit= tty=391B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=284B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== other-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: malformed_settings|xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=495B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=293B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== dir-group-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: malformed_settings|xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=499B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/dir-group-writable-torn/home/.xfx cannot hold session state: it is mode 770; session state must not be reachable by group or other (`chmod 700 <run>/dir-group-writable-torn/home/.xfx` makes it private)| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/dir-group-writable-torn/home/.xfx cannot hold session state: it is mode 770; session state must not be reachable by group or other (`chmod 700 <run>/dir-group-writable-torn/home/.xfx` makes it private)| | touched: 
+== write-only
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dir-unlistable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=490B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== hardlink
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=484B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=282B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== profile-file
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/profile-file/home/.xfx cannot hold session state: it is not a directory| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/profile-file/home/.xfx cannot hold session state: it is not a directory| | touched: 
+== fifo
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=480B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=278B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== home-unlistable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=491B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dup-key
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=483B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== valid
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=481B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=279B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== hardlink-unreadable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=495B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=794B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=293B stderr=xfx: config user: unreadable_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: unreadable_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== home-unlistable-empty
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=497B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-permission
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=492B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-entry
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=487B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-steps
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=487B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-steps-negative
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=496B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-effort
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-mode
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-notify-max
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=492B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-statusline
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=492B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-statusline
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=statusLine|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=492B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=290B stderr=xfx: config user: invalid_value; key=statusLine|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== entry-statusline-ws
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=statusLine.workspace|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=495B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=293B stderr=xfx: config user: invalid_value; key=statusLine.workspace|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== typed-history
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=489B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-authorities
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=skill_symlink_authorities; skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=291B stderr=xfx: config user: invalid_value; key=skill_symlink_authorities; skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== authorities-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=skill_symlink_authorities; skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components|xfx ask: config user: invalid_value; key=notifications|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWA | touched: 
+  status                 exit=0 stdout=498B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=527B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=296B stderr=xfx: config user: invalid_value; key=skill_symlink_authorities; skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components|xfx: config user: invalid_value; key=notifications|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== limits-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=291B stderr=xfx: config user: invalid_value; key=fast_mode|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== typed-xfx-only
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=backend|xfx ask: config user: invalid_value; key=llmux_url|provider=rejected: the `backend` setting is a value that is not a string, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the prompt t | touched: 
+  status                 exit=0 stdout=668B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=rejected|[status] provider_rejected=|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=provider=rejected: the `backend` setting is a value that is not a string, which
+  interactive            still running after 6 s exit= tty=527B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: config user: invalid_value; key=backend|xfx: config user: invalid_value; key=llmux_url|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== typed-fx-only
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=489B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=287B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== additional-global
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=291B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== dup-nested
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dup-unread
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dup-entry
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dup-escaped
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=487B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dup-project
+  ask                    exit=1 stdout=0B stderr=xfx ask: config project: malformed_settings|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=487B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=285B stderr=xfx: config project: malformed_settings|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== provider-type
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProviderType| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidProviderType| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProviderType| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProviderType| | touched: 
+== provider-badid
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProviderValue| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidProviderValue| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProviderValue| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProviderValue| | touched: 
+== provider-codex
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=provider|provider=rejected: the `provider` setting is `codex`, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the prompt to an endpoint you did not choose| | touched: 
+  status                 exit=0 stdout=653B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=rejected|[status] provider_rejected=codex|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=provider=rejected: the `provider` setting is `codex`, which xfx cannot rea
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: config user: invalid_value; key=provider|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== provider-llmux
+  ask                    exit=1 stdout=0B stderr=xfx is configured to use the llmux backend but no valid `llmux_url` is set; run `xfx setup llmux` to point xfx at the local llmux daemon| | touched: 
+  status                 exit=0 stdout=541B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=llmux|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx is configured to use the llmux backend but no valid `llmux_url` is set; run `xfx setup llmux` to point xfx
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== provider-upper
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=490B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== provider-entry
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== provider-salvaged
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== provider-typed-unknown
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== models-type
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelType| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelType| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelType| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelType| | touched: 
+== models-key
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProviderValue| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidProviderValue| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProviderValue| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProviderValue| | touched: 
+== models-value-type
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelType| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelType| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelType| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelType| | touched: 
+== models-llmux
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=286B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-then-models
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+== model-bad-with-provider
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=489B stderr= | touched: 
+    stdout: [status] model=a|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode=auto|[sta
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== models-inner-space
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=models|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=494B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=292B stderr=xfx: config user: invalid_value; key=models|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== retired-then-provider
+  ask                    exit=1 stdout=0B stderr=xfx: RetiredSkillMatchFuzzy| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: RetiredSkillMatchFuzzy| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: RetiredSkillMatchFuzzy| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: RetiredSkillMatchFuzzy| | touched: 
+== mode-upper
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=permission_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=284B stderr=xfx: config user: invalid_value; key=permission_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== mode-padded
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== steps-float
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=487B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== steps-huge
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== effort-bad
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=486B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-statusline-ws
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=495B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== provider-entry-fixes
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=provider|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=496B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=294B stderr=xfx: config user: invalid_value; key=provider|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== limits-ok-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=496B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== limits-off-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=497B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== limits-underscore-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=504B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== limits-plus-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=498B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=296B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== limits-negative-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=502B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=300B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== limits-unknown-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=501B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=299B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== limits-double-underscore-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=511B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== limits-leading-underscore-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=512B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=310B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== limits-empty-then-typed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=499B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=297B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-then-provider
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+== provider-missing-empty
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== provider-missing-other
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== provider-defined
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=provider|provider=rejected: the `provider` setting is `local`, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the prompt to an endpoint you did not choose| | touched: 
+  status                 exit=0 stdout=655B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=rejected|[status] provider_rejected=local|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=provider=rejected: the `provider` setting is `local`, which xfx cannot rea
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=290B stderr=xfx: config user: invalid_value; key=provider|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== providers-type
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidObject| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidObject| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidObject| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidObject| | touched: 
+== providers-null
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidObject| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidObject| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidObject| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidObject| | touched: 
+== providers-many
+  ask                    exit=1 stdout=0B stderr=xfx: LimitExceeded| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: LimitExceeded| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: LimitExceeded| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: LimitExceeded| | touched: 
+== providers-bad-def
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=493B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=291B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== models-35
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== models-36
+  ask                    exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+== model-and-35
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=480B stderr= | touched: 
+    stdout: [status] model=a/b|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode=auto|[s
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== models-split
+  ask                    exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+== models-case
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=479B stderr= | touched: 
+    stdout: [status] model=a/c|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode=auto|[s
+  interactive            still running after 6 s exit= tty=391B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=277B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== models-order
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelType| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelType| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelType| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelType| | touched: 
+== drift-auto-compact
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProviderType| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidProviderType| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProviderType| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProviderType| | touched: 
+== json-big-float
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=490B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== json-big-int
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== json-deep
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-providers
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=491B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=289B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== providers-32
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=488B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=286B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-gateway-34
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=484B stderr= | touched: 
+    stdout: [status] model=c/d|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode=auto|[s
+  interactive            still running after 6 s exit= tty=391B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=282B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== models-union-35
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=491B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=289B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== models-union-case
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=485B stderr= | touched: 
+    stdout: [status] model=c/d|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=990be66ede6a|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode=auto|[s
+  interactive            still running after 6 s exit= tty=391B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== drift-codex-merge
+  ask                    exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: TooManyModelPreferences| | touched: 
+binary sha256 after: 11754744a2bd

@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-ce4f9c6 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-11-10 23:36:35.206 KST · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;5;250m+4 more)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-10 23:36:37.730 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 20ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-10 23:36:37.954 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 41ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-10 23:36:39.944 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 14ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-10 23:36:42.471 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 10ms[39m
+  [38;5;250mfinish: tool_calls[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-10 23:36:42.756 KST · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 208ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-10 23:36:37.345 KST · Prompt[39m
+[38;5;255m┃[39m [1mrun the checks[0m
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;245mask · model-a[39m

@@ -1,0 +1,50 @@
+# each merge tree's checks before its commit (check-merge.sh, no lock), as run: merges 1-5 (m1..m5), the join commit 0341dd2b (j1), the join of main a14df710 (jm)
+## m1
+cargo check --locked --all-targets: exit 0, 0 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s
+cargo check --locked --all-targets --features fault-injection: exit 0, 35 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.96s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 40 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 39.14s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 35 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 35.00s
+# 0 failed
+## m2
+cargo check --locked --all-targets: exit 0, 0 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+cargo check --locked --all-targets --features fault-injection: exit 0, 26 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.97s
+cargo fmt --check: exit 0, 4 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 28 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.07s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 37 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 36.02s
+# 0 failed
+## m3
+cargo check --locked --all-targets: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.27s
+cargo check --locked --all-targets --features fault-injection: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.86s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 11 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.16s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.25s
+# 0 failed
+## m4
+cargo check --locked --all-targets: exit 0, 0 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+cargo check --locked --all-targets --features fault-injection: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.82s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 17 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.35s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 17 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.61s
+# 0 failed
+## m5
+cargo check --locked --all-targets: exit 0, 9 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.18s
+cargo check --locked --all-targets --features fault-injection: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.29s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.36s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.43s
+# 0 failed
+## j1
+cargo check --locked --all-targets: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.05s
+cargo check --locked --all-targets --features fault-injection: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.42s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 13 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.08s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 19 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.62s
+# 0 failed
+## jm
+cargo check --locked --all-targets: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.81s
+cargo check --locked --all-targets --features fault-injection: exit 0, 8 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.87s
+cargo fmt --check: exit 0, 3 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 14 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.08s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 26 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 26.42s
+# 0 failed

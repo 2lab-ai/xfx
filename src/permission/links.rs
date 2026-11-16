@@ -143,11 +143,11 @@ impl Base {
     /// a write to `.zshrc` and the rest by name (`super::authority`).
     pub fn from_environment() -> Vec<Self> {
         let absolute = |name: &str| {
-            std::env::var_os(name)
+            process_env!("permission::LinkBase::from_environment", var_os(name))
                 .map(PathBuf::from)
                 .filter(|path| path.is_absolute())
         };
-        let relative_home = std::env::var_os("HOME")
+        let relative_home = process_env!("permission::LinkBase::from_environment", var_os("HOME"))
             .map(PathBuf::from)
             .filter(|home| !home.as_os_str().is_empty() && home.is_relative())
             .and_then(|home| std::env::current_dir().ok().map(|cwd| cwd.join(home)));

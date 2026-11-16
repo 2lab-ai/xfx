@@ -1,0 +1,29 @@
+# GREEN: pairs.sh xfx -- fx/ against xfx/, the head's binary built at 83dae68e (row 1 x𝒇x v0.1.0-83dae68 [debug],
+# src as fb014b08)
+SAME p5-slash-mixed-skills-40x120-cap-help
+SAME p5-slash-mixed-skills-40x120-clear-the-notes
+SAME p5-slash-mixed-skills-40x120-ghost-list-enter
+SAME p5-slash-mixed-skills-40x120-ghost-list-tab
+SAME p5-slash-mixed-skills-40x120-ghost-list
+SAME p5-slash-mixed-skills-40x120-git-log-enter
+SAME p5-slash-mixed-skills-40x120-git-log-esc-x
+SAME p5-slash-mixed-skills-40x120-git-log-esc
+SAME p5-slash-mixed-skills-40x120-git-log-tab
+SAME p5-slash-mixed-skills-40x120-git-log
+SAME p5-slash-mixed-skills-40x120-help-x
+SAME p5-slash-mixed-skills-40x120-help
+SAME p5-slash-mixed-skills-40x120-lead-tab
+SAME p5-slash-mixed-skills-40x120-lead
+SAME p5-slash-mixed-skills-40x120-notes-down-tab
+SAME p5-slash-mixed-skills-40x120-notes-down
+SAME p5-slash-mixed-skills-40x120-notes
+SAME p5-slash-mixed-skills-40x120-rename-enter
+SAME p5-slash-mixed-skills-40x120-rename-notes
+SAME p5-slash-mixed-skills-40x120-rename-the-help-enter
+SAME p5-slash-mixed-skills-40x120-rename-the-help
+SAME p5-slash-mixed-skills-40x120-rename
+SAME p5-slash-mixed-skills-40x120-skills-x
+SAME p5-slash-mixed-skills-40x120-slash-space
+SAME p5-slash-mixed-skills-40x120-statusline-bell
+SAME p5-slash-mixed-skills-40x120-statusline
+26 of 26 pairs identical

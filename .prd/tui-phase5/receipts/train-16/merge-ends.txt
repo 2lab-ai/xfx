@@ -1,0 +1,427 @@
+## b2d044c9: base 3943d667, ours 866747ff, theirs bacb1052
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 8 line(s) more, 8 fewer
+       more  +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [merged :96; in (top)]
+       more  +| `status` | command | implemented | `[--json]`. Model, provider, the build's version line (`version`, the `version tex  [merged :42; in (top)]
+       more  +| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [merged :206; in (top)]
+       more  +| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [merged :163; in (top)]
+       more  -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [ours :96]
+       more  -| `status` | command | implemented | `[--json]`. Model, provider, the build's version line (`version`, the `version tex  [ours :42]
+       more  -| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [ours :206]
+       more  -| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [ours :163]
+       fewer +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [theirs :96]
+       fewer +| `status` | command | implemented | `[--json]`. Model, provider, credential source, permission mode, sandbox, workspac  [theirs :42]
+       fewer +| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [theirs :206]
+       fewer +| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [theirs :163]
+       fewer -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [base :96; in (top)]
+       fewer -| `status` | command | implemented | `[--json]`. Model, provider, credential source, permission mode, sandbox, workspac  [base :42; in (top)]
+       fewer -| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [base :206; in (top)]
+       fewer -| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [base :163; in (top)]
+     theirs->merged minus base->ours: 8 line(s) more, 8 fewer
+       more  +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [merged :96; in (top)]
+       more  +| `status` | command | implemented | `[--json]`. Model, provider, the build's version line (`version`, the `version tex  [merged :42; in (top)]
+       more  +| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [merged :206; in (top)]
+       more  +| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [merged :163; in (top)]
+       more  -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [theirs :96]
+       more  -| `status` | command | implemented | `[--json]`. Model, provider, credential source, permission mode, sandbox, workspac  [theirs :42]
+       more  -| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [theirs :206]
+       more  -| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [theirs :163]
+       fewer +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [ours :96]
+       fewer +| `status` | command | implemented | `[--json]`. Model, provider, the build's version line (`version`, the `version tex  [ours :42]
+       fewer +| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [ours :206]
+       fewer +| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [ours :163]
+       fewer -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [base :96; in (top)]
+       fewer -| `status` | command | implemented | `[--json]`. Model, provider, credential source, permission mode, sandbox, workspac  [base :42; in (top)]
+       fewer -| environment overrides | persistence | implemented | `XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`. Blank   [base :206; in (top)]
+       fewer -| tool permission modes | tool group | implemented | `ask` requires a real TTY approval, discloses a bounded excerpt of  [base :163; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  scripts/fxcap/capfile.py (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  scripts/fxcap/capture.sh (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 2 line(s) more, 2 fewer
+       more  -why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the de  [ours :553]
+       more  -xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3828-3845"]  [ours :552]
+       fewer -why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the de  [base :552; in [[cause]] / id = "profile-refuse-at-launch"]
+       fewer -xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3820-3837"]  [base :551; in [[cause]] / id = "profile-refuse-at-launch"]
+     theirs->merged minus base->ours: 0 line(s) more, 4 fewer
+       fewer +why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the de  [ours :553]
+       fewer +xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3828-3845"]  [ours :552]
+       fewer -why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the de  [base :552; in [[cause]] / id = "profile-refuse-at-launch"]
+       fewer -xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3820-3837"]  [base :551; in [[cause]] / id = "profile-refuse-at-launch"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+BAD  both  scripts/fxcap/scenarios/p5-panels-badsettings.cap (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 1 line(s) more, 1 fewer
+       more  -# src/tui/shell.rs:3828-3845): the ledger's `profile-refuse-at-launch`. The  [ours :7]
+       fewer -# src/tui/shell.rs:3820-3837): the ledger's `profile-refuse-at-launch`. The  [base :7; in (top)]
+     theirs->merged minus base->ours: 0 line(s) more, 2 fewer
+       fewer +# src/tui/shell.rs:3828-3845): the ledger's `profile-refuse-at-launch`. The  [ours :7]
+       fewer -# src/tui/shell.rs:3820-3837): the ledger's `profile-refuse-at-launch`. The  [base :7; in (top)]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  scripts/fxcap/test_sweep.py (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/app.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/interactive.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/output.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/mod.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/cli.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  tests/sessions.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 2 fewer
+       fewer +/// same snapshot `src/app.rs:247` prints, in both output shapes.  [theirs :3239]
+       fewer -/// same snapshot `src/app.rs:242` prints, in both output shapes.  [base :3239; in fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {]
+     theirs->merged minus base->ours: 1 line(s) more, 1 fewer
+       more  -/// same snapshot `src/app.rs:247` prints, in both output shapes.  [theirs :3239]
+       fewer -/// same snapshot `src/app.rs:242` prints, in both output shapes.  [base :3239; in fn amended_batch_events(sentence: &str) -> Vec<SessionEvent> {]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+BAD  both  tests/tui.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 4 fewer
+       fewer +    // (`tests/tui.rs:1305,1654,1777,2103,4607,4803` all clear the line  [theirs :2604]
+       fewer +/// emits only once raw mode is back (`src/tui/mod.rs:276-277`). That works  [theirs :592]
+       fewer -    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line  [base :2483; in fn a_live_theme_notification_repaints_the_band_without_losing_the_draf]
+       fewer -/// emits only once raw mode is back (`src/tui/mod.rs:269-270`). That works  [base :591; in fn assert_raw(state: TerminalState) {]
+     theirs->merged minus base->ours: 2 line(s) more, 2 fewer
+       more  -    // (`tests/tui.rs:1305,1654,1777,2103,4607,4803` all clear the line  [theirs :2604]
+       more  -/// emits only once raw mode is back (`src/tui/mod.rs:276-277`). That works  [theirs :592]
+       fewer -    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line  [base :2483; in fn a_live_theme_notification_repaints_the_band_without_losing_the_draf]
+       fewer -/// emits only once raw mode is back (`src/tui/mod.rs:269-270`). That works  [base :591; in fn assert_raw(state: TerminalState) {]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+files both sides changed: 13; one side only: 5857 (ours 5618, theirs 239); disagreeing: 5; disagreeing with numbers masked: 1
+# exit 0
+## e8b004a5: base afd891af, ours b2d044c9, theirs 32eb858f
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 8 line(s) more, 8 fewer
+       more  +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [merged :99; in (top)]
+       more  +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [merged :96; in (top)]
+       more  +| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [merged :100; in (top)]
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [ours :99]
+       more  -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [ours :96]
+       more  -| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [ours :100]
+       more  -| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [ours :237]
+       fewer +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [theirs :99]
+       fewer +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [theirs :96]
+       fewer +| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [theirs :100]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [base :99; in (top)]
+       fewer -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [base :96; in (top)]
+       fewer -| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [base :100; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 8 line(s) more, 8 fewer
+       more  +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [merged :99; in (top)]
+       more  +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [merged :96; in (top)]
+       more  +| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [merged :100; in (top)]
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [theirs :99]
+       more  -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [theirs :96]
+       more  -| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [theirs :100]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer +| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [ours :99]
+       fewer +| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [ours :96]
+       fewer +| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [ours :100]
+       fewer +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [ours :237]
+       fewer -| `/mcp` | slash | implemented | The verbs (unit MCP-V) and the menu (unit MCP-M) are fx v0.0.16's, and so is a launch   [base :99; in (top)]
+       fewer -| `/permissions` | slash | implemented | Upstream's `/permissions [ask\|auto\|full-access\|reset]` with its two further  [base :96; in (top)]
+       fewer -| `/skills` | slash | implemented | Upstream's row: `/skills [list|add|install|show|create|remove|path] [name|url|path]  [base :100; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 26 fewer
+       fewer +source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:14035", "docs/parity.md:237"]  [theirs :505]
+       fewer +why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :865]
+       fewer +why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [theirs :1066]
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43070"]  [theirs :817,829,840,851]
+       fewer +xfx = ["src/tui/shell.rs:10614"]  [theirs :863]
+       fewer +xfx = ["src/tui/shell.rs:17054"]  [theirs :689,989]
+       fewer +xfx = ["src/tui/shell.rs:1855"]  [theirs :955]
+       fewer +xfx = ["src/tui/shell.rs:43070", "src/tui/approval_view.rs:685"]  [theirs :919]
+       fewer +xfx = ["src/tui/shell.rs:43070"]  [theirs :806]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13962", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :865; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [base :1066; in [[cause]] / id = "activity-tokens-before-request"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42431"]  [base :817,829,840,851; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10558"]  [base :863; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16977"]  [base :689,989; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:1854"]  [base :955; in [[cause]] / id = "stats-bytes"]
+       fewer -xfx = ["src/tui/shell.rs:42431", "src/tui/approval_view.rs:685"]  [base :919; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:42431"]  [base :806; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 13 line(s) more, 13 fewer
+       more  -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:14035", "docs/parity.md:237"]  [theirs :505]
+       more  -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [theirs :865]
+       more  -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [theirs :1066]
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43070"]  [theirs :817,829,840,851]
+       more  -xfx = ["src/tui/shell.rs:10614"]  [theirs :863]
+       more  -xfx = ["src/tui/shell.rs:17054"]  [theirs :689,989]
+       more  -xfx = ["src/tui/shell.rs:1855"]  [theirs :955]
+       more  -xfx = ["src/tui/shell.rs:43070", "src/tui/approval_view.rs:685"]  [theirs :919]
+       more  -xfx = ["src/tui/shell.rs:43070"]  [theirs :806]
+       fewer -source = ["src/tui/full_transcript.rs:3061", "src/tui/shell.rs:13962", "docs/parity.md:237"]  [base :505; in [[divergence]] / id = "answer-drawn-wider-named"]
+       fewer -why = "A user-visible row. An amendment typed at an approval is a prompt card on both: fx writes it as a user prompt (`  [base :865; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -why = "fx v0.0.16 publishes a turn's first token progress when its first request is prepared (`pushTokenProgressUpdate`  [base :1066; in [[cause]] / id = "activity-tokens-before-request"]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:42431"]  [base :817,829,840,851; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:10558"]  [base :863; in [[cause]] / id = "amendment-card-after-stop"]
+       fewer -xfx = ["src/tui/shell.rs:16977"]  [base :689,989; in [[cause]] / id = "at-resize-band-at-the-bottom"]
+       fewer -xfx = ["src/tui/shell.rs:1854"]  [base :955; in [[cause]] / id = "stats-bytes"]
+       fewer -xfx = ["src/tui/shell.rs:42431", "src/tui/approval_view.rs:685"]  [base :919; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:42431"]  [base :806; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  src/tui/mod.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 4; one side only: 5275 (ours 4733, theirs 542); disagreeing: 2; disagreeing with numbers masked: 1
+# exit 0
+## 849f5017: base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+ok   both  .github/workflows/ci.yml (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  CONTRIBUTING.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 9 line(s) more, 7 fewer
+       more  +Linux. Run them locally all the same:  [merged :67; in (top)]
+       more  +`test-check-no-local-paths.sh` and `check-env-reads.py --self-test`), which  [merged :64; in (top)]
+       more  +runs, on Linux and macOS, on x86_64 and aarch64 -- except the four script  [merged :62; in (top)]
+       more  +test the gate scripts on the OS's own tools rather than anything built for  [merged :65; in (top)]
+       more  +tests (`test-gate-env.sh`, `test-preview-contract.sh`,  [merged :63; in (top)]
+       more  +the target, so CI runs them on one row per OS: aarch64 macOS and x86_64  [merged :66; in (top)]
+       more  -(`test-gate-env.sh`, `test-preview-contract.sh` and  [ours :63]
+       more  -`test-check-no-local-paths.sh`), which test the gate scripts  [ours :64]
+       more  -runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script tests  [ours :62]
+       fewer +`check-env-reads.py --self-test`), which test the gate scripts on the OS's own  [theirs :45]
+       fewer +per OS: aarch64 macOS and x86_64 Linux. Run them locally all the same:  [theirs :47]
+       fewer +runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script  [theirs :43]
+       fewer +tests (`test-gate-env.sh`, `test-preview-contract.sh` and  [theirs :44]
+       fewer +tools rather than anything built for the target, so CI runs them on one row  [theirs :46]
+       fewer -(`test-gate-env.sh` and `test-preview-contract.sh`), which test the gate scripts  [base :44; in (top)]
+       fewer -runs, on Linux and macOS, on x86_64 and aarch64 -- except the two script tests  [base :43; in (top)]
+     theirs->merged minus base->ours: 11 line(s) more, 5 fewer
+       more  +Linux. Run them locally all the same:  [merged :67; in (top)]
+       more  +`test-check-no-local-paths.sh` and `check-env-reads.py --self-test`), which  [merged :64; in (top)]
+       more  +runs, on Linux and macOS, on x86_64 and aarch64 -- except the four script  [merged :62; in (top)]
+       more  +test the gate scripts on the OS's own tools rather than anything built for  [merged :65; in (top)]
+       more  +tests (`test-gate-env.sh`, `test-preview-contract.sh`,  [merged :63; in (top)]
+       more  +the target, so CI runs them on one row per OS: aarch64 macOS and x86_64  [merged :66; in (top)]
+       more  -`check-env-reads.py --self-test`), which test the gate scripts on the OS's own  [theirs :45]
+       more  -per OS: aarch64 macOS and x86_64 Linux. Run them locally all the same:  [theirs :47]
+       more  -runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script  [theirs :43]
+       more  -tests (`test-gate-env.sh`, `test-preview-contract.sh` and  [theirs :44]
+       more  -tools rather than anything built for the target, so CI runs them on one row  [theirs :46]
+       fewer +(`test-gate-env.sh`, `test-preview-contract.sh` and  [ours :63]
+       fewer +`test-check-no-local-paths.sh`), which test the gate scripts  [ours :64]
+       fewer +runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script tests  [ours :62]
+       fewer -(`test-gate-env.sh` and `test-preview-contract.sh`), which test the gate scripts  [base :44; in (top)]
+       fewer -runs, on Linux and macOS, on x86_64 and aarch64 -- except the two script tests  [base :43; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  Cargo.toml (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/app.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/config.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 7 line(s) more, 0 fewer
+       more  +                        .expect("run mkfifo");  [merged :5460; in fn torn(dir: &Path, file: &Path) {]
+       more  +                    let made = crate::process::status(crate::process::command("mkfifo").arg(file))  [merged :5459; in fn torn(dir: &Path, file: &Path) {]
+       more  +        let made = crate::process::status(crate::process::command("mkfifo").arg(&file))  [merged :5550; in fn the_open_checks_what_it_opened_not_what_was_looked_at() {]
+       more  -                            .expect("run mkfifo");  [ours :5441]
+       more  -                        crate::process::status(std::process::Command::new("mkfifo").arg(file))  [ours :5440]
+       more  -                    let made =  [ours :5439]
+       more  -        let made = crate::process::status(std::process::Command::new("mkfifo").arg(&file))  [ours :5531]
+     theirs->merged minus base->ours: 3 line(s) more, 4 fewer
+       more  +                        .expect("run mkfifo");  [merged :5460; in fn torn(dir: &Path, file: &Path) {]
+       more  +                    let made = crate::process::status(crate::process::command("mkfifo").arg(file))  [merged :5459; in fn torn(dir: &Path, file: &Path) {]
+       more  +        let made = crate::process::status(crate::process::command("mkfifo").arg(&file))  [merged :5550; in fn the_open_checks_what_it_opened_not_what_was_looked_at() {]
+       fewer +                            .expect("run mkfifo");  [ours :5441]
+       fewer +                        crate::process::status(std::process::Command::new("mkfifo").arg(file))  [ours :5440]
+       fewer +                    let made =  [ours :5439]
+       fewer +        let made = crate::process::status(std::process::Command::new("mkfifo").arg(&file))  [ours :5531]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  src/gateway/mod.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/image.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/interactive.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/lib.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/mcp/command/tests.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/mcp/config.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/mcp/runtime.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/provider/model.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/session/store/fork/tests.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/tui/file_index.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 2 line(s) more, 0 fewer
+       more  +        let entries = match env_exception!(var_os("XFX_AT_BENCH_TREE")) {  [merged :3879; in fn a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame]
+       more  -        let entries = match std::env::var_os("XFX_AT_BENCH_TREE") {  [ours :3876]
+     theirs->merged minus base->ours: 1 line(s) more, 1 fewer
+       more  +        let entries = match env_exception!(var_os("XFX_AT_BENCH_TREE")) {  [merged :3879; in fn a_keystroke_over_a_hundred_thousand_entries_costs_less_than_a_frame]
+       fewer +        let entries = match std::env::var_os("XFX_AT_BENCH_TREE") {  [ours :3876]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  src/tui/mod.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  both  src/tui/worker.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 2 fewer
+       fewer +        let mut state = a_runtime(config, store, a_prompter(), a_questioner());  [theirs :8708,8919,8973,9315,9383,9443,9587,9661,9764,9870,10291,13177,14477,15971; merged :8745,8994,9048,9390,9458,9518,9662,9736,9839,9945,13281,14581,16075; in fn a_session_with_no_home_runs_unsaved_and_says_so() {]
+       fewer -        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());  [base :8606,8817,8871,9213,9281,9341,9485,9559,9662,9768,10173,13059,14359,15847; ours :8643,8892,8946,9288,9356,9416,9560,9634,9737,9843,13163,14463,15951; in fn a_session_with_no_home_runs_unsaved_and_says_so() {]
+     theirs->merged minus base->ours: 1 line(s) more, 1 fewer
+       more  -        let mut state = a_runtime(config, store, a_prompter(), a_questioner());  [theirs :8708,8919,8973,9315,9383,9443,9587,9661,9764,9870,10291,13177,14477,15971; merged :8745,8994,9048,9390,9458,9518,9662,9736,9839,9945,13281,14581,16075; in fn a_session_with_no_home_runs_unsaved_and_says_so() {]
+       fewer -        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());  [base :8606,8817,8871,9213,9281,9341,9485,9559,9662,9768,10173,13059,14359,15847; ours :8643,8892,8946,9288,9356,9416,9560,9634,9737,9843,13163,14463,15951; in fn a_session_with_no_home_runs_unsaved_and_says_so() {]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  tests/cli.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 3 line(s) more, 0 fewer
+       more  +use support::profiles;  [merged :24; in (top)]
+       more  -#[path = "support/profiles.rs"]  [ours :20]
+       more  -mod profiles;  [ours :21]
+     theirs->merged minus base->ours: 1 line(s) more, 2 fewer
+       more  +use support::profiles;  [merged :24; in (top)]
+       fewer +#[path = "support/profiles.rs"]  [ours :20]
+       fewer +mod profiles;  [ours :21]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  tests/gateway.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/interactive.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/sessions.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/support/mod.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/support/sandbox.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/tool_loop.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  tests/tui.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+BAD  one side's file differs from that side: tests/support/profiles.rs
+BAD  one side's file differs from that side: scripts/check-env-reads.py
+files both sides changed: 26; one side only: 8403 (ours 8258, theirs 145); disagreeing: 7; disagreeing with numbers masked: 7
+# exit 0
+## dd2ac93d: base 71d3e02b, ours 849f5017, theirs dd9f5f0a
+BAD  both  scripts/fxcap/roots.py (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 3 line(s) more, 3 fewer
+       more  +The run directory's own name (`--suffix`, `fxcap.` and six digits) refuses  [merged :102; in (top)]
+       more  -MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, `fxcap.` and six  [ours :80]
+       more  -digits) anywhere at all: it names no other path, and a root a binary cut  [ours :81]
+       fewer +The run directory's own name (`--suffix`, mktemp's random tail) refuses  [theirs :102]
+       fewer -MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, mktemp's random  [base :80; in (top)]
+       fewer -tail) anywhere at all: it names no other path, and a root a binary cut  [base :81; in (top)]
+     theirs->merged minus base->ours: 2 line(s) more, 4 fewer
+       more  +The run directory's own name (`--suffix`, `fxcap.` and six digits) refuses  [merged :102; in (top)]
+       more  -The run directory's own name (`--suffix`, mktemp's random tail) refuses  [theirs :102]
+       fewer +MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, `fxcap.` and six  [ours :80]
+       fewer +digits) anywhere at all: it names no other path, and a root a binary cut  [ours :81]
+       fewer -MAX_GUTTER_RUNS runs is refused outright. So does the run directory's own name (`--suffix`, mktemp's random  [base :80; in (top)]
+       fewer -tail) anywhere at all: it names no other path, and a root a binary cut  [base :81; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  scripts/fxcap/test_capture.py (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 2; one side only: 6583 (ours 6514, theirs 69); disagreeing: 1; disagreeing with numbers masked: 1
+# exit 0
+## 71787971: base df45025c, ours dd2ac93d, theirs ca496c10
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 2 line(s) more, 2 fewer
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [ours :237]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 2 line(s) more, 2 fewer
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [ours :237]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 12 fewer
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43544"]  [theirs :828,840,851,862]
+       fewer +xfx = ["src/tui/shell.rs:43544", "src/tui/approval_view.rs:685"]  [theirs :954]
+       fewer +xfx = ["src/tui/shell.rs:43544"]  [theirs :817]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]  [base :828,840,851,862; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]  [base :930; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:43422"]  [base :817; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 6 line(s) more, 6 fewer
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43544"]  [theirs :828,840,851,862]
+       more  -xfx = ["src/tui/shell.rs:43544", "src/tui/approval_view.rs:685"]  [theirs :954]
+       more  -xfx = ["src/tui/shell.rs:43544"]  [theirs :817]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]  [base :828,840,851,862; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]  [base :930; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:43422"]  [base :817; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+BAD  both  src/tui/approval_amendment.rs (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 13 line(s) more, 16 fewer
+       more  +            Action::End | Action::LineEnd { .. } => Action::DraftEnd { shifted: false },  [merged :154; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +            Action::Home | Action::LineStart { .. } => Action::DraftStart { shifted: false },  [merged :153; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +            other => other,  [merged :155; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // (`approvalDraftActionFromShortcut`,  [merged :146; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // `.cursor_home`, and End's as `.cursor_end`  [merged :145; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // `approval_amendment.zig:84-92`): the draft's edges outright, not  [merged :149; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret  [merged :147; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,  [merged :148; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // fx's amendment reads Home and every line-start spelling as  [merged :144; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // line break.  [merged :151; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // the caret line's -- the same edges only while a draft holds no  [merged :150; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        let action = match action {  [merged :152; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        };  [base :199,393,424,440; ours :151,345,376,395; theirs :232,457,488,504,943; merged :156,181,406,437,456,878; in fn viewport(&self, cols: u16) -> (Vec<String>, (usize, u16)) {]
+       fewer +                    .apply(Action::DraftStart { shifted: false }, cols);  [theirs :194]
+       fewer +                    .editor  [theirs :193]
+       fewer +                let _ = self  [theirs :192]
+       fewer +                let _ = self.editor.apply(Action::DraftEnd { shifted: false }, cols);  [theirs :197]
+       fewer +            // (`approvalDraftActionFromShortcut`,  [theirs :185]
+       fewer +            // `.cursor_home`, and End's as `.cursor_end`  [theirs :184]
+       fewer +            // `approval_amendment.zig:84-92`): the draft's edges outright, not  [theirs :188]
+       fewer +            // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret  [theirs :186]
+       fewer +            // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,  [theirs :187]
+       fewer +            // fx's amendment reads Home and every line-start spelling as  [theirs :183]
+       fewer +            // line break. A move records no delta.  [theirs :190]
+       fewer +            // the caret line's -- the same edges only while a draft holds no  [theirs :189]
+       fewer +            Action::End | Action::LineEnd { .. } => {  [theirs :196]
+       fewer +            Action::Home | Action::LineStart { .. } => {  [theirs :191]
+       fewer +            }  [base :151,155,165,173,432,477,702; ours :384,394,432,640; theirs :168,172,182,195,198,206,496,541,933,938,1103; merged :445,455,493,868,873,1038; in fn apply(&mut self, action: Action, cols: u16) -> bool {]
+     theirs->merged minus base->ours: 29 line(s) more, 0 fewer
+       more  +            Action::End | Action::LineEnd { .. } => Action::DraftEnd { shifted: false },  [merged :154; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +            Action::Home | Action::LineStart { .. } => Action::DraftStart { shifted: false },  [merged :153; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +            other => other,  [merged :155; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // (`approvalDraftActionFromShortcut`,  [merged :146; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // `.cursor_home`, and End's as `.cursor_end`  [merged :145; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // `approval_amendment.zig:84-92`): the draft's edges outright, not  [merged :149; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret  [merged :147; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,  [merged :148; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // fx's amendment reads Home and every line-start spelling as  [merged :144; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // line break.  [merged :151; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        // the caret line's -- the same edges only while a draft holds no  [merged :150; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        let action = match action {  [merged :152; in fn apply(&mut self, action: Action, cols: u16) {]
+       more  +        };  [base :199,393,424,440; ours :151,345,376,395; theirs :232,457,488,504,943; merged :156,181,406,437,456,878; in fn viewport(&self, cols: u16) -> (Vec<String>, (usize, u16)) {]
+       more  -                    .apply(Action::DraftStart { shifted: false }, cols);  [theirs :194]
+       more  -                    .editor  [theirs :193]
+       more  -                let _ = self  [theirs :192]
+       more  -                let _ = self.editor.apply(Action::DraftEnd { shifted: false }, cols);  [theirs :197]
+       more  -            // (`approvalDraftActionFromShortcut`,  [theirs :185]
+       more  -            // `.cursor_home`, and End's as `.cursor_end`  [theirs :184]
+       more  -            // `approval_amendment.zig:84-92`): the draft's edges outright, not  [theirs :188]
+       more  -            // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret  [theirs :186]
+       more  -            // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,  [theirs :187]
+       more  -            // fx's amendment reads Home and every line-start spelling as  [theirs :183]
+       more  -            // line break. A move records no delta.  [theirs :190]
+       more  -            // the caret line's -- the same edges only while a draft holds no  [theirs :189]
+       more  -            Action::End | Action::LineEnd { .. } => {  [theirs :196]
+       more  -            Action::Home | Action::LineStart { .. } => {  [theirs :191]
+       more  -            }  [base :151,155,165,173,432,477,702; ours :384,394,432,640; theirs :168,172,182,195,198,206,496,541,933,938,1103; merged :445,455,493,868,873,1038; in fn apply(&mut self, action: Action, cols: u16) -> bool {]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 4; one side only: 4407 (ours 4321, theirs 86); disagreeing: 3; disagreeing with numbers masked: 2
+# exit 0
+## 1bce5348: base df45025c, ours 71787971, theirs 6d94fbc0
+BAD  both  docs/parity.md (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 4 line(s) more, 4 fewer
+       more  +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [merged :162; in (top)]
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [ours :162]
+       more  -| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [ours :237]
+       fewer +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [theirs :162]
+       fewer +| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [base :162; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     theirs->merged minus base->ours: 4 line(s) more, 4 fewer
+       more  +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [merged :162; in (top)]
+       more  +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [merged :237; in (top)]
+       more  -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [theirs :162]
+       more  -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [theirs :237]
+       fewer +| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [ours :162]
+       fewer +| full-screen TUI | ui | partial | The default and narrower than upstream's. A bare `xfx` with a terminal on both ends,  [ours :237]
+       fewer -| `ask_user_question` | tool | implemented | Advertised under its own `PermissionKind::Interaction`, which mints no aut  [base :162; in (top)]
+       fewer -| full-screen TUI | ui | partial | Opt-in and narrower than upstream's. `XFX_TUI=1` on a bare `xfx` takes the terminal   [base :237; in (top)]
+     numbers masked: ours->merged = base->theirs: False; theirs->merged = base->ours: False
+BAD  both  scripts/fxcap/parity-ledger.toml (ours->merged = base->theirs: False; theirs->merged = base->ours: False)
+     ours->merged minus base->theirs: 0 line(s) more, 12 fewer
+       fewer +xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43562"]  [theirs :828,840,851,862]
+       fewer +xfx = ["src/tui/shell.rs:43562", "src/tui/approval_view.rs:685"]  [theirs :930]
+       fewer +xfx = ["src/tui/shell.rs:43562"]  [theirs :817]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]  [base :828,840,851,862; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]  [base :930; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:43422"]  [base :817; in [[cause]] / id = "session-record"]
+     theirs->merged minus base->ours: 6 line(s) more, 6 fewer
+       more  -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43562"]  [theirs :828,840,851,862]
+       more  -xfx = ["src/tui/shell.rs:43562", "src/tui/approval_view.rs:685"]  [theirs :930]
+       more  -xfx = ["src/tui/shell.rs:43562"]  [theirs :817]
+       fewer -xfx = ["src/tui/approval_view.rs:685", "src/tui/shell.rs:43422"]  [base :828,840,851,862; in [[cause]] / id = "transcript-page-offset"]
+       fewer -xfx = ["src/tui/shell.rs:43422", "src/tui/approval_view.rs:685"]  [base :930; in [[cause]] / id = "full-transcript-shift"]
+       fewer -xfx = ["src/tui/shell.rs:43422"]  [base :817; in [[cause]] / id = "session-record"]
+     numbers masked: ours->merged = base->theirs: True; theirs->merged = base->ours: True
+ok   both  src/tui/input.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+ok   both  src/tui/shell.rs (ours->merged = base->theirs: True; theirs->merged = base->ours: True)
+files both sides changed: 4; one side only: 4585 (ours 4407, theirs 178); disagreeing: 2; disagreeing with numbers masked: 1
+# exit 0

@@ -1,0 +1,6 @@
+# moved_edits.py: APPROVAL-PASTE-SPACES' edit of decide's translation, which train 15's RULE-CONFIRM-KEYS moved into approval_action (merge 5)
+`decide` df45025c..ca496c10: 3 lines out, 3 in
+`approval_action` dd2ac93d..71787971: 3 lines out, 3 in
+the same lines out and in: True
+`decide` at dd2ac93d 25c7b22d9405, at 71787971 25c7b22d9405: the merge's is dd2ac93d's byte for byte: True
+# exit 0

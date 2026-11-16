@@ -1,0 +1,172 @@
+# RED: the six new shell cases, as committed at da9222bc, put onto the base 4bb8af77's
+# src/tui/shell.rs (a throwaway git clone --no-local) and run there:
+#   cargo test --locked --lib -- --exact <the six>
+# (arg_lists' three cases name a module the base has not got: they do not compile there.)
+test tui::shell::tests::permissions_lists_its_six_forms_and_tab_writes_the_marked_one ... FAILED
+test tui::shell::tests::allowlist_walks_its_words_under_the_one_being_typed ... FAILED
+test tui::shell::tests::workspace_lists_its_verbs_and_tab_leaves_room_for_a_path ... FAILED
+test tui::shell::tests::sound_lists_fxs_levels_and_enter_runs_the_marked_one ... FAILED
+test tui::shell::tests::statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one ... FAILED
+test tui::shell::tests::one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line ... FAILED
+thread 'tui::shell::tests::permissions_lists_its_six_forms_and_tab_writes_the_marked_one' panicked at src/tui/shell.rs:38849:9:
+assertion `left == right` failed
+  left: []
+ right: ["               \u{1b}[1;38;5;255mask\u{1b}[0m", "               \u{1b}[38;5;245mauto\u{1b}[0m", "               \u{1b}[38;5;245mremember\u{1b}[0m", "               \u{1b}[38;5;245mrevoke\u{1
+thread 'tui::shell::tests::allowlist_walks_its_words_under_the_one_being_typed' panicked at src/tui/shell.rs:38893:9:
+assertion `left == right` failed
+  left: []
+ right: ["             \u{1b}[1;38;5;255mview\u{1b}[0m", "             \u{1b}[38;5;245madd\u{1b}[0m", "             \u{1b}[38;5;245mremove\u{1b}[0m", "             \u{1b}[38;5;245mreset\u{1b}[0m", "  
+thread 'tui::shell::tests::workspace_lists_its_verbs_and_tab_leaves_room_for_a_path' panicked at src/tui/shell.rs:38871:9:
+assertion `left == right` failed
+  left: []
+ right: ["             \u{1b}[1;38;5;255mlist\u{1b}[0m", "             \u{1b}[38;5;245madd\u{1b}[0m", "             \u{1b}[38;5;245mremove\u{1b}[0m", "             \u{1b}[38;5;245mclear\u{1b}[0m", "",
+thread 'tui::shell::tests::sound_lists_fxs_levels_and_enter_runs_the_marked_one' panicked at src/tui/shell.rs:38822:9:
+assertion `left == right` failed
+  left: []
+ right: ["         \u{1b}[1;38;5;255mon\u{1b}[0m", "         \u{1b}[38;5;245moff\u{1b}[0m", "         \u{1b}[38;5;245mmax\u{1b}[0m", "", "", ""]
+thread 'tui::shell::tests::statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one' panicked at src/tui/shell.rs:38773:9:
+assertion `left == right` failed
+  left: []
+ right: ["              \u{1b}[1;38;5;255mcontext\u{1b}[0m", "              \u{1b}[38;5;245msession\u{1b}[0m", "              \u{1b}[38;5;245mworkspace\u{1b}[0m", "", "", ""]
+thread 'tui::shell::tests::one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line' panicked at src/tui/shell.rs:38940:9:
+the slash menu came back
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 4780 filtered out; finished in 0.02s
+
+# RED pairs: pairs.sh red -- fx/ against red/, the base 4bb8af77's binary (row 1 x𝒇x v0.1.0-4bb8af7 [debug]).
+# The base's run stopped at the scenario's last line (capture.sh exit 1): its `/statusline ` and Enter opened the
+# bare picker, which took every key after it, so `until shown Full access` waited 30 s and failed -- no permissions-full-enter snap.
+DIFF p5-slash-arg-skills-40x120-allowlist-add-tool
+    row 3: fx [(14, 'd', ()), (15, 'd', ()), (16, ' ', ()), (17, 't', ())]
+    row 3: xfx [(14, 't', ())]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+DIFF p5-slash-arg-skills-40x120-allowlist-add
+    row 3: fx [(14, 'd', ()), (15, 'd', ())]
+    row 3: xfx []
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+DIFF p5-slash-arg-skills-40x120-allowlist-local
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-slash-arg-skills-40x120-allowlist
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-slash-arg-skills-40x120-esc-back
+    row 4: fx []
+    row 4: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('bold', True), ('fg', 255))), (3, 's', (('bold', True), ('fg', 255)))]
+SAME p5-slash-arg-skills-40x120-mcp
+DIFF p5-slash-arg-skills-40x120-permissions-enter
+    row 3: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 3: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: fx []
+    row 4: xfx [(0, 'S', (('bold', True), ('fg', 255))), (1, 't', (('bold', True), ('fg', 255))), (2, 'a', (('bold', True), ('fg', 255))), (3, 't', (('bold', True), ('fg', 255)))]
+    row 5: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 5: xfx []
+MISSING p5-slash-arg-skills-40x120-permissions-full-enter (no red snap)
+DIFF p5-slash-arg-skills-40x120-permissions-re
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-slash-arg-skills-40x120-permissions
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-slash-arg-skills-40x120-sound-on-enter
+    row 3: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 3: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: fx []
+    row 4: xfx [(0, 'S', (('bold', True), ('fg', 255))), (1, 't', (('bold', True), ('fg', 255))), (2, 'a', (('bold', True), ('fg', 255))), (3, 't', (('bold', True), ('fg', 255)))]
+    row 5: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 5: xfx []
+DIFF p5-slash-arg-skills-40x120-sound
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-slash-arg-skills-40x120-statusline-enter
+    row 3: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 3: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: fx []
+    row 4: xfx [(0, 'S', (('bold', True), ('fg', 255))), (1, 't', (('bold', True), ('fg', 255))), (2, 'a', (('bold', True), ('fg', 255))), (3, 't', (('bold', True), ('fg', 255)))]
+    row 5: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 5: xfx []
+SAME p5-slash-arg-skills-40x120-statusline-ghost
+DIFF p5-slash-arg-skills-40x120-statusline-s
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 11: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 11: xfx []
+DIFF p5-slash-arg-skills-40x120-statusline-ws
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 11: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 11: xfx []
+DIFF p5-slash-arg-skills-40x120-statusline
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+DIFF p5-slash-arg-skills-40x120-workspace-a-tab
+    row 3: fx [(14, 'd', ()), (15, 'd', ())]
+    row 3: xfx []
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+DIFF p5-slash-arg-skills-40x120-workspace-enter
+    row 3: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 3: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: fx []
+    row 4: xfx [(0, 'S', (('bold', True), ('fg', 255))), (1, 't', (('bold', True), ('fg', 255))), (2, 'a', (('bold', True), ('fg', 255))), (3, 't', (('bold', True), ('fg', 255)))]
+    row 5: fx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 't', (('fg', 250),))]
+    row 5: xfx []
+DIFF p5-slash-arg-skills-40x120-workspace
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 6: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 6: xfx []
+2 of 20 pairs identical
+
+# the base run's last lines (log-base, its path prefix cut)
+until shown 'Full access': still not shown after 29.98 s (472 looks); the screen's rows that are not blank:
+  | x𝒇x v0.1.0-4bb8af7 [debug] · Run /help for commands
+  | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  | Status line
+  |   Context      off  on
+  |   Session      off  on
+  |   Workspace    off  on
+  | ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  | ↑↓ navigate     ←→ change     esc close
+scripts/fxcap/capture.sh: line 1:   920 Terminated: 15          FAKEGW_RELEASE=$run/gw-release FAKEGW_MODELS=$models FAKEGW_MODELS

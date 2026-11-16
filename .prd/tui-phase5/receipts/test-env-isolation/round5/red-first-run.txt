@@ -1,0 +1,17 @@
+## opus M1: an aliased Command in a src test module, its child given the developer's HOME
+  at 4050be81: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 1 previous error; error: this expression creates a reference which is immediately dereferenced by the compiler); check-env-reads passes
+  at 2cfe0ca7: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 2 previous errors; error: this expression creates a reference which is immediately dereferenced by the compiler); check-env-reads refuses (refused: src/test_env/tests.rs:0: std::process::Command::new outside env_exception! and process_env!, unlisted (1))
+## gpt6 check MUST 1: option_env!(XFX_GATEWAY_KEY) in a src test
+  at 4050be81: clippy -D warnings passes; check-env-reads passes
+  at 2cfe0ca7: clippy -D warnings passes; check-env-reads refuses (refused: src/lib.rs:0: compiled with XFX_GATEWAY_KEY from the environment (rustc's dep-info), which is not a compile-time name | refused: src/lib.rs:0: compiled with XFX_GATEWAY_KEY from the environment (rustc's dep-info), which is not a compile-time name | refused: src/test_env/tests.rs:39: a core::option_env! of XFX_GATEWAY_KEY, which is not a compile-time name)
+## gpt6 check MUST 2: a HOME read in a release-only test
+  at 4050be81: clippy -D warnings passes; check-env-reads passes
+  at 2cfe0ca7: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:0: std::env::var_os outside env_exception! and process_env!, unlisted (1))
+## gpt6 isolation MUST 3: a test file whose support only clippy compiles
+  at 4050be81: clippy -D warnings passes; check-env-reads passes
+  at 2cfe0ca7: clippy -D warnings passes; check-env-reads refuses (refused: tests/escape.rs:0: its test binary ((dev, default features)) runs its cases without making a clean copy of itself (exit 0) | refused: tests/escape.rs:0: its test binary (--all-features) runs its cases without making a clean copy of itself (exit 0) | refused: tests/escape.rs:0: its test binary (--release) runs its cases without making a clean copy of itself (exit 0))
+## gpt6 isolation MUSTs 1-2, opus M3: the new tests/isolation.rs against each revision's isolated.rs
+  at 4050be81: test a_case_marks_where_it_runs ... ignored, run by a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given; test a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment ... FAILED; test a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given ... FAILED
+    a parent whose TMPDIR takes no home did not refuse
+    started with a marker
+  at 2cfe0ca7: test a_case_marks_where_it_runs ... ignored, run by a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given; test a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment ... ok; test a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given ... ok

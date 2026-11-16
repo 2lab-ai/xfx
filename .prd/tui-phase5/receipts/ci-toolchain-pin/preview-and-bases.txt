@@ -1,0 +1,19 @@
+# Preview run 43019311819 (push of afeaea7c, #98's epoch bump): its jobs, and each build row's toolchain
+head afeaea7cd3e73d8ceefb5773de36c06cbb96c2e1 event push conclusion success created 2026-11-11T12:19:17Z
+job 130518209298 preflight success
+job 130518425794 build (xfx-macos-aarch64) success
+job 130518425814 build (xfx-linux-aarch64) success
+job 130518425880 build (xfx-macos-x86_64) success
+job 130518425889 build (xfx-linux-x86_64) success
+job 130542075246 publish success
+job 130518425794 rustc --version: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+job 130518425814 rustc --version: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+job 130518425880 rustc --version: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+job 130518425889 rustc --version: rustc 1.99.1 (58cf8f9c3 2026-10-13)
+job 130542075246 (publish) steps: Check the tap is reachable, before anything is published; Publish the prerelease; Put this preview in the Homebrew tap
+
+# merge-base of each merge-tree side with afeaea7c
+d8e2eeeb: e2fc7e94 (afeaea7c^ = e2fc7e94)
+866747ff: e2fc7e94 (afeaea7c^ = e2fc7e94)
+ef595df2: e2fc7e94 (afeaea7c^ = e2fc7e94)
+2b78aab6: e2fc7e94 (afeaea7c^ = e2fc7e94)

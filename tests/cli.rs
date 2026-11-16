@@ -4,6 +4,10 @@
 //! Every assertion here is a product promise: what the executable prints, what it
 //! exits with, what it refuses to advertise, and what it refuses to create or leak.
 
+// Runs this binary's cases in a copy of it whose environment is built from
+// nothing (`support::isolated`), and gives the binary's own children theirs.
+mod support;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,6 +19,9 @@ use xfx::config::{
     CredentialSource, DiagnosticCause, Environment, PermissionMode, RuntimeConfig, SettingSource,
 };
 use xfx::provider::{resolve_credential_for, ProviderCredential, ProviderId};
+
+#[cfg(unix)]
+use support::profiles;
 
 /// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
@@ -36,15 +43,6 @@ const DEFERRED_COMMAND_NAMES: &[&str] = &[
     "upgrade",
     "replay",
     "workspace",
-];
-
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
 ];
 
 struct Sandbox {
@@ -72,12 +70,14 @@ impl Sandbox {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        // Built from nothing but where programs are and where temporary
+        // files go: no variable of the developer's -- an xfx setting, a
+        // credential, what chooses git's or llmux's configuration -- reaches
+        // the binary.
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         command
     }
 
@@ -114,6 +114,14 @@ impl Sandbox {
                 .expect("tighten the profile dir");
         }
         fs::write(dir.join("settings.json"), body).expect("write user settings");
+        // And the file owner-only whatever the umask, as xfx writes it: one
+        // group or other may write to is a profile fx does not read.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.join("settings.json"), fs::Permissions::from_mode(0o600))
+                .expect("tighten the settings file");
+        }
     }
 
     fn write_project_settings(&self, body: &str) {
@@ -878,6 +886,127 @@ fn an_invalid_permission_mode_override_is_a_diagnostic_not_a_crash() {
     assert!(warned, "doctor must warn about the rejected override");
 }
 
+#[test]
+fn a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs() {
+    // fx v0.0.16 reads a mode a person wrote with one parse
+    // (`PermissionMode.parse`, `types.zig:2375-2382@481104fd`): any case,
+    // `full-access`, `full access` or `yolo` for the third, nothing trimmed.
+    // The profile's key (`config_runtime.zig:1691`), this workspace's entry
+    // and the variable (`app_lifecycle.zig:1556-1560`), each read back from
+    // the status record; a word fx does not take leaves what was below it.
+    let mode = |run: Run| {
+        assert_eq!(run.code, Some(0), "{}", run.stderr);
+        run.json()["permission_mode"]
+            .as_str()
+            .expect("a mode")
+            .to_string()
+    };
+    for (word, wire) in [
+        ("ASK", Some("ask")),
+        ("Auto", Some("auto")),
+        ("FULL-ACCESS", Some("yolo")),
+        ("Full Access", Some("yolo")),
+        ("YOLO", Some("yolo")),
+        ("sometimes", None),
+        (" ask", None),
+    ] {
+        let sandbox = Sandbox::new();
+        let quoted = serde_json::to_string(word).expect("a value");
+        let status = &["status", "--json"][..];
+        sandbox.write_user_settings(&format!(r#"{{"permission_mode": {quoted}}}"#));
+        assert_eq!(
+            mode(sandbox.run(status)),
+            wire.unwrap_or("auto"),
+            "{word:?}"
+        );
+        // Neither the word's mode nor what ` ask` would be if it were trimmed.
+        let below = if word.trim().eq_ignore_ascii_case("ask") {
+            "auto"
+        } else {
+            "ask"
+        };
+        let key = serde_json::to_string(sandbox.workspace.to_str().expect("utf-8")).expect("a key");
+        sandbox.write_user_settings(&format!(
+            r#"{{"permission_mode": "{below}", "workspaces": {{{key}: {{"permission_mode": {quoted}}}}}}}"#
+        ));
+        assert_eq!(
+            mode(sandbox.run(status)),
+            wire.unwrap_or(below),
+            "entry {word:?}"
+        );
+        sandbox.write_user_settings(&format!(r#"{{"permission_mode": "{below}"}}"#));
+        assert_eq!(
+            mode(sandbox.run_with_env(status, &[("XFX_PERMISSION_MODE", word)])),
+            wire.unwrap_or(below),
+            "variable {word:?}"
+        );
+    }
+}
+
+#[test]
+fn full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word() {
+    // fx's `[status]` and `[doctor]` lines and doctor's startup check say
+    // `full access` (`output_contracts.zig:839`, `:1806`,
+    // `doctor_runtime.zig:237-240`, `:529-535@481104fd`); its `--json` says
+    // `yolo` (`output_contracts.zig:944-945`), the word the settings file keeps.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(r#"{"permission_mode": "Full Access"}"#);
+    let status = sandbox.run(&["status"]);
+    assert!(
+        status
+            .stdout
+            .contains("[status] permission_mode=full access\n"),
+        "{}",
+        status.stdout
+    );
+    assert_eq!(
+        sandbox.run(&["status", "--json"]).json()["permission_mode"],
+        "yolo"
+    );
+    let doctor = sandbox.run(&["doctor"]);
+    for line in [
+        "[doctor] permission_mode=full access\n",
+        "[ok] startup: resolved model=",
+        ", permission_mode=full access, agent_step_limit=",
+        // xfx's own check, in the same word as the two lines beside it.
+        "[warn] permissions: mode=full access: no permission check runs at all",
+    ] {
+        assert!(doctor.stdout.contains(line), "{line:?}: {}", doctor.stdout);
+    }
+    let json = sandbox.run(&["doctor", "--json"]).json();
+    assert_eq!(json["permission_mode"], "yolo");
+}
+
+#[test]
+fn ask_takes_fxs_two_spellings_of_full_access_exactly() {
+    // `--full-access` or `--yolo`, compared exactly, and one mode flag at most
+    // (`cli_ask.zig:3579-3584@481104fd`).
+    let sandbox = Sandbox::new();
+    for flag in ["--full-access", "--yolo"] {
+        let run = sandbox.run(&["ask", flag, "hi"]);
+        assert_eq!(run.code, Some(1), "{flag}: {}", run.stderr);
+        assert!(
+            run.stderr.starts_with("xfx: yolo mode is on"),
+            "{flag} must run in full access: {}",
+            run.stderr
+        );
+    }
+    for args in [
+        &["ask", "--FULL-ACCESS", "hi"][..],
+        &["ask", "--Yolo", "hi"],
+        &["ask", "--full-access", "--yolo", "hi"],
+        &["ask", "--full-access", "--auto", "hi"],
+    ] {
+        let run = sandbox.run(args);
+        assert_eq!(run.code, Some(1), "{args:?}: {}", run.stderr);
+        assert!(
+            run.stderr.starts_with("error: "),
+            "{args:?} must be refused by the parser: {}",
+            run.stderr
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // settings discovery through the binary
 // ---------------------------------------------------------------------------
@@ -1539,10 +1668,19 @@ fn an_unreadable_provider_poisons_the_turn_even_when_backend_is_readable() {
     assert_eq!(rejection.key, "provider");
     assert_eq!(rejection.value, "not-a-provider");
 
+    // fx v0.0.16 takes such a name for a configured connection and, with no
+    // `providers` to find it in, its load fails (`config_runtime.zig:350-355`);
+    // so does the launch here.
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(run.code, Some(1));
+    assert_eq!(run.stderr, "xfx: UnknownConfiguredProvider\n");
+
+    // A provider fx has and xfx does not still poisons the turn, quoted.
+    sandbox.write_user_settings("{\"backend\":\"gateway\",\"provider\":\"codex\"}");
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
     assert_eq!(run.code, Some(1));
     assert!(run.stderr.contains("`provider`"), "{}", run.stderr);
-    assert!(run.stderr.contains("not-a-provider"), "{}", run.stderr);
+    assert!(run.stderr.contains("codex"), "{}", run.stderr);
 }
 
 #[test]
@@ -1948,15 +2086,18 @@ fn provider_backend_cross_layer_matrix() {
 #[test]
 fn a_rejected_provider_from_newer_layer_poisons_at_binary_level() {
     // Test: newer workspace provider rejection refuses the turn, mirroring Task-1 poison pattern
+    // (`codex`: a provider fx has and xfx does not. A name fx would look up
+    // among configured connections stops the launch instead, as fx's load
+    // fails: `UnknownConfiguredProvider`, `ask_refuses_a_profile_fx_refuses`.)
     let sandbox = Sandbox::new();
     sandbox.write_user_settings(&format!(
-        "{{\"backend\":\"gateway\",\"workspaces\":{{{}:{{\"provider\":\"not-a-provider\"}}}}}}",
+        "{{\"backend\":\"gateway\",\"workspaces\":{{{}:{{\"provider\":\"codex\"}}}}}}",
         serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
     ));
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
     assert_eq!(run.code, Some(1));
     assert!(run.stderr.contains("`provider`"), "{}", run.stderr);
-    assert!(run.stderr.contains("not-a-provider"), "{}", run.stderr);
+    assert!(run.stderr.contains("codex"), "{}", run.stderr);
     assert!(run.stderr.contains("provider=rejected"), "{}", run.stderr);
 }
 
@@ -1964,29 +2105,192 @@ fn a_rejected_provider_from_newer_layer_poisons_at_binary_level() {
 fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused() {
     // Upstream's headless run says each diagnostic first (`cli_ask.zig:1716-1727`,
     // `fx ask: config user: malformed_settings`); a table that did not read
-    // refuses every tool here, and the run says so.
+    // refuses every tool here, and the run says so. fx starts with this
+    // profile: its parse stops first at `skill_symlink_authorities`, a cause
+    // no launch refuses (`config_runtime.zig:1025-1037@481104fd`).
     let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        r#"{"skill_symlink_authorities":5,"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#,
+    );
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(
+        run.stderr,
+        "xfx ask: config user: invalid_value; key=skill_symlink_authorities; skill_symlink_authorities must be an array of at most 32 absolute directory paths without .. components\n\
+         xfx ask: config user: invalid_value; key=permission; `perhaps` is not a permission action; use allow, ask or deny\n\
+         xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny)\n\
+         xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.\n"
+    );
+    // Without that key fx's parse stops at the table, and the launch refuses.
     sandbox.write_user_settings(r#"{"permission":{"read":{"secrets/*":"deny"},"bash":"perhaps"}}"#);
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
-    assert!(
-        run.stderr.starts_with(
-            "xfx ask: config user: invalid_value; key=permission; `perhaps` is not a permission action; use allow, ask or deny\n\
-             xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: invalid_value key=permission `perhaps` is not a permission action; use allow, ask or deny)\n"
-        ),
-        "{}",
-        run.stderr
-    );
-    // A file that does not read at all: its cause, and the same refusal.
+    assert_eq!(run.stderr, "xfx: InvalidProfileConfiguration\n");
+    assert_eq!(run.code, Some(1));
+    // A file that does not read at all is no longer a diagnostic here: fx
+    // refuses the launch (`app_lifecycle.zig:689-703@481104fd`), and so does
+    // xfx, before either line ([`ask_refuses_a_profile_fx_refuses`]).
     sandbox.write_user_settings("{ this is not json");
     let run = sandbox.run(&["ask", "--no-save", "hello"]);
-    assert!(
-        run.stderr.starts_with(
-            "xfx ask: config user: malformed_settings\n\
-             xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)\n"
-        ),
-        "{}",
-        run.stderr
-    );
+    assert_eq!(run.stderr, "xfx: InvalidProfileConfiguration\n");
+    assert_eq!(run.code, Some(1));
+}
+
+/// `ask` with every profile fx v0.0.16 refuses under `ask`: the profiles every
+/// launch refuses and the ones only `ask` does (fx's `durable_path_unsafe`,
+/// whose load passes no stored credential mode, `app_lifecycle.zig:420-433`).
+/// fx says `fx: InvalidProfileConfiguration`, or the error its load failed
+/// with, on stderr and exits 1; under `--json` the JSON result names the
+/// error on stdout and stderr says nothing (`cli_ask.zig:1306-1327`). Before
+/// anything is read or written: a key and an endpoint are set, and the home
+/// and the workspace are as they were.
+#[cfg(unix)]
+#[test]
+fn ask_refuses_a_profile_fx_refuses() {
+    let only_ask = profiles::UNSAFE
+        .iter()
+        .map(|(name, profile)| (*name, *profile, "InvalidProfileConfiguration"));
+    for (name, profile, error) in profiles::every_launch_refuses().chain(only_ask) {
+        for json in [false, true] {
+            let sandbox = Sandbox::new();
+            if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
+                eprintln!("skipped {name}: the mode bits do not stop this reader");
+                continue;
+            }
+            let before = (
+                profiles::snapshot(&sandbox.home),
+                profiles::snapshot(&sandbox.workspace),
+            );
+            let args: &[&str] = if json {
+                &["ask", "--json", "hello"]
+            } else {
+                &["ask", "hello"]
+            };
+            let run = sandbox.run_with_env(
+                args,
+                &[
+                    ("AI_GATEWAY_API_KEY", "xfx-test-key-never-sent"),
+                    ("XFX_GATEWAY_URL", "http://127.0.0.1:9/v1/chat/completions"),
+                ],
+            );
+            assert_eq!(run.code, Some(1), "{name} json={json}: {}", run.stderr);
+            if json {
+                assert_eq!(
+                    run.stdout,
+                    format!("{{\"kind\":\"error\",\"message\":\"{error}\"}}\n"),
+                    "{name}"
+                );
+                assert_eq!(run.stderr, "", "{name}");
+            } else {
+                assert_eq!(run.stdout, "", "{name}");
+                assert_eq!(run.stderr, format!("xfx: {error}\n"), "{name}");
+            }
+            let after = (
+                profiles::snapshot(&sandbox.home),
+                profiles::snapshot(&sandbox.workspace),
+            );
+            assert_eq!(after, before, "{name} json={json}: the refusal wrote");
+            profiles::unlock(&sandbox.home);
+        }
+    }
+}
+
+/// The neighbours fx starts with: `ask` goes on to the turn (here, to a
+/// Gateway nobody answers), and nothing says the profile was refused.
+#[cfg(unix)]
+#[test]
+fn ask_goes_on_with_a_profile_fx_starts_with() {
+    for (name, profile) in profiles::STARTED {
+        let sandbox = Sandbox::new();
+        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        let run = sandbox.run(&["ask", "--no-save", "hello"]);
+        assert!(!profiles::refused(&run.stderr), "{name}: {}", run.stderr);
+        assert!(
+            run.stderr.contains("xfx needs access"),
+            "{name}: {}",
+            run.stderr
+        );
+    }
+}
+
+/// The commands fx answers without the startup state still answer with a
+/// profile it refuses: `--version` and help before any setting is read
+/// (`cli_surface.zig:1080-1103`), `status` from `loadStartupStatus`, which
+/// keeps the diagnostics (`app_lifecycle.zig:517-587`), `doctor`
+/// (`doctor_runtime.zig:92-105`), and `sessions`/`session`, which read the
+/// store (`cli_surface.zig:1554-1600`).
+#[cfg(unix)]
+#[test]
+fn the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses() {
+    let sandbox = Sandbox::new();
+    assert!(profiles::lay(
+        &sandbox.home,
+        &sandbox.workspace,
+        profiles::REJECTED[0].1
+    ));
+    for args in [
+        &["--version"][..],
+        &["help"],
+        &["status"],
+        &["doctor"],
+        &["sessions"],
+        &["session", "last"],
+    ] {
+        let run = sandbox.run(args);
+        assert!(
+            !run.stderr.contains("InvalidProfileConfiguration"),
+            "{args:?}: {}",
+            run.stderr
+        );
+        let expected = if args == ["session", "last"] { 1 } else { 0 };
+        assert_eq!(run.code, Some(expected), "{args:?}: {}", run.stderr);
+    }
+}
+
+/// A profile fx's load fails on stops `status` too, with the error's name
+/// and nothing on stdout (`cli_surface.zig:1336-1357@481104fd`); `doctor`
+/// names it in two failing checks, and it, `sessions`, `session`,
+/// `--version` and help still answer, as fx's do (`fx-entries.txt`).
+#[cfg(unix)]
+#[test]
+fn status_stops_where_fxs_load_fails_and_the_rest_still_answer() {
+    for (name, profile, error) in profiles::STOPPED {
+        let sandbox = Sandbox::new();
+        assert!(profiles::lay(&sandbox.home, &sandbox.workspace, *profile));
+        for args in [&["status"][..], &["status", "--json"]] {
+            let run = sandbox.run(args);
+            assert_eq!(run.code, Some(1), "{name} {args:?}");
+            assert_eq!(run.stdout, "", "{name} {args:?}");
+            assert_eq!(run.stderr, format!("xfx: {error}\n"), "{name} {args:?}");
+        }
+        // doctor says why, where its config and startup checks stand
+        // (`doctor_runtime.zig:92-104@481104fd`).
+        let doctor = sandbox.run(&["doctor"]).stdout;
+        for line in [
+            format!("[fail] config: failed to load config: {error}\n"),
+            format!("[fail] startup: failed to resolve startup settings: {error}\n"),
+        ] {
+            assert!(doctor.contains(&line), "{name}: {doctor}");
+        }
+        // In their place: no other config or startup check stands beside them.
+        for check in ["] config: ", "] startup: "] {
+            assert_eq!(doctor.matches(check).count(), 1, "{name}: {doctor}");
+        }
+        for args in [
+            &["--version"][..],
+            &["help"],
+            &["doctor"],
+            &["sessions"],
+            &["session", "last"],
+        ] {
+            let run = sandbox.run(args);
+            assert!(
+                !profiles::refused(&run.stderr),
+                "{name} {args:?}: {}",
+                run.stderr
+            );
+            let expected = if args == ["session", "last"] { 1 } else { 0 };
+            assert_eq!(run.code, Some(expected), "{name} {args:?}: {}", run.stderr);
+        }
+    }
 }
 
 #[test]

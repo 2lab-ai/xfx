@@ -1,0 +1,62 @@
+## fx against xfx, cell by cell (cells.py, row 1 left out)
+SAME answered           rows: none
+       fx:  ┃ show me the list
+       xfx: ┃ show me the list
+SAME draft              rows: none
+       fx:  ┃ one
+       xfx: ┃ one
+DIFF full               rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       xfx: ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+DIFF full-ctrl-pgup     rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       xfx: ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+DIFF full-pgup          rows: 3 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 22 23 24 25 26 27 28 29 30 31 32 33 34 35 
+       fx:  ┃ show me the list
+       xfx: ┃ show me the list
+SAME closed             rows: none
+       fx:  ┃ one
+       xfx: ┃ one
+SAME typed              rows: none
+       fx:  ┃ oneX
+       xfx: ┃ oneX
+DIFF full2              rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       xfx: ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+DIFF full2-kp-ctrl-pgdn rows: 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 35 
+       fx:  ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+       xfx: ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+SAME typed2             rows: none
+       fx:  ┃ oneX
+       xfx: ┃ oneX
+5 of 10 pairs identical
+
+## each side against itself: rows 2-40 of each snap, sha256
+fx   answered           dae5545e0490
+fx   draft              f28e0e969e18
+fx   full               63b4e992f595
+fx   full-ctrl-pgup     63b4e992f595
+fx   full-pgup          27b0c4174da3
+fx   closed             f28e0e969e18
+fx   typed              83d15326bf0b
+fx   full2              63b4e992f595
+fx   full2-kp-ctrl-pgdn 63b4e992f595
+fx   typed2             466ef3eaee34
+xfx  answered           dae5545e0490
+xfx  draft              f28e0e969e18
+xfx  full               f7cb239237cf
+xfx  full-ctrl-pgup     f7cb239237cf
+xfx  full-pgup          41a7b8000a67
+xfx  closed             f28e0e969e18
+xfx  typed              83d15326bf0b
+xfx  full2              f7cb239237cf
+xfx  full2-kp-ctrl-pgdn f7cb239237cf
+xfx  typed2             466ef3eaee34
+
+## the composer rows of typed and typed2, each side (X and Y are where the caret was)
+fx   typed   ┃ oneX|┃ two|┃ three|┃ four|
+fx   typed2  ┃ oneX|┃ two|┃ three|┃ fourY|
+xfx  typed   ┃ oneX|┃ two|┃ three|┃ four|
+xfx  typed2  ┃ oneX|┃ two|┃ three|┃ fourY|
+
+banners (full-pgup row 1): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-f5e9ea7 [debug] · Run /help for commands

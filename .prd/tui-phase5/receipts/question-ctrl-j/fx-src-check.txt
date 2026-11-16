@@ -1,0 +1,2 @@
+# { git diff afd891af -- src tests scripts/fxcap/scenarios | grep '^+'; grep -o '[*][*]C-j answers a model question as Enter does.*QUESTION-CTRL-J[)][.]' docs/parity.md; } | fx_src.sh <fx>   -- at 998a434b, with this README
+135 citations checked, 0 outside fx-src.txt's ranges

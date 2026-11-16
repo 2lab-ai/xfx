@@ -1,0 +1,218 @@
+# RED, the cases: red.sh <repo> b9b11596 fb014b08 <scratch>/clone -- this unit's five shell cases and their
+# helpers, and picker.rs' new query case, as committed at fb014b08, put onto the base b9b11596's
+# src/tui/shell.rs and src/tui/picker.rs in a throwaway git clone --no-local, run there (thread ids cut).
+# picker.rs' enter_on_a_skill_row_... names names_exactly and PickerOutcome::Typed, which the base has not got.
+put 193 lines onto the base's shell.rs
+put 54 lines onto the base's picker.rs
+test tui::picker::tests::past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument ... FAILED
+test tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line ... FAILED
+test tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds ... FAILED
+test tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank ... FAILED
+test tui::shell::tests::tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it ... FAILED
+test tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own ... FAILED
+thread 'tui::picker::tests::past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument' panicked at src/tui/picker.rs:1222:13:
+assertion `left == right` failed: "/git log"
+  left: None
+ right: Some("/git log")
+thread 'tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line' panicked at src/tui/shell.rs:48903:9:
+assertion failed: shell.picker.is_some()
+thread 'tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds' panicked at src/tui/shell.rs:48775:9:
+assertion `left == right` failed
+  left: []
+ right: ["release-notes"]
+thread 'tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank' panicked at src/tui/shell.rs:48886:9:
+assertion `left == right` failed
+  left: []
+ right: ["pointer"]
+thread 'tui::shell::tests::tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it' panicked at src/tui/shell.rs:48861:13:
+assertion `left == right` failed: [47, 103, 105, 116, 32, 108, 111, 103, 9]
+  left: "/git log"
+ right: "release-notes "
+thread 'tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own' panicked at src/tui/shell.rs:48839:9:
+assertion `left == right` failed
+  left: []
+ right: ["tidy"]
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 4791 filtered out; finished in 0.02s
+exit 0
+
+# RED, the paired scenario: pairs.sh red -- fx/ against red/, the base's binary (row 1 x𝒇x v0.1.0-b9b1159 [debug])
+DIFF p5-slash-mixed-skills-40x120-cap-help
+    row 3: fx [(2, '/', ()), (3, 'H', ()), (4, 'e', ()), (5, 'l', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-clear-the-notes
+    row 3: fx [(2, '/', ()), (3, 'c', ()), (4, 'l', ()), (5, 'e', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-ghost-list-enter
+    row 3: fx [(2, 'p', (('bold', True), ('fg', 255))), (3, 'o', (('bold', True), ('fg', 255))), (4, 'i', (('bold', True), ('fg', 255))), (5, 'n', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-ghost-list-tab
+    row 3: fx [(2, '/', ()), (3, 'x', ()), (4, ' ', ()), (5, '/', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-ghost-list
+    row 3: fx [(2, '/', ()), (3, 'x', ()), (4, ' ', ()), (5, '/', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-git-log-enter
+    row 3: fx [(2, 'r', (('bold', True), ('fg', 255))), (3, 'e', (('bold', True), ('fg', 255))), (4, 'l', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '⚠', (('fg', 252),)), (1, ' ', ()), (2, 'P', (('fg', 252),)), (3, 'r', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '┃', (('fg', 255),))]
+DIFF p5-slash-mixed-skills-40x120-git-log-esc-x
+    row 3: fx [(2, '/', ()), (3, 'g', ()), (4, 'i', ()), (5, 't', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-git-log-esc
+    row 3: fx [(2, '/', ()), (3, 'g', ()), (4, 'i', ()), (5, 't', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-git-log-tab
+    row 3: fx [(2, 'r', (('bold', True), ('fg', 255))), (3, 'e', (('bold', True), ('fg', 255))), (4, 'l', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', ()), (3, 'g', ()), (4, 'i', ()), (5, 't', ())]
+    1 rows differ in their cells (row 1 not compared)
+DIFF p5-slash-mixed-skills-40x120-git-log
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, 'r', (('bold', True), ('fg', 255))), (3, 'e', (('bold', True), ('fg', 255)))]
+    row 7: xfx []
+DIFF p5-slash-mixed-skills-40x120-help-x
+    row 3: fx [(2, '/', ()), (3, 'h', ()), (4, 'e', ()), (5, 'l', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-help
+    row 3: fx [(2, '/', ()), (3, 'h', ()), (4, 'e', ()), (5, 'l', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-lead-tab
+    row 3: fx [(2, ' ', ()), (3, ' ', ()), (4, 'r', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-lead
+    row 3: fx [(2, ' ', ()), (3, ' ', ()), (4, '/', ()), (5, 'g', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-notes-down-tab
+    row 3: fx [(2, 'r', (('bold', True), ('fg', 255))), (3, 'e', (('bold', True), ('fg', 255))), (4, 'l', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, '/', ()), (3, 'n', ())]
+DIFF p5-slash-mixed-skills-40x120-notes-down
+    row 3: fx [(2, '/', ()), (3, 'n', ()), (4, 'o', ()), (5, 't', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-notes
+    row 3: fx [(2, '/', ()), (3, 'n', ()), (4, 'o', ()), (5, 't', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-rename-enter
+    row 3: fx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 'u', (('fg', 250),)), (3, 's', (('fg', 250),))]
+    row 3: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, '/', (('bold', True),)), (3, 'g', (('bold', True),))]
+    row 5: fx [(0, '┃', (('fg', 255),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-rename-notes
+    row 3: fx [(2, '/', ()), (3, 'r', ()), (4, 'e', ()), (5, 'n', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-rename-the-help-enter
+    row 3: fx [(2, 't', (('bold', True), ('fg', 255))), (3, 'i', (('bold', True), ('fg', 255))), (4, 'd', (('bold', True), ('fg', 255))), (5, 'y', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-rename-the-help
+    row 3: fx [(2, '/', ()), (3, 'r', ()), (4, 'e', ()), (5, 'n', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-rename
+    row 3: fx [(2, '/', ()), (3, 'r', ()), (4, 'e', ()), (5, 'n', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-skills-x
+    row 3: fx [(2, '/', ()), (3, 's', ()), (4, 'k', ()), (5, 'i', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-slash-space
+    row 3: fx [(2, '/', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'R', (('fg', 245),)), (1, 'e', (('fg', 245),)), (2, 's', (('fg', 245),)), (3, 'u', (('fg', 245),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+DIFF p5-slash-mixed-skills-40x120-statusline-bell
+    row 3: fx [(2, '/', ()), (3, 's', ()), (4, 't', ()), (5, 'a', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+    row 7: fx []
+    row 7: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 's', (('fg', 250),)), (3, 'e', (('fg', 250),))]
+DIFF p5-slash-mixed-skills-40x120-statusline
+    row 3: fx [(2, '/', ()), (3, 's', ()), (4, 't', ()), (5, 'a', ())]
+    row 3: xfx [(2, '/', (('bold', True),)), (3, 'g', (('bold', True),)), (4, 'i', (('bold', True),)), (5, 't', (('bold', True),))]
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, ' ', ()), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 's', (('fg', 252),)), (3, 'y', (('fg', 252),))]
+0 of 26 pairs identical

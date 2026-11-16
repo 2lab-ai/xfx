@@ -1,0 +1,13 @@
+=== ~/.fx/backups/settings.json.backup.1794352778629-0000000000000001-432251b9f04467af27a085639f3c764d (25 bytes)
+{"permission_mode":"ASK"}
+=== ~/.fx/backups/settings.json.backup.1794352778641-0000000000000002-602ae2e6bc493c4769703cdc7eb93561 (27 bytes)
+{"permission_mode":"yolo"}
+
+=== ~/.fx/history.jsonl (170 bytes)
+{"schema_version":1,"timestamp_ms":1794352778627,"workspace_root":"<work____________________________________________________________>","text":"/permissions full-access"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/settings.json (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/settings.lock (0 bytes)

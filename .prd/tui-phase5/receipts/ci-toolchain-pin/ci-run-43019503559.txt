@@ -1,0 +1,66 @@
+## job 130518847044: run 43019503559 attempt 1, gate (aarch64-apple-darwin), failure, started 2026-11-11T12:46:21Z
+# steps:
+  1 success Set up job
+  2 success Check out the exact commit
+  3 success Confirm the checkout is the commit under test
+  4 success Install the pinned toolchain
+  5 success Confirm the runner really is this target
+  6 success The gate scripts run /bin/bash
+  7 success Which bash the gate scripts run
+  8 success Formatting
+  9 success Lints
+  10 success Tests
+  11 failure Tests, with the fault injector
+  26 success Keep the smoke evidence of a failed run
+  29 success Keep the TUI evidence of a failed run
+  58 success Post Check out the exact commit
+  59 success Complete job
+# log lines naming the toolchain or the lint (gh api .../actions/jobs/130518847044/logs):
+2026-11-11T12:46:29.7042680Z info: latest update on 2026-10-15 for version 1.99.1 (58cf8f9c3 2026-10-13)
+2026-11-11T12:46:29.7360230Z   stable-aarch64-apple-darwin unchanged - rustc 1.99.1 (58cf8f9c3 2026-10-13)
+2026-11-11T12:46:29.7633050Z   stable-aarch64-apple-darwin unchanged - rustc 1.99.1 (58cf8f9c3 2026-10-13)
+2026-11-11T12:46:29.7897950Z rustc 1.99.1 (58cf8f9c3 2026-10-13)
+# backtrace frames naming a rustc commit:  5 /rustc/58cf8f9c3
+
+## job 133180137697: run 43019503559 attempt 2, gate (aarch64-apple-darwin), failure, started 2026-11-16T08:34:02Z
+# steps:
+  1 success Set up job
+  2 success Check out the exact commit
+  3 success Confirm the checkout is the commit under test
+  4 success Install the pinned toolchain
+  5 success Confirm the runner really is this target
+  6 success The gate scripts run /bin/bash
+  7 success Which bash the gate scripts run
+  8 success Formatting
+  9 failure Lints
+  26 success Keep the smoke evidence of a failed run
+  29 success Keep the TUI evidence of a failed run
+  58 success Post Check out the exact commit
+  59 success Complete job
+# log lines naming the toolchain or the lint (gh api .../actions/jobs/133180137697/logs):
+2026-11-16T08:34:16.0847810Z info: latest update on 2026-11-12 for version 1.100.0 (0ef1bc386 2026-11-09)
+2026-11-16T08:34:24.3164150Z   stable-aarch64-apple-darwin updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
+2026-11-16T08:34:24.4173930Z   stable-aarch64-apple-darwin unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)
+2026-11-16T08:34:24.4719580Z rustc 1.100.0 (0ef1bc386 2026-11-09)
+2026-11-16T08:35:15.7386930Z    --> src/mcp/era.rs:449:18
+2026-11-16T08:35:15.7390130Z    --> src/mcp/era.rs:450:33
+2026-11-16T08:35:15.7392000Z     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.100.0/index.html#needless_range_loop
+2026-11-16T08:35:15.7422810Z     = help: to override `-D warnings` add `#[allow(clippy::needless_range_loop)]`
+2026-11-16T08:35:16.9200560Z error: could not compile `xfx` (lib) due to 1 previous error
+2026-11-16T08:35:55.2067570Z error: could not compile `xfx` (lib test) due to 1 previous error
+# backtrace frames naming a rustc commit: 
+
+
+## job 130518847044, step 11 "Tests, with the fault injector": what ran and what failed (same logs API)
+2026-11-11T12:54:28.7830970Z ##[group]Run cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+2026-11-11T12:54:28.7831670Z cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+2026-11-11T12:54:28.7832220Z cargo test --locked --features fault-injection --test tui
+2026-11-11T12:54:28.7832680Z cargo test --locked --lib --features fault-injection
+2026-11-11T12:55:09.6804140Z     Finished `dev` profile [unoptimized + debuginfo] target(s) in 40.51s
+2026-11-11T12:55:43.4959320Z     Finished `test` profile [unoptimized + debuginfo] target(s) in 33.68s
+2026-11-11T12:55:43.5229180Z      Running tests/tui.rs (target/debug/deps/tui-5863e85d73a15dc1)
+2026-11-11T12:56:59.5262890Z thread 'the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out' (78504) panicked at tests/tui.rs:852:5:
+2026-11-11T12:56:59.5279440Z assertion `left == right` failed
+2026-11-11T12:56:59.5289640Z   left: ["\u{1b}]7501;state=idle:app=xfx\u{1b}\\", "\u{1b}]7501;state=done:app=xfx\u{1b}\\"]
+2026-11-11T12:56:59.5341130Z error: test failed, to rerun pass `--test tui`
+2026-11-11T12:56:59.5517280Z test result: FAILED. 202 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 75.96s

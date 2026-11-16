@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-9c64ddd [debug] · Run /help for commands
+
+* config: 1 configuration issue (ctrl+o to view)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

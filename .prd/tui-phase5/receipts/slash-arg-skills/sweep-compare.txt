@@ -1,0 +1,24 @@
+# python3 -I cmp_sweeps.py <base>/pairs.json <head>/pairs.json -- the families' sweeps (sweeps.sh), base 4bb8af77's binary, then the head's (built at f0399486)
+change p5-slash-arg-skills/allowlist: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/allowlist-add: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/allowlist-add-tool: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/allowlist-local: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/esc-back: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/mcp: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/permissions: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/permissions-enter: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/permissions-full-enter: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/permissions-re: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/sound: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/sound-on-enter: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/statusline: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/statusline-enter: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/statusline-ghost: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/statusline-s: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/statusline-ws: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/workspace: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/workspace-a-tab: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+change p5-slash-arg-skills/workspace-enter: failed -> normalized-identical; causes [] -> []; uncaused 0 -> 0
+base: 300 pairs, 206 pass, 59 with uncaused rows
+head: 300 pairs, 226 pass, 59 with uncaused rows
+drops: 0

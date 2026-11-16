@@ -1,0 +1,10 @@
+git diff --stat 0dd6f3c5 4851ba05 (the gate's head to the head the README first reported)
+ .../tui-phase5/receipts/local-paths-wrap/README.md | 184 +++++++++++++++++++++
+ .prd/tui-phase5/receipts/local-paths-wrap/flake.py |  50 ++++++
+ .../tui-phase5/receipts/local-paths-wrap/flake.txt |   4 +
+ .prd/tui-phase5/receipts/local-paths-wrap/gate.txt |  31 ++++
+ .../receipts/local-paths-wrap/scan-before.txt      |  65 ++++++++
+ .prd/tui-phase5/receipts/local-paths-wrap/scan.sh  |  32 +++-
+ .prd/tui-phase5/receipts/local-paths-wrap/scan.txt |  29 ++++
+ 7 files changed, 387 insertions(+), 8 deletions(-)
+git diff --stat 0dd6f3c5 4851ba05 -- scripts src: 0 lines

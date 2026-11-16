@@ -1,0 +1,55 @@
+# head 6071c6f8, base dcfa5146; /bin/bash 3.2.57(1)-release
+red-check-no-secrets.sh: test-check-no-secrets.sh exit 1 (99s), test-check-no-secrets: 2 problem(s), 15 case(s) passed
+    test-check-no-secrets: stopped-unset: the check exited 0, expected 1; the first lines it printed:
+    test-check-no-secrets: ok stopped-exit7      exit 7
+    test-check-no-secrets: ok stopped-term       exit 143
+    test-check-no-secrets: stopped-late: the check exited 0, expected 1; the first lines it printed:
+red-check-preview-contract.sh: test-preview-contract.sh exit 1 (63s), test-preview-contract: 2 mutant(s) not caught, 29 caught
+    test-preview-contract: stopped-unset: the check exited 0, expected 1, with 'xfx_test_unset: unbound variable' and nothing after the stop
+    test-preview-contract: caught stopped-exit7                exit 7
+    test-preview-contract: stopped-term: the check exited 1, expected 143, with 'early stop: SIGTERM' and nothing after the stop
+red-check-xfx-identity.sh: test-gate-env.sh exit 1 (194s), test-gate-env: 1 problem(s), 72 case(s) passed
+    test-gate-env: check-xfx-identity-stopped-unset: the gate exited 0, expected 1; its last lines:
+    test-gate-env: ok check-xfx-identity-stopped-exit7 exit 7
+    test-gate-env: ok check-xfx-identity-stopped-term exit 143
+    test-gate-env: ok test-check-no-secrets-stopped-unset exit 1
+    test-gate-env: ok test-check-no-secrets-stopped-exit7 exit 7
+    test-gate-env: ok test-check-no-secrets-stopped-term exit 143
+    test-gate-env: ok test-preview-contract-stopped-unset exit 1
+    test-gate-env: ok test-preview-contract-stopped-exit7 exit 7
+    test-gate-env: ok test-preview-contract-stopped-term exit 143
+red-test-check-no-secrets.sh: test-gate-env.sh exit 1 (163s), test-gate-env: 2 problem(s), 71 case(s) passed
+    test-gate-env: ok check-xfx-identity-stopped-unset exit 1
+    test-gate-env: ok check-xfx-identity-stopped-exit7 exit 7
+    test-gate-env: ok check-xfx-identity-stopped-term exit 143
+    test-gate-env: test-check-no-secrets-stopped-unset: the gate exited 0, expected 1; its last lines:
+    test-gate-env: ok test-check-no-secrets-stopped-exit7 exit 7
+    test-gate-env: test-check-no-secrets-stopped-term: the gate exited 1, expected 143; its last lines:
+    test-gate-env: ok test-preview-contract-stopped-unset exit 1
+    test-gate-env: ok test-preview-contract-stopped-exit7 exit 7
+    test-gate-env: ok test-preview-contract-stopped-term exit 143
+red-test-preview-contract.sh: test-gate-env.sh exit 1 (232s), test-gate-env: 2 problem(s), 71 case(s) passed
+    test-gate-env: ok check-xfx-identity-stopped-unset exit 1
+    test-gate-env: ok check-xfx-identity-stopped-exit7 exit 7
+    test-gate-env: ok check-xfx-identity-stopped-term exit 143
+    test-gate-env: ok test-check-no-secrets-stopped-unset exit 1
+    test-gate-env: ok test-check-no-secrets-stopped-exit7 exit 7
+    test-gate-env: ok test-check-no-secrets-stopped-term exit 143
+    test-gate-env: test-preview-contract-stopped-unset: the gate exited 0, expected 1; its last lines:
+    test-gate-env: ok test-preview-contract-stopped-exit7 exit 7
+    test-gate-env: test-preview-contract-stopped-term: the gate exited 0, expected 143; its last lines:
+red-test-gate-env.sh: test-early-stop.sh exit 1 (180s), test-early-stop: 2 problem(s), 4 case(s) passed
+    test-early-stop: test-gate-env-stopped-unset: it exited 0, expected 1; its last lines:
+    test-early-stop: ok test-gate-env-stopped-exit7  exit 7
+    test-early-stop: test-gate-env-stopped-term: it exited 0, expected 143; its last lines:
+    test-early-stop: ok smoke-stopped-unset          exit 1
+    test-early-stop: ok smoke-stopped-exit7          exit 7
+    test-early-stop: ok smoke-stopped-term           exit 143
+red-smoke.sh: test-early-stop.sh exit 1 (2s), test-early-stop: 1 problem(s), 5 case(s) passed
+    test-early-stop: ok test-gate-env-stopped-unset  exit 1
+    test-early-stop: ok test-gate-env-stopped-exit7  exit 7
+    test-early-stop: ok test-gate-env-stopped-term   exit 143
+    test-early-stop: smoke-stopped-unset: it exited 0, expected 1; its last lines:
+    test-early-stop: ok smoke-stopped-exit7          exit 7
+    test-early-stop: ok smoke-stopped-term           exit 143
+# tree clean after: yes

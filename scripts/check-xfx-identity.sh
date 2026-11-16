@@ -168,7 +168,13 @@ tracked_paths() {
 # itself is assembled.
 
 control_root="$(mktemp -d "${TMPDIR:-/tmp}/xfx-identity-control.XXXXXX")"
-trap 'rm -rf "$control_root"' EXIT
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0, and would read as a pass.
+# Any exit before `finished=1` keeps the status bash gives it, or is 1 where
+# bash gives 0.
+finished=0
+trap 'stopped=$?; rm -rf "$control_root"; [ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"' EXIT
 
 init_repo() {
 	mkdir -p "$1"
@@ -345,3 +351,4 @@ if [ "$failures" -ne 0 ]; then
 fi
 
 printf 'check-xfx-identity: ok (%s tracked file(s) scanned)\n' "$tracked_count"
+finished=1

@@ -1,0 +1,83 @@
+## p5-cancel-double-escape-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+SAME a-person-cleared       rows: none
+       fx:   ┃/
+       red:  ┃/
+SAME b-burst-cleared        rows: none
+       fx:   ┃/
+       red:  ┃/
+DIFF c-menu                 rows: 5 7 8 
+       fx:   ┃ /he/
+       red:  ┃ /he/
+SAME c-person-cleared       rows: none
+       fx:   ┃/
+       red:  ┃/
+SAME c-person-closed        rows: none
+       fx:   ┃ /he/
+       red:  ┃ /he/
+SAME d-burst-cleared        rows: none
+       fx:   ┃/
+       red:  ┃/
+
+## p5-cancel-double-escape-turn-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+DIFF a-meta-up              rows: 5 7 
+       fx:   ┃ stream please/┃/
+       red:  ┃ stream please/┃ stream please/
+DIFF b-burst-cancelled      rows: 5 7 
+       fx:   ┃ stream please/▪ Cancelled · What can fx do differently?/┃/
+       red:  ┃ stream please/▪ Cancelled · What can xfx do differently?/┃ stream please/
+DIFF c-person-cancelled     rows: 5 7 9 
+       fx:   ┃ stream please/▪ Cancelled · What can fx do differently?/┃ stream again/▪ Cancelled · What can fx do differently?/┃/
+       red:  ┃ stream please/▪ Cancelled · What can xfx do differently?/┃ stream pleasestream again/▪ Cancelled · What can xfx do differently?/┃/
+SAME mid                    rows: none
+       fx:   ┃ stream please/┃/
+       red:  ┃ stream please/┃/
+DIFF mid2                   rows: 5 7 9 
+       fx:   ┃ stream please/▪ Cancelled · What can fx do differently?/┃ stream again/┃/
+       red:  ┃ stream please/▪ Cancelled · What can xfx do differently?/┃ stream pleasestream again/┃/
+
+## p5-modified-meta-prefix-40x120: fx against red, cell by cell (cells.py, row 1 left out)
+DIFF caps-ctrl-end          rows: 3 6 7 
+       fx:   ┃ Hone two/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       red:  ┃ GHIFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF caps-ctrl-home         rows: 3 6 7 
+       fx:   ┃ Hone two/┃/┃ three four/┃/┃ GFEAfive CsixBD/
+       red:  ┃ GHFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF ctrl-meta-bit-left     rows: 3 6 7 
+       fx:   ┃ JHone LtwoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       red:  ┃ JKLGHIFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+SAME draft                  rows: none
+       fx:   ┃ one two/┃/┃ three four/┃/┃ five six/
+       red:  ┃ one two/┃/┃ three four/┃/┃ five six/
+DIFF hyper-left             rows: 3 6 7 
+       fx:   ┃ JHone MLtwoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       red:  ┃ JKLMGHIFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF meta-bit-end           rows: 3 6 7 
+       fx:   ┃ JHone twoK/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       red:  ┃ JKGHIFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF meta-ctrl-home         rows: 3 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ EAfive CsixBD/
+       red:  ┃ Eone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF meta-down              rows: 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive sixB/
+       red:  ┃ one two/┃/┃ three four/┃ A/┃ fBive six/
+DIFF meta-left              rows: 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive CsixB/
+       red:  ┃ one two/┃/┃ three four/┃ A/┃ fCBive six/
+DIFF meta-right             rows: 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive CsixBD/
+       red:  ┃ one two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF meta-ss3-up            rows: 3 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ GFEAfive CsixBD/
+       red:  ┃ GFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF meta-super-left        rows: 3 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ FEAfive CsixBD/
+       red:  ┃ FEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+DIFF meta-up                rows: 6 7 
+       fx:   ┃ one two/┃/┃ three four/┃/┃ Afive six/
+       red:  ┃ one two/┃/┃ three four/┃ A/┃ five six/
+DIFF num-ctrl-home          rows: 3 6 7 
+       fx:   ┃ JHone two/┃/┃ three four/┃/┃ GFEAfive CsixBDI/
+       red:  ┃ JGHIFEone two/┃/┃ three four/┃ A/┃ fCBDive six/
+
+7 of 25 pairs identical
+banners (row 1): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-df45025 [debug] · Run /help for commands

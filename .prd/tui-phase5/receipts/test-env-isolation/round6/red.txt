@@ -1,0 +1,21 @@
+## MUST 1: a HOME read and a git start in a unit test under cfg(all(test, not(clippy)))
+  at 0877f461: clippy -D warnings passes; check-env-reads passes
+  at 3b6cac51: clippy -D warnings passes; check-env-reads refuses (refused: src/test_env/tests.rs:32: a cfg predicate that names clippy, under which code is never linted)
+## MUST 2: a raw syscall in a unit test
+  at 0877f461: clippy -D warnings passes; check-env-reads passes
+  at 3b6cac51: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 1 previous error; error: use of a disallowed method `libc::syscall`); check-env-reads refuses (refused: src/test_env/tests.rs:0: libc::syscall outside env_exception! and process_env!, unlisted (1))
+## MUST 2: execvP (Apple) in a unit test
+  at 0877f461: clippy -D warnings passes; check-env-reads passes
+  at 3b6cac51: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 1 previous error; error: use of a disallowed method `libc::execvP`); check-env-reads refuses (refused: src/test_env/tests.rs:0: libc::execvP outside env_exception! and process_env!, unlisted (1))
+## SHOULD: the home from the user database in a unit test
+  at 0877f461: clippy -D warnings passes; check-env-reads passes
+  at 3b6cac51: clippy -D warnings refuses (error: could not compile `xfx` (lib test) due to 1 previous error; error: use of a disallowed method `libc::getpwuid`); check-env-reads refuses (refused: src/test_env/tests.rs:0: libc::getpwuid outside env_exception! and process_env!, unlisted (1))
+## SHOULD: support compiled in every build but release with all features
+  at 0877f461: clippy -D warnings passes; check-env-reads refuses (refused: tests/escape.rs:0: a test binary that does not run its cases in a clean copy (support::isolated))
+  at 3b6cac51: clippy -D warnings passes; check-env-reads refuses (refused: tests/escape.rs:0: a test binary that does not run its cases in a clean copy (support::isolated) | refused: tests/escape.rs:0: its test binary (--release --all-features) runs its cases without making a clean copy of itself (exit 0))
+## MUST 3: a nested env! whose dep-info is gone (the check run once to build, the .d files removed, run again)
+  at 0877f461: with its dep-info, check-env-reads refuses (refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name | refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name); 34 .d files removed; then check-env-reads passes
+  at 3b6cac51: with its dep-info, check-env-reads refuses (refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name | refused: src/lib.rs:0: compiled with CARGO_PKG_AUTHORS from the environment (rustc's dep-info), which is not a compile-time name); 32 .d files removed; then check-env-reads refuses (refused: src/lib.rs:0: built with no dep-info to say what it read at compile time | refused: src/lib.rs:0: built with no dep-info to say what it read at compile time | refused: src/main.rs:0: built with no dep-info to say what it read at compile time)
+## SHOULD: a relative TMPDIR, the isolation binary started with each revision's isolated.rs
+  with 0877f461's isolated.rs: not refused (exit 0); the case ran: yes; a home was made under the relative TMPDIR: no; refusal: -
+  with 3b6cac51's isolated.rs: refused (exit 101); the case ran: no; a home was made under the relative TMPDIR: no; refusal: TMPDIR is not an absolute path

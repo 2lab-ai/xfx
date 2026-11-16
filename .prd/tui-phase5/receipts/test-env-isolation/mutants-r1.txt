@@ -1,0 +1,9 @@
+# Mutants, first run, at e1a127a4: each mutant ran only the cases named for it. Superseded by mutants.txt.
+# config-reader-unrouted SURVIVED: it unrouted the variables loop only, and the one case run still panicked at the HOME read after it.
+# The run then stopped: the authority edit was written before rustfmt split that line (AssertionError: the edit does not apply).
+KILLED guard-gone: process_env! var/var_os read std::env in tests :: test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4637 filtered out; finished in 0.00s
+KILLED refusal-gone: test_env::var_os returns None outside a fake :: test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4637 filtered out; finished in 0.00s
+SURVIVED config-reader-unrouted: Environment::from_process reads std::env :: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4641 filtered out; finished in 0.01s
+KILLED gateway-reader-unrouted: Endpoint::from_process reads std::env :: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4641 filtered out; finished in 0.00s
+KILLED git-reader-unrouted: GitEnvironment::from_process reads std::env :: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4641 filtered out; finished in 0.00s
+AssertionError: home-to-git-unrouted: minimal_environment's HOME is the process's: the edit does not apply

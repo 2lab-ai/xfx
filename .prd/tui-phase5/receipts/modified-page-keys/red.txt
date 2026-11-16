@@ -1,0 +1,53 @@
+# RED: the unit's tests at 4c3ab703 (the tests and the two declared variants, no producer and no fold), the base's code otherwise.
+# $ TMPDIR=<tmp> cargo test --locked --lib -- tui::input::tests:: a_page_key_held_with_a_modifier the_fold_maps at_41_rows the_screens_keys_move_it
+# The failing tests, each one's first failing assertion, and the result line (the compile line and the passing tests left out).
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... FAILED
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... FAILED
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... FAILED
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... FAILED
+test tui::input::tests::the_forward_word_delete_and_the_page_keys_decode_in_every_spelling ... FAILED
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... FAILED
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... FAILED
+thread 'tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page' panicked at src/tui/input.rs:3085:17:
+assertion `left == right` failed: CSI 5 ; 2 ~ (Shift)
+  left: [Action(PageUp)]
+ right: [Action(ComposerPageUp)]
+thread 'tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits' panicked at src/tui/input.rs:2869:13:
+assertion `left == right` failed: CSI 5 ; 257 ~
+  left: [Action(PageUp)]
+ right: [Action(ComposerPageUp)]
+thread 'tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number' panicked at src/tui/input.rs:2825:13:
+assertion `left == right` failed: CSI 05 ; 05 ~
+  left: [Action(PageUp)]
+ right: [Action(ComposerPageUp)]
+thread 'tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it' panicked at src/tui/input.rs:2981:17:
+assertion `left == right` failed: CSI 5 ; 65 ~
+  left: [Action(PageUp)]
+ right: [Action(ComposerPageUp)]
+thread 'tui::input::tests::the_forward_word_delete_and_the_page_keys_decode_in_every_spelling' panicked at src/tui/input.rs:2607:13:
+assertion `left == right` failed: [27, 91, 53, 59, 53, 126] (composerMove page_up :708)
+  left: [Action(PageUp)]
+ right: [Action(ComposerPageUp)]
+thread 'tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest' panicked at src/tui/shell.rs:24176:13:
+assertion `left == right` failed: ComposerPageUp
+  left: Action(ComposerPageUp)
+ right: Action(PageUp)
+thread 'tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen' panicked at src/tui/shell.rs:43054:13:
+assertion `left == right` failed: [27, 91, 53, 59, 53, 126] paged the screen
+  left: ["* n: 6", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 7", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 8", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 9", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 10", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 11", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 12", "", "", "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close", "", "run `xfx setup` · auto · glm-5.2"]
+ right: ["  2026-11-10 16:56:41.944 UTC · Notice", "* n: 13", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 14", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 15", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 16", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 17", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 18", "", "  2026-11-10 16:56:41.944 UTC · Notice", "* n: 19", "", "┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close", "", "run `xfx setup` · auto · glm-5.2"]
+test result: FAILED. 112 passed; 7 failed; 0 ignored; 0 measured; 4669 filtered out; finished in 0.05s
+
+# The unit's other new or changed tests in the same run: they pass at the base too (each pins what the base already did and the head keeps).
+test tui::input::tests::a_tilde_sequence_past_the_csi_bound_is_read_as_every_csi_is ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_at_list_is_19_paths ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_effort_menu_is_19_levels_round_its_five ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_fork_menu_is_19_prompts ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_help_catalog_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_model_menu_is_19_models ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_resume_picker_is_19_sessions ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_skills_menu_is_19_skills ... ok
+test tui::shell::tests::at_41_rows_a_page_of_the_slash_menu_is_19_commands ... ok
+test tui::shell::tests::at_41_rows_the_composer_is_capped_at_19_rows_and_a_page_is_19_of_them ... ok
+test tui::shell::tests::the_screens_keys_move_it_and_every_other_key_reaches_the_hidden_composer_as_upstreams ... ok

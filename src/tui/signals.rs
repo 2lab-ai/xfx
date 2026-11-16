@@ -564,6 +564,10 @@ where
         }
         previous
     };
+    // In a unit test the thread runs in the case's fake process, as the
+    // thread that starts it does (`crate::test_env`); a build is unchanged.
+    #[cfg(test)]
+    let body = crate::test_env::carried(body);
     let spawned = std::thread::Builder::new()
         .name(name.to_string())
         .spawn(body);
@@ -783,6 +787,37 @@ mod tests {
         assert_eq!(after, before);
     }
 
+    /// A TUI thread a unit test starts reads the case's fake process, as
+    /// the case does (`crate::test_env`): a worker the case launches is held
+    /// to what the case gave it, and refused if it gave nothing.
+    #[test]
+    fn a_thread_started_unsignalled_is_in_the_process_of_the_case_that_started_it() {
+        let model = || {
+            crate::config::Environment::from_process()
+                .var("XFX_MODEL")
+                .map(str::to_string)
+        };
+        let seen = crate::test_env::FakeProcess::new()
+            .var("XFX_MODEL", "xfx-fake-carried")
+            .run(|| spawn_unsignalled("xfx-test", model))
+            .expect("a thread")
+            .join()
+            .expect("joined");
+        // Compared, never printed (`crate::test_env`).
+        assert!(
+            seen.as_deref() == Some("xfx-fake-carried"),
+            "the started thread's XFX_MODEL is not the case's"
+        );
+        let refused = spawn_unsignalled("xfx-test", model)
+            .expect("a thread")
+            .join()
+            .is_err();
+        assert!(
+            refused,
+            "a thread started outside a fake process read the real one"
+        );
+    }
+
     /// Why [`crate::process::command`] exists: a child made by a bare
     /// `Command` is born with its thread's mask -- so a `SIGTERM` stays
     /// pending and the child keeps running. Pinned, so a standard library that
@@ -790,8 +825,15 @@ mod tests {
     #[test]
     fn a_child_process_inherits_the_mask_its_thread_was_started_with() {
         let mut child = spawn_unsignalled("xfx-test", || {
-            crate::process::spawn(std::process::Command::new("/bin/sleep").arg("30"))
-                .expect("a child")
+            // Bare on purpose -- the mask a bare `Command`'s child inherits is
+            // this case's subject -- and given no environment;
+            // scripts/check-env-reads.py lists it.
+            #[allow(
+                clippy::disallowed_methods,
+                reason = "the bare Command this case is about, its environment cleared"
+            )]
+            let mut sleep = std::process::Command::new("/bin/sleep");
+            crate::process::spawn(sleep.arg("30").env_clear()).expect("a child")
         })
         .expect("a thread")
         .join()
@@ -1261,7 +1303,7 @@ mod tests {
     /// The signals the copy [`an_inherited_sigint_ignore_outlives_the_session`]
     /// starts was told it is started ignoring; none in the ordinary run.
     fn told_ignored_at_entry() -> Vec<libc::c_int> {
-        std::env::var(IGNORED_AT_ENTRY)
+        env_exception!(var("XFX_TEST_IGNORED_AT_ENTRY"))
             .map(|names| {
                 names
                     .split(',')

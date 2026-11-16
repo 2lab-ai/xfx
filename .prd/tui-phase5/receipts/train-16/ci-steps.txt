@@ -1,0 +1,123 @@
+## ci.yml at 866747ff
+Check out the exact commit |  | 
+Confirm the checkout is the commit under test |  | set -eu; # Git reads its repository, index and config from GIT_*; none of a caller's.; for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done; actual="$(git rev-parse HEAD)"; if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then; echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2; exit 1; fi; echo "gate is running on $actual"
+Install the pinned toolchain |  | rustup toolchain install stable --profile minimal --component rustfmt,clippy; rustup default stable; rustc --version; cargo --version
+Confirm the runner really is this target |  | host="$(rustc -vV | sed -n 's/^host: //p')"; if [ "$host" != "${{ matrix.target }}" ]; then; echo "runner host is $host, matrix says ${{ matrix.target }}" >&2; exit 1; fi
+Formatting | matrix.part != 'release' | cargo fmt --check
+Lints | matrix.part != 'release' | cargo clippy --locked --all-targets -- -D warnings
+Tests | matrix.part != 'release' | cargo test --locked --all-targets
+Tests, with the fault injector | matrix.part != 'release' | cargo clippy --locked --all-targets --features fault-injection -- -D warnings; cargo test --locked --features fault-injection --test tui; cargo test --locked --lib --features fault-injection
+No stubs, and the parity ledger reconciles | matrix.part != 'release' | ./scripts/check-no-stubs.sh
+No credentials in tracked files | matrix.part != 'release' | ./scripts/check-no-secrets.sh
+No path of one machine in tracked files | matrix.part != 'release' | ./scripts/check-no-local-paths.sh
+The local-path check refuses what it exists for | matrix.script_tests | ./scripts/test-check-no-local-paths.sh
+No gate takes its options, repository or config from the environment | matrix.script_tests | ./scripts/test-gate-env.sh
+One product name in tracked files | matrix.part != 'release' | ./scripts/check-xfx-identity.sh
+The preview publication contract holds | matrix.part != 'release' | ./scripts/check-preview-contract.sh
+The preview contract catches every mutant it exists for | matrix.script_tests | ./scripts/test-preview-contract.sh
+The output check still fits inside a frame's budget | matrix.part != 'checks' | ./scripts/check-tui-preflight-cost.sh
+The @ search still fits inside a frame | matrix.part != 'checks' | ./scripts/check-at-search-cost.sh
+A release build ignores the pinned usage clock | matrix.part != 'checks' | ./scripts/check-usage-clock.sh
+Release build | matrix.part != 'checks' | cargo build --locked --release
+Smoke the release binary | matrix.part != 'checks' | ./scripts/smoke.sh target/release/xfx "${RUNNER_TEMP}/xfx-smoke"
+Keep the smoke evidence of a failed run | failure() && matrix.part != 'checks' | 
+Build the binary the restoration matrix drives | matrix.part != 'checks' | cargo build --locked --release --features fault-injection --target-dir target/faulty
+Smoke the TUI on a real terminal | matrix.part != 'checks' | ./scripts/smoke-tui.sh target/release/xfx \; --faulty target/faulty/release/xfx \; "${RUNNER_TEMP}/xfx-smoke-tui"
+Keep the TUI evidence of a failed run | failure() && matrix.part != 'checks' | 
+## ci.yml at a4452753
+Check out the exact commit |  | 
+Confirm the checkout is the commit under test |  | set -eu; # Git reads its repository, index and config from GIT_*; none of a caller's.; for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done; actual="$(git rev-parse HEAD)"; if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then; echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2; exit 1; fi; echo "gate is running on $actual"
+Install the pinned toolchain |  | rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy; rustup default 1.99.1; rustc --version; cargo --version
+Confirm the runner really is this target |  | host="$(rustc -vV | sed -n 's/^host: //p')"; if [ "$host" != "${{ matrix.target }}" ]; then; echo "runner host is $host, matrix says ${{ matrix.target }}" >&2; exit 1; fi
+The gate scripts run /bin/bash | matrix.bash32 | version="$(/bin/bash -c 'printf %s "$BASH_VERSION"')"; case "$version" in; 3.2.*) echo "/bin/bash is bash $version" ;;; *); echo "/bin/bash is bash $version, not 3.2" >&2; exit 1; ;;; esac; mkdir -p "$RUNNER_TEMP/bash32"; ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"; printf '%s\n' "$RUNNER_TEMP/bash32" >>"$GITHUB_PATH"
+Which bash the gate scripts run | matrix.script_tests | # shellcheck disable=SC2016 # the script's own expansions; printf '%s\n' '#!/usr/bin/env bash' \; 'printf "#!/usr/bin/env bash runs %s, bash %s\n" "$BASH" "$BASH_VERSION"' >"$RUNNER_TEMP/which-bash"; chmod 755 "$RUNNER_TEMP/which-bash"; "$RUNNER_TEMP/which-bash"; printf 'command -v bash: %s\n' "$(command -v bash)"; bash --version | sed -n 1p
+Formatting | matrix.part != 'release' | cargo fmt --check
+Lints | matrix.part != 'release' | cargo clippy --locked --all-targets -- -D warnings
+Every read of the environment clippy lets through is listed | matrix.part != 'release' | python3 -I scripts/check-env-reads.py
+The environment check refuses every way round it | matrix.script_tests | python3 -I scripts/check-env-reads.py --self-test
+Tests | matrix.part != 'release' | cargo test --locked --all-targets
+Tests, with the fault injector | matrix.part != 'release' | cargo clippy --locked --all-targets --features fault-injection -- -D warnings; cargo test --locked --features fault-injection --test tui; cargo test --locked --lib --features fault-injection
+No stubs, and the parity ledger reconciles | matrix.part != 'release' | ./scripts/check-no-stubs.sh
+No credentials in tracked files | matrix.part != 'release' | ./scripts/check-no-secrets.sh
+No path of one machine in tracked files | matrix.part != 'release' | ./scripts/check-no-local-paths.sh
+The local-path check refuses what it exists for | matrix.script_tests | ./scripts/test-check-no-local-paths.sh
+No gate takes its options, repository or config from the environment | matrix.script_tests | ./scripts/test-gate-env.sh
+One product name in tracked files | matrix.part != 'release' | ./scripts/check-xfx-identity.sh
+The preview publication contract holds | matrix.part != 'release' | ./scripts/check-preview-contract.sh
+The preview contract catches every mutant it exists for | matrix.script_tests | ./scripts/test-preview-contract.sh
+A gate script that stops early fails | matrix.script_tests | ./scripts/test-early-stop.sh
+The output check still fits inside a frame's budget | matrix.part != 'checks' | ./scripts/check-tui-preflight-cost.sh
+The @ search still fits inside a frame | matrix.part != 'checks' | ./scripts/check-at-search-cost.sh
+A release build ignores the pinned usage clock | matrix.part != 'checks' | ./scripts/check-usage-clock.sh
+Release build | matrix.part != 'checks' | cargo build --locked --release
+Smoke the release binary | matrix.part != 'checks' | ./scripts/smoke.sh target/release/xfx "${RUNNER_TEMP}/xfx-smoke"
+Keep the smoke evidence of a failed run | failure() && matrix.part != 'checks' | 
+Build the binary the restoration matrix drives | matrix.part != 'checks' | cargo build --locked --release --features fault-injection --target-dir target/faulty
+Smoke the TUI on a real terminal | matrix.part != 'checks' | ./scripts/smoke-tui.sh target/release/xfx \; --faulty target/faulty/release/xfx \; "${RUNNER_TEMP}/xfx-smoke-tui"
+Keep the TUI evidence of a failed run | failure() && matrix.part != 'checks' | 
+## ci.yml: the steps that differ (< base, > head)
+< Install the pinned toolchain |  | rustup toolchain install stable --profile minimal --component rustfmt,clippy; rustup default stable; rustc --version; cargo --version
+> Install the pinned toolchain |  | rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy; rustup default 1.99.1; rustc --version; cargo --version
+> The gate scripts run /bin/bash | matrix.bash32 | version="$(/bin/bash -c 'printf %s "$BASH_VERSION"')"; case "$version" in; 3.2.*) echo "/bin/bash is bash $version" ;;; *); echo "/bin/bash is bash $version, not 3.2" >&2; exit 1; ;;; esac; mkdir -p "$RUNNER_TEMP/bash32"; ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"; printf '%s\n' "$RUNNER_TEMP/bash32" >>"$GITHUB_PATH"
+> Which bash the gate scripts run | matrix.script_tests | # shellcheck disable=SC2016 # the script's own expansions; printf '%s\n' '#!/usr/bin/env bash' \; 'printf "#!/usr/bin/env bash runs %s, bash %s\n" "$BASH" "$BASH_VERSION"' >"$RUNNER_TEMP/which-bash"; chmod 755 "$RUNNER_TEMP/which-bash"; "$RUNNER_TEMP/which-bash"; printf 'command -v bash: %s\n' "$(command -v bash)"; bash --version | sed -n 1p
+> Every read of the environment clippy lets through is listed | matrix.part != 'release' | python3 -I scripts/check-env-reads.py
+> The environment check refuses every way round it | matrix.script_tests | python3 -I scripts/check-env-reads.py --self-test
+> A gate script that stops early fails | matrix.script_tests | ./scripts/test-early-stop.sh
+# 7 lines differ
+
+## sweep.yml at 866747ff
+Check out the exact commit, with history for the merge base |  | 
+Confirm the checkout and find the base |  | set -euo pipefail; # Git reads its repository, index and config from GIT_*; none of a caller's.; for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done; actual="$(git rev-parse HEAD)"; if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then; echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2; exit 1; fi; # A pull request is compared with its merge base, and a base not in; # the clone fails the run: guessing one would gate only part of the; # change. A push to main is compared with the commit main was at; # before it; a push whose `before` is all zeros or unreachable (a; # new branch, a force-push) falls back to the first parent.; if [ "$GITHUB_EVENT_NAME" = push ]; then; tip=$PUSH_BEFORE; else; tip=$BASE_SHA; fi; base=''; if [ -n "$tip" ] && git cat-file -e "$tip^{commit}" 2>/dev/null; then; base="$(git merge-base "$tip" HEAD)"; fi; if [ -z "$base" ]; then; if [ "$GITHUB_EVENT_NAME" != push ]; then; echo "the base ${tip:-(none)} is not in the clone: no merge base to compare with" >&2; exit 1; fi; base="$(git rev-parse HEAD^1)"; fi; echo "head $actual, base $base"; echo "sha=$base" >> "$GITHUB_OUTPUT"
+The sweep's own tests |  | <checkout>/scripts/fxcap/test-sweep.sh
+Fetch fx v0.0.16 and bun, each checked by sha256 |  | set -euo pipefail; <checkout>/scripts/fxcap/ci-fetch.sh "$RUNNER_TEMP/tools"; echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+Install tmux |  | set -euo pipefail; brew install tmux; tmux -V; python3 -c 'import sys, tomllib; print("python", sys.version.split()[0])'
+The capture harness's own tests |  | <checkout>/scripts/fxcap/test-capture.sh
+Install the toolchain |  | rustup toolchain install stable --profile minimal; rustup default stable; rustc --version
+Build xfx at the base and at the head |  | set -euo pipefail; # Git reads its repository, index and config from GIT_*; none of a caller's.; for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done; mkdir -p "$RUNNER_TEMP/xfx"; git worktree add --detach "$RUNNER_TEMP/base" "$BASE"; (cd "$RUNNER_TEMP/base" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target"); cp target/debug/xfx "$RUNNER_TEMP/xfx/base"; cargo build --locked; cp target/debug/xfx "$RUNNER_TEMP/xfx/head"; "$RUNNER_TEMP/xfx/base" --version; "$RUNNER_TEMP/xfx/head" --version
+Sweep the changed scenarios and the core set |  | set -euo pipefail; <checkout>/scripts/fxcap/ci-sweep.sh --base "$BASE" \; --fx "$RUNNER_TEMP/tools/bin/fx" --pin v0.0.16 \; --xfx "$RUNNER_TEMP/xfx/head" --base-xfx "$RUNNER_TEMP/xfx/base" \; --jobs 2 --tmp "$RUNNER_TEMP" --out "$RUNNER_TEMP/sweep"
+Keep the report and the scoreboards | always() | 
+## sweep.yml at a4452753
+Check out the exact commit, with history for the merge base |  | 
+Confirm the checkout and find the base |  | set -euo pipefail; # Git reads its repository, index and config from GIT_*; none of a caller's.; for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done; actual="$(git rev-parse HEAD)"; if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then; echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2; exit 1; fi; # A pull request is compared with its merge base, and a base not in; # the clone fails the run: guessing one would gate only part of the; # change. A push to main is compared with the commit main was at; # before it; a push whose `before` is all zeros or unreachable (a; # new branch, a force-push) falls back to the first parent.; if [ "$GITHUB_EVENT_NAME" = push ]; then; tip=$PUSH_BEFORE; else; tip=$BASE_SHA; fi; base=''; if [ -n "$tip" ] && git cat-file -e "$tip^{commit}" 2>/dev/null; then; base="$(git merge-base "$tip" HEAD)"; fi; if [ -z "$base" ]; then; if [ "$GITHUB_EVENT_NAME" != push ]; then; echo "the base ${tip:-(none)} is not in the clone: no merge base to compare with" >&2; exit 1; fi; base="$(git rev-parse HEAD^1)"; fi; echo "head $actual, base $base"; echo "sha=$base" >> "$GITHUB_OUTPUT"
+The sweep's own tests |  | <checkout>/scripts/fxcap/test-sweep.sh
+Fetch fx v0.0.16 and bun, each checked by sha256 |  | set -euo pipefail; <checkout>/scripts/fxcap/ci-fetch.sh "$RUNNER_TEMP/tools"; echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+Install tmux |  | set -euo pipefail; brew install tmux; tmux -V; python3 -c 'import sys, tomllib; print("python", sys.version.split()[0])'
+The capture harness's own tests |  | <checkout>/scripts/fxcap/test-capture.sh
+Install the toolchain |  | rustup toolchain install stable --profile minimal; rustup default stable; rustc --version
+Build xfx at the base and at the head |  | set -euo pipefail; # Git reads its repository, index and config from GIT_*; none of a caller's.; for name in "${!GIT_@}"; do case "$name" in *[!A-Za-z0-9_]*) ;; *) unset "$name" ;; esac; done; mkdir -p "$RUNNER_TEMP/xfx"; git worktree add --detach "$RUNNER_TEMP/base" "$BASE"; (cd "$RUNNER_TEMP/base" && cargo build --locked --target-dir "$GITHUB_WORKSPACE/target"); cp target/debug/xfx "$RUNNER_TEMP/xfx/base"; cargo build --locked; cp target/debug/xfx "$RUNNER_TEMP/xfx/head"; "$RUNNER_TEMP/xfx/base" --version; "$RUNNER_TEMP/xfx/head" --version
+Sweep the changed scenarios and the core set |  | set -euo pipefail; <checkout>/scripts/fxcap/ci-sweep.sh --base "$BASE" \; --fx "$RUNNER_TEMP/tools/bin/fx" --pin v0.0.16 \; --xfx "$RUNNER_TEMP/xfx/head" --base-xfx "$RUNNER_TEMP/xfx/base" \; --jobs 2 --tmp "$RUNNER_TEMP" --out "$RUNNER_TEMP/sweep"
+Keep the report and the scoreboards | always() | 
+## sweep.yml: the steps that differ (< base, > head)
+# 0 lines differ
+
+## gates.sh's steps, in its order
+ 1 step pinned-toolchain pinned
+ 2 step bash32 bash32
+ 3 step which-bash which_bash
+ 4 step fmt cargo fmt --check
+ 5 step clippy cargo clippy --locked --all-targets -- -D warnings
+ 6 step clippy-fault cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+ 7 step check-env-reads python3 -I scripts/check-env-reads.py
+ 8 step check-env-reads-self-test python3 -I scripts/check-env-reads.py --self-test
+ 9 step test cargo test --locked --no-fail-fast
+10 step test-fault cargo test --locked --features fault-injection --no-fail-fast
+11 step check-xfx-identity ./scripts/check-xfx-identity.sh
+12 step check-no-stubs ./scripts/check-no-stubs.sh
+13 step check-no-secrets ./scripts/check-no-secrets.sh
+14 step check-no-local-paths ./scripts/check-no-local-paths.sh
+15 step test-check-no-local-paths ./scripts/test-check-no-local-paths.sh
+16 step check-preview-contract ./scripts/check-preview-contract.sh
+17 step check-tui-preflight-cost ./scripts/check-tui-preflight-cost.sh
+18 step check-at-search-cost ./scripts/check-at-search-cost.sh
+19 step check-usage-clock ./scripts/check-usage-clock.sh
+20 step test-check-no-secrets ./scripts/test-check-no-secrets.sh
+21 step test-gate-env ./scripts/test-gate-env.sh
+22 step test-preview-contract ./scripts/test-preview-contract.sh
+23 step test-early-stop ./scripts/test-early-stop.sh
+24 step fxcap-test-sweep <checkout>/scripts/fxcap/test-sweep.sh
+25 step fxcap-test-capture <checkout>/scripts/fxcap/test-capture.sh
+26 step build-release cargo build --locked --release
+27 step build-faulty cargo build --locked --release --features fault-injection --target-dir target/faulty
+28 step smoke ./scripts/smoke.sh target/release/xfx "$smoke/smoke"
+29 step smoke-tui ./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx "$smoke/smoke-tui"
+# 29 steps

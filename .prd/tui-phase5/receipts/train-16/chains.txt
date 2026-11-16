@@ -1,0 +1,22 @@
+## bacb1052: base 3943d667, 49 commits, 0 merge(s)
+  0a334851 13 fix/p5-profile-refuse-at-launch review/PROFILE-REFUSE-AT-LAUNCH 
+  9c64ddd3 28 fix/p5-profile-refuse-typed-keys review/PROFILE-REFUSE-TYPED-KEYS 
+  f74d2fd5 37 fix/p5-permission-mode-case review/PERMISSION-MODE-CASE 
+  0d5d1c75 47 review/PROFILE-JSON-LIMITS 
+  bacb1052 49 fix/p5-profile-json-limits 
+## 32eb858f: base afd891af, 36 commits, 0 merge(s)
+  4bb8af77 13 fix/p5-slash-leading-ws review/SLASH-LEADING-WS 
+  b9b11596 25 fix/p5-slash-arg-skills review/SLASH-ARG-SKILLS 
+  32eb858f 36 fix/p5-slash-mixed-skills review/SLASH-MIXED-SKILLS 
+## 7c3f6c1e: base 32afd307, 51 commits, 0 merge(s)
+  7c3f6c1e 51 fix/p5-test-env-isolation review/TEST-ENV-ISOLATION 
+## dd9f5f0a: base 71d3e02b, 14 commits, 1 merge(s)
+  d7e797a0 13 review/LOCAL-PATHS-WRAP 
+  dd9f5f0a 14 fix/p5-local-paths-wrap 
+## ca496c10: base df45025c, 21 commits, 0 merge(s)
+  ca496c10 21 fix/p5-approval-paste-spaces 
+## 6d94fbc0: base df45025c, 18 commits, 0 merge(s)
+  6d94fbc0 18 fix/p5-meta-prefix-decode 
+## PERMISSION-MODE-CASE f74d2fd5
+  an ancestor of bacb1052
+  not an ancestor of 32eb858f

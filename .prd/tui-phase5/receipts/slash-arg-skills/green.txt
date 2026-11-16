@@ -1,0 +1,28 @@
+# GREEN: pairs.sh xfx -- fx/ against xfx/, the head's binary built at f0399486 (row 1 x𝒇x v0.1.0-f039948 [debug],
+# src as da9222bc). The one DIFF is the product's name in the full-access warning (fx's `fx permission checks`,
+# xfx's `xfx`): the ledger's `product-name` normalization reads it as the same, and the head sweep's verdict for the
+# pair is in sweep-head.md.
+SAME p5-slash-arg-skills-40x120-allowlist-add-tool
+SAME p5-slash-arg-skills-40x120-allowlist-add
+SAME p5-slash-arg-skills-40x120-allowlist-local
+SAME p5-slash-arg-skills-40x120-allowlist
+SAME p5-slash-arg-skills-40x120-esc-back
+SAME p5-slash-arg-skills-40x120-mcp
+SAME p5-slash-arg-skills-40x120-permissions-enter
+DIFF p5-slash-arg-skills-40x120-permissions-full-enter
+    row 19: fx [(69, ' ', ()), (70, 'F', (('fg', 252),)), (71, 'u', (('fg', 252),)), (72, 'l', (('fg', 252),))]
+    row 19: xfx [(69, 'F', (('fg', 252),)), (70, 'u', (('fg', 252),)), (71, 'l', (('fg', 252),)), (72, 'l', (('fg', 252),))]
+    1 rows differ in their cells (row 1 not compared)
+SAME p5-slash-arg-skills-40x120-permissions-re
+SAME p5-slash-arg-skills-40x120-permissions
+SAME p5-slash-arg-skills-40x120-sound-on-enter
+SAME p5-slash-arg-skills-40x120-sound
+SAME p5-slash-arg-skills-40x120-statusline-enter
+SAME p5-slash-arg-skills-40x120-statusline-ghost
+SAME p5-slash-arg-skills-40x120-statusline-s
+SAME p5-slash-arg-skills-40x120-statusline-ws
+SAME p5-slash-arg-skills-40x120-statusline
+SAME p5-slash-arg-skills-40x120-workspace-a-tab
+SAME p5-slash-arg-skills-40x120-workspace-enter
+SAME p5-slash-arg-skills-40x120-workspace
+19 of 20 pairs identical

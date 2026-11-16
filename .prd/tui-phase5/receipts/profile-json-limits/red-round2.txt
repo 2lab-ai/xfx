@@ -1,0 +1,20 @@
+== round 2 RED: the round-2 tests over the code at 4fc3b373; the working tree differs from it only inside test code (#[cfg(test)] in src/config.rs, src/mcp/command/tests.rs):
+    src/config.rs            | 61 ++++++++++++++++++++++++++++++++---------
+    src/mcp/command/tests.rs | 70 ++++++++++++++++++++++++++++++++++++++++++++++++
+    2 files changed, 119 insertions(+), 12 deletions(-)
+-- cargo test --lib -- --exact config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer
+test config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer ... FAILED
+thread 'config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer' panicked at src/config.rs:5120:17:
+  left: (false, [UnreadableSettings])
+ right: (false, [MalformedSettings])
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4758 filtered out; finished in 0.02s
+-- cargo test --lib -- --exact mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them
+test mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them ... FAILED
+thread 'mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them' panicked at src/mcp/command/tests.rs:1014:9:
+  left: Pending
+ right: Approved
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4758 filtered out; finished in 0.10s
+-- cargo test --lib -- --exact config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+test config::tests::no_key_xfx_reads_looks_past_the_depth_kept ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4758 filtered out; finished in 0.02s
+-- mcp::config::tests::the_saved_choices_load_where_fxs_load_does: written for load_choices's new return (Option<Choices>), so it has no base to compile against

@@ -1,0 +1,61 @@
+# A key that changes the question and the Enter after it, in one write
+# (APPROVAL-READINESS-SETTLED). fx v0.0.16 takes no affirmative at a file
+# approval while a modal frame is pending (input_approval_runtime.zig:191-218,
+# render_request.zig:172-177, :367-370@481104fd), and every key that moves
+# the choice or a draft's caret, or types into the draft, asks for one
+# (input_approval_runtime.zig:86, :98, :108, :117, :125;
+# app_input_runtime.zig:1251-1255). So at the edit and at the write each
+# move-and-Enter below is refused, the question stays up with the move
+# drawn, and the next Enter answers what that frame shows. A refusal is
+# never gated (`decision != .deny`): Down Down Enter at the first command is
+# a Deny on both. At the second command fx's Down Enter answers `Always` at
+# once (no `.file`), where xfx refuses it as at a file: xfx applies the
+# condition to every approval (the dispatcher's decision, docs/parity.md).
+# One `key` line is one tmux send-keys, which writes its keys in one write.
+# The turns, the workspace and the settings are approvals.cap's.
+fx: gateway approvals-fx.json
+xfx: gateway approvals-xfx.json
+work approvals-ws
+fx: seed approvals-fx-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 3
+type edit the files
+key Enter
+wait 3
+snap edit-ask
+key Down Enter
+wait 0.6
+snap edit-down-enter
+key Left Enter
+wait 0.6
+snap edit-left-enter
+# Down and Up undo each other in one burst, before a settling frame: the
+# frame they ask for is the screen's own bytes, so it writes nothing, and it
+# still settles them -- the next Enter answers.
+key Down Up Enter
+wait 0.6
+snap edit-down-up-enter
+key Enter
+wait 2.5
+snap write-ask
+key Tab
+wait 0.4
+key x Enter
+wait 0.6
+snap write-letter-enter
+key -H 1b 5b 31 3b 39 41 0d
+wait 0.6
+snap write-super-up-enter
+key Enter
+wait 2.5
+snap cmd-ask
+key Down Down Enter
+wait 2.5
+snap cmd2-ask
+key Down Enter
+wait 2.5
+snap cmd2-down-enter
+key Enter
+wait 2.5
+snap end

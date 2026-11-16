@@ -1,0 +1,75 @@
+# the first plan as applied (repoint-plan-applied.txt: derived at 622b2865 before c637ed4c, train 14's two LEAVE entries alone), at c637ed4c, where its numbers stand
+ok  auto  docs/parity.md:221 src/mcp/transport.rs:1318-1320 -> src/mcp/transport.rs:1321-1323: the frame's lines and two either side at :1321-1323
+ok  auto  docs/parity.md:241 worker.rs:3922 -> worker.rs:3955: the frame's lines and two either side at :3955
+ok  auto  docs/parity.md:241 :3561 -> :3594: the frame's lines and two either side at :3594
+ok  auto  scripts/fxcap/capfile.py:183 src/tui/shell.rs:15767-15792 -> src/tui/shell.rs:15842-15867: the frame's lines and two either side at :15842-15867
+ok  auto  scripts/fxcap/parity-ledger.toml:506 src/tui/shell.rs:14529 -> src/tui/shell.rs:14604: the frame's lines and two either side at :14604
+ok  auto  scripts/fxcap/parity-ledger.toml:691 src/tui/shell.rs:17565 -> src/tui/shell.rs:17644: the frame's lines and two either side at :17644
+ok  auto  scripts/fxcap/parity-ledger.toml:808 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:820 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:831 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:843 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:854 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:865 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:877 src/tui/shell.rs:11069 -> src/tui/shell.rs:11127: the frame's lines and two either side at :11127
+ok  auto  scripts/fxcap/parity-ledger.toml:879 src/tui/shell.rs:11069 -> src/tui/shell.rs:11127: the frame's lines and two either side at :11127
+ok  auto  scripts/fxcap/parity-ledger.toml:879 :1937 -> :1938: the frame's lines and two either side at :1938
+ok  auto  scripts/fxcap/parity-ledger.toml:890 src/tui/shell.rs:1937 -> src/tui/shell.rs:1938: the frame's lines and two either side at :1938
+ok  auto  scripts/fxcap/parity-ledger.toml:892 src/tui/shell.rs:1937 -> src/tui/shell.rs:1938: the frame's lines and two either side at :1938
+ok  auto  scripts/fxcap/parity-ledger.toml:902 src/tui/approval_amendment.rs:84 -> src/tui/approval_amendment.rs:81: the frame's lines and two either side at :81
+ok  auto  scripts/fxcap/parity-ledger.toml:902 src/tui/approval_amendment.rs:217 -> src/tui/approval_amendment.rs:166: the frame's lines and two either side at :166
+ok  auto  scripts/fxcap/parity-ledger.toml:904 src/tui/approval_amendment.rs:84 -> src/tui/approval_amendment.rs:81: the frame's lines and two either side at :81
+ok  auto  scripts/fxcap/parity-ledger.toml:904 src/tui/approval_amendment.rs:217 -> src/tui/approval_amendment.rs:166: the frame's lines and two either side at :166
+ok  auto  scripts/fxcap/parity-ledger.toml:914 src/tui/approval_amendment.rs:84 -> src/tui/approval_amendment.rs:81: the frame's lines and two either side at :81
+ok  auto  scripts/fxcap/parity-ledger.toml:914 src/tui/approval_amendment.rs:217 -> src/tui/approval_amendment.rs:166: the frame's lines and two either side at :166
+ok  auto  scripts/fxcap/parity-ledger.toml:970 src/tui/shell.rs:49895 -> src/tui/shell.rs:50939: the frame's lines and two either side at :50939
+ok  auto  scripts/fxcap/parity-ledger.toml:1006 src/tui/shell.rs:1862 -> src/tui/shell.rs:1863: the frame's lines and two either side at :1863
+ok  auto  scripts/fxcap/parity-ledger.toml:1040 src/tui/shell.rs:17565 -> src/tui/shell.rs:17644: the frame's lines and two either side at :17644
+ok  auto  scripts/fxcap/parity-ledger.toml:1128 src/mcp/runtime.rs:1336 -> src/mcp/runtime.rs:1347: the frame's lines and two either side at :1347
+ok  auto  scripts/fxcap/parity-ledger.toml:1128 :1350 -> :1361: the frame's lines and two either side at :1361
+ok  auto  scripts/fxcap/parity-ledger.toml:1158 src/tui/shell.rs:4565 -> src/tui/shell.rs:4570: the frame's lines and two either side at :4570
+ok  auto  scripts/smoke-tui.sh:260 src/tui/theme.rs:67 -> src/tui/theme.rs:55: the frame's lines and two either side at :55
+ok  auto  scripts/smoke-tui.sh:293 src/tui/theme.rs:105 -> src/tui/theme.rs:93: the frame's lines and two either side at :93
+ok  auto  scripts/smoke-tui.sh:1137 src/tui/theme.rs:67 -> src/tui/theme.rs:55: the frame's lines and two either side at :55
+ok  auto  scripts/smoke-tui.sh:1568 src/tui/theme.rs:105 -> src/tui/theme.rs:93: the frame's lines and two either side at :93
+ok  auto  scripts/smoke-tui.sh:11212 shell.rs:13184 -> shell.rs:13242: the frame's lines and two either side at :13242
+ok  auto  scripts/smoke-tui.sh:11213 input.rs:1431 -> input.rs:1576: the frame's lines and two either side at :1576
+ok  auto  scripts/smoke-tui.sh:11600 src/tui/theme.rs:109-127 -> src/tui/theme.rs:97-115: the frame's lines and two either side at :97-115
+ok  left  src/tools/question.rs:303 Cargo.toml:42: as it was
+ok  auto  src/tui/shell.rs:11451 worker.rs:3922 -> worker.rs:3955: the frame's lines and two either side at :3955
+ok  auto  src/tui/shell.rs:28019 shell.rs:6212 -> shell.rs:6217: the frame's lines and two either side at :6217
+ok  left  tests/session_compat.rs:57 src/session/event.rs:98-192: as it was
+ok  auto  tests/sessions.rs:3526 src/app.rs:280 -> src/app.rs:285: the frame's lines and two either side at :285
+ok  auto  tests/tui.rs:592 src/tui/mod.rs:759-760 -> src/tui/mod.rs:772-773: the frame's lines and two either side at :772-773
+ok  auto  tests/tui.rs:2721 tests/tui.rs:1809 -> tests/tui.rs:1930: the frame's lines and two either side at :1930
+ok  auto  tests/tui.rs:9563 src/tui/shell.rs:17529 -> src/tui/shell.rs:17608: the frame's lines and two either side at :17608
+# 44 plan lines checked at c637ed4c: 44 ok, 0 bad
+# c637ed4c: 36 lines out, 36 in; the same once numbers are masked and the 1 text spans put back: True
+# exit 0
+# c637ed4c: 36 lines out, 36 in; the same once numbers are masked: True
+# the second plan, EXTRA's four read by hand, at 15c9744b: extra_check.py (repointed.py has no file for a bare :N)
+ok  docs/parity.md src/gateway/mod.rs:1005-1006 -> 1009-1010: the citing text with the new number once and the old nowhere: True; src/gateway/mod.rs:1009-1010 holds ['pub(crate) fn is_retryable_status(status: u16) -> bool {', 'matches!(status, 429 | 500 | 502 | 503 | 504)']
+ok  scripts/fxcap/capfile.py :15785-15787 -> 15860-15862: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:15860-15862 holds ['if self.owner != ScreenOwner::Primary {', 'return None;', '}']
+ok  src/tui/shell.rs :3535 -> 3594: the citing text with the new number once and the old nowhere: True; src/tui/worker.rs:3594 holds ['queue.outstanding.fetch_sub(1, Ordering::Release);']
+ok  src/tui/shell.rs :6418 -> 6423: the citing text with the new number once and the old nowhere: True; src/tui/shell.rs:6423 holds ['let mut repaint = false;']
+# 4 checked at 15c9744b: 4 ok, 0 bad
+# exit 0
+# 15c9744b: 4 lines out, 4 in; the same once numbers are masked: True
+# the pinned ref put back, 2b78aab6
+# 2b78aab6: 1 lines out, 1 in; the same once numbers are masked: True
+# the third re-point (round 2), TEXT's span, at adb809f5: extra_check.py --text
+TEXT tests/tui.rs: the new span once and the old nowhere: True; the base span once at 866747ff: True
+  ok  866747ff's :1809 -> :1930 mapped, written :1930; tests/tui.rs:1930 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :1809 did: True
+  ok  866747ff's :2191 -> :2312 mapped, written :2312; tests/tui.rs:2312 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2191 did: True
+  ok  866747ff's :2766 -> :2887 mapped, written :2887; tests/tui.rs:2887 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2766 did: True
+  ok  866747ff's :3113 -> :3234 mapped, written :3234; tests/tui.rs:3234 holds 'session.type_bytes(&[0x05, 0x15, 0x04]);', as 866747ff's :3113 did: True
+  ok  866747ff's :3236 -> :3357 mapped, written :3357; tests/tui.rs:3357 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3236 did: True
+  ok  866747ff's :3928 -> :4049 mapped, written :4049; tests/tui.rs:4049 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3928 did: True
+  ok  866747ff's :7648 -> :7769 mapped, written :7769; tests/tui.rs:7769 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7648 did: True
+  ok  866747ff's :7722 -> :7843 mapped, written :7843; tests/tui.rs:7843 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7722 did: True
+  ok  866747ff's :8515 -> :8630 mapped, written :8630; tests/tui.rs:8630 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :8515 did: True
+  ok  866747ff's :9216 -> :9331 mapped, written :9331; tests/tui.rs:9331 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9216 did: True
+  ok  866747ff's :9412 -> :9527 mapped, written :9527; tests/tui.rs:9527 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9412 did: True
+# TEXT: 1 span(s) at adb809f5, 0 bad
+# exit 0
+# adb809f5: 1 lines out, 1 in; the same once numbers are masked: True

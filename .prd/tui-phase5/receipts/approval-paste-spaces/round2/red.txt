@@ -1,0 +1,23 @@
+# round 2 RED: the new tests over e26ce67b's code (this commit: tests only), plain
+# cargo test --locked --lib -- tui::approval_amendment tui::shell::tests::a_c1_control_in_an_amendment_paste
+test tui::approval_amendment::tests::c1_controls_in_a_paste_are_kept_in_the_draft_as_fxs ... ok
+test tui::approval_amendment::tests::a_blank_draft_is_an_absent_one_and_the_other_side_never_travels ... ok
+test tui::approval_amendment::tests::a_bracketed_paste_becomes_draft_text_and_never_an_entity ... ok
+test tui::approval_amendment::tests::a_multibyte_paste_is_not_cut_mid_character ... ok
+test tui::approval_amendment::tests::the_middle_choice_has_no_draft_and_a_closed_panel_takes_no_keys ... ok
+test tui::approval_amendment::tests::super_up_and_down_are_the_whole_drafts_edges ... ok
+test tui::approval_amendment::tests::home_and_end_in_a_draft_are_its_edges_as_fxs_cursor_home ... FAILED
+test tui::approval_amendment::tests::undo_redo_and_yank_work_inside_a_draft ... ok
+test tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs ... ok
+test tui::approval_amendment::tests::an_oversized_paste_is_refused_atomically_with_a_visible_notice ... ok
+test tui::approval_amendment::tests::a_draft_is_bounded_in_rows_and_windows_on_the_caret ... ok
+test tui::approval_amendment::tests::a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces ... ok
+test tui::approval_amendment::tests::keystrokes_past_the_budget_are_said_once_until_an_edit_goes_through ... ok
+test tui::approval_amendment::tests::a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text ... ok
+test tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized ... ok
+test tui::shell::tests::a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row ... ok
+test tui::approval_amendment::tests::the_capture_holds_eight_mebibytes_as_fxs_and_refuses_the_next_byte ... ok
+thread 'tui::approval_amendment::tests::home_and_end_in_a_draft_are_its_edges_as_fxs_cursor_home' (561869388) panicked at src/tui/approval_amendment.rs:963:13:
+  left: (1, 0)
+ right: (0, 0)
+test result: FAILED. 16 passed; 1 failed; 0 ignored; 0 measured; 4795 filtered out; finished in 0.14s

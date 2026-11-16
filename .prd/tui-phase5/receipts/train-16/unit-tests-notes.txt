@@ -1,0 +1,39 @@
+# unit-tests.txt's five TEST-ENV-ISOLATION tests 'not found' in a run, read: each one's lines in the gate's two cargo test logs, and its attributes at a4452753
+## src/mcp/transport.rs sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment
+  test run:       test mcp::transport::tests::sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment ... ignored, run by a_server_and_its_docker_cleanup_see
+  test-fault run: test mcp::transport::tests::sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment ... ignored, run by a_server_and_its_docker_cleanup_see
+  2775-    #[cfg(unix)]
+  2776-    #[test]
+  2777-    #[ignore = "run by a_server_and_its_docker_cleanup_see_only_what_they_are_given"]
+  2778:    fn sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment() {
+## src/mcp/transport.rs sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env
+  test run:       test mcp::transport::tests::sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env ... ignored, run by a_server_and_its_docker_cleanup_see_only
+  test-fault run: test mcp::transport::tests::sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env ... ignored, run by a_server_and_its_docker_cleanup_see_only
+  2727-    #[cfg(unix)]
+  2728-    #[test]
+  2729-    #[ignore = "run by a_server_and_its_docker_cleanup_see_only_what_they_are_given"]
+  2730:    fn sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env() {
+## src/tui/drawn_wider.rs xfx_counts
+  test run:       test tui::drawn_wider::tests::xfx_counts ... ignored, run by scripts/drawn-wider/sweep.sh
+  test-fault run: test tui::drawn_wider::tests::xfx_counts ... ignored, run by scripts/drawn-wider/sweep.sh
+  89-    #[test]
+  90-    #[ignore = "run by scripts/drawn-wider/sweep.sh"]
+  91:    fn xfx_counts() {
+## tests/isolation.rs a_case_marks_where_it_runs
+  test run:       test a_case_marks_where_it_runs ... ignored, run by a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given
+  test-fault run: test a_case_marks_where_it_runs ... ignored, run by a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given
+  20-#[test]
+  21-#[ignore = "run by a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given"]
+  22:fn a_case_marks_where_it_runs() {
+## tests/tui.rs quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log
+  test run:       
+  test-fault run: test faults::quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log ... ok
+  8270-    #[test]
+  8271:    fn quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log() {
+## tests/tui.rs: the module that test stands in
+  8144-
+  8145-#[cfg(feature = "fault-injection")]
+  8146:mod faults {
+## the tests that run the three ignored roles, in both runs
+  a_server_and_its_docker_cleanup_see_only_what_they_are_given: test ok; test-fault ok
+  a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given: test ok; test-fault ok

@@ -1,0 +1,43 @@
+# at 32969730: the unit's 19 tests, plain and with fault-injection
+## cargo test --locked --lib  -- --exact <the 19>
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... ok
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... ok
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_the_line_or_the_drafts_end ... ok
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_the_line_or_the_drafts_start ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_the_line_or_the_drafts_end ... ok
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_the_line_or_the_drafts_start ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... ok
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok
+test tui::input::tests::alt_f_and_the_composer_spellings_of_the_arrows_are_their_own_actions ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... ok
+test tui::editor::tests::the_line_edge_moves_are_home_and_end ... ok
+test tui::input::tests::every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column ... ok
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test tui::shell::tests::a_held_left_right_home_or_end_in_a_draft_is_fxs_move ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 4782 filtered out; finished in 0.61s
+## cargo test --locked --lib --features fault-injection -- --exact <the 19>
+test tui::input::tests::home_with_a_modifier_csi_1_mod_tilde_is_the_line_or_the_drafts_start ... ok
+test tui::input::tests::rxvts_end_with_a_modifier_csi_8_mod_tilde_is_the_line_or_the_drafts_end ... ok
+test tui::input::tests::a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits ... ok
+test tui::input::tests::end_with_a_modifier_csi_4_mod_tilde_is_the_line_or_the_drafts_end ... ok
+test tui::input::tests::delete_with_a_lock_bit_alone_is_nothing_as_upstream_reads_it ... ok
+test tui::input::tests::rxvts_home_with_a_modifier_csi_7_mod_tilde_is_the_line_or_the_drafts_start ... ok
+test tui::input::tests::a_leading_zero_in_a_tilde_field_is_the_number ... ok
+test tui::input::tests::alt_f_and_the_composer_spellings_of_the_arrows_are_their_own_actions ... ok
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::editor::tests::the_line_edge_moves_are_home_and_end ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::input::tests::a_page_key_held_with_a_modifier_is_upstreams_composer_move_to_a_page ... ok
+test tui::input::tests::every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::super_left_right_and_the_draft_edges_move_no_menu_and_drop_a_model_column ... ok
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test tui::shell::tests::a_held_left_right_home_or_end_in_a_draft_is_fxs_move ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 4805 filtered out; finished in 0.64s

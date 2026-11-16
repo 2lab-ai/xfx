@@ -1,0 +1,445 @@
+pairs: reference 735, train 977, shared 735; only the reference: 0
+reference: 735 pairs, pass 494; approved-divergence 15, approved-divergence-cascade 1, identical 16, normalized-identical 478, unresolved-defect 225
+train: 735 pairs, pass 496; approved-divergence 15, approved-divergence-cascade 1, identical 12, normalized-identical 484, unresolved-defect 223
+links full: 31 differing rows left, 1 new
+    left: fx '' / xfx '  Also readme, script and ftp.'
+    left: fx '' / xfx '  Here are the links.'
+    left: fx '' / xfx '  Mail someone@example.com or visit https://example.net/a.'
+    left: fx '' / xfx '  Run https://example.com/code locally.'
+    left: fx '' / xfx '  See the docs and https://example.org/path for more.'
+    left: fx '' / xfx '  mcp: none'
+    left: fx '' / xfx '  the right edge then text.'
+    left: fx '' / xfx '  tokens: 1200 in · 40 out'
+    left: fx '' / xfx '  └──────┴──────┘'
+    left: fx '' / xfx '┃ show me the links'
+    left: fx 'e of the row because it is very long indeed and it keeps going on past' / xfx ''
+    left: fx '  Also readme, script and ftp.' / xfx ''
+    left: fx '  Here are the links.' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  Mail someone@example.com or visit https://example.net/a.' / xfx ''
+    left: fx '  Run https://example.com/code locally.' / xfx ''
+    left: fx '  See the docs and https://example.org/path for more.' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx ''
+    left: fx '  finish: stop' / xfx '* network: provider: gateway · model: fake/model-a · <ms>'
+    left: fx '  mcp: none' / xfx '  +4 more)'
+    left: fx '  skills: loading' / xfx 'grep_files, read_file, write_file, edit_file, create_folder, terminal,'
+    left: fx '  the right edge then text.' / xfx 'e of the row because it is very long indeed and it keeps going on past'
+    left: fx '  tokens: 1200 in · 40 out' / xfx '  finish: stop'
+    left: fx '  │ Name │ Link │' / xfx '  ┌──────┬──────┐'
+    left: fx '  │ docs │ site │' / xfx '  ├──────┼──────┤'
+    left: fx '  ┌──────┬──────┐' / xfx ''
+    left: fx '  └──────┴──────┘' / xfx '  │ docs │ site │'
+    left: fx '  ├──────┼──────┤' / xfx '  │ Name │ Link │'
+    left: fx '* network: provider: gateway · model: fake/model-a · <ms>' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Notice'
+    left: fx '┃ show me the links' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Prompt'
+    NEW:  fx '  skills: loading' / xfx '  +4 more)'
+p5-transcript-md full: 31 differing rows left, 0 new
+    left: fx '' / xfx '    • nested bullet'
+    left: fx '' / xfx '  11. item 11 with code11'
+    left: fx '' / xfx '  12. Step 12 runs cmd-12 --flag on the tree'
+    left: fx '' / xfx '  A list that starts at nine:'
+    left: fx '' / xfx ' Run zig build test before you push, and read src/ui/render.zig first.'
+    left: fx '' / xfx '  Steps:'
+    left: fx '' / xfx '  ──────────────'
+    left: fx '    • nested bullet' / xfx '  • bullet with inline code'
+    left: fx '  1. Step 1 runs cmd-1 --flag on the tree' / xfx ''
+    left: fx '  10. Step 10 runs cmd-10 --flag on the tree' / xfx '  9. Step 9 runs cmd-9 --flag on the tree'
+    left: fx '  10. item 10 with code10' / xfx '  9. item 9 with code9'
+    left: fx '  11. Step 11 runs cmd-11 --flag on the tree' / xfx '  10. Step 10 runs cmd-10 --flag on the tree'
+    left: fx '  11. item 11 with code11' / xfx '  10. item 10 with code10'
+    left: fx '  12. Step 12 runs cmd-12 --flag on the tree' / xfx '  11. Step 11 runs cmd-11 --flag on the tree'
+    left: fx '  2. Step 2 runs cmd-2 --flag on the tree' / xfx '  1. Step 1 runs cmd-1 --flag on the tree'
+    left: fx '  3. Step 3 runs cmd-3 --flag on the tree' / xfx '  2. Step 2 runs cmd-2 --flag on the tree'
+    left: fx '  4. Step 4 runs cmd-4 --flag on the tree' / xfx '  3. Step 3 runs cmd-3 --flag on the tree'
+    left: fx '  5. Step 5 runs cmd-5 --flag on the tree' / xfx '  4. Step 4 runs cmd-4 --flag on the tree'
+    left: fx '  6. Step 6 runs cmd-6 --flag on the tree' / xfx '  5. Step 5 runs cmd-5 --flag on the tree'
+    left: fx '  7. Step 7 runs cmd-7 --flag on the tree' / xfx '  6. Step 6 runs cmd-6 --flag on the tree'
+    left: fx '  8. Step 8 runs cmd-8 --flag on the tree' / xfx '  7. Step 7 runs cmd-7 --flag on the tree'
+    left: fx '  9. Step 9 runs cmd-9 --flag on the tree' / xfx '  8. Step 8 runs cmd-8 --flag on the tree'
+    left: fx '  9. item 9 with code9' / xfx ''
+    left: fx '  A list that starts at nine:' / xfx ''
+    left: fx ' Run zig build test before you push, and read src/ui/render.zig first.' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  Steps:' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx ''
+    left: fx '  zig build test' / xfx '  ─ sh ─────────'
+    left: fx '  • bullet with inline code' / xfx ''
+    left: fx '  ─ sh ─────────' / xfx ''
+    left: fx '  ──────────────' / xfx '  zig build test'
+p5-transcript-md-light full: 31 differing rows left, 0 new
+    left: fx '' / xfx '    • nested bullet'
+    left: fx '' / xfx '  11. item 11 with code11'
+    left: fx '' / xfx '  12. Step 12 runs cmd-12 --flag on the tree'
+    left: fx '' / xfx '  A list that starts at nine:'
+    left: fx '' / xfx ' Run zig build test before you push, and read src/ui/render.zig first.'
+    left: fx '' / xfx '  Steps:'
+    left: fx '' / xfx '  ──────────────'
+    left: fx '    • nested bullet' / xfx '  • bullet with inline code'
+    left: fx '  1. Step 1 runs cmd-1 --flag on the tree' / xfx ''
+    left: fx '  10. Step 10 runs cmd-10 --flag on the tree' / xfx '  9. Step 9 runs cmd-9 --flag on the tree'
+    left: fx '  10. item 10 with code10' / xfx '  9. item 9 with code9'
+    left: fx '  11. Step 11 runs cmd-11 --flag on the tree' / xfx '  10. Step 10 runs cmd-10 --flag on the tree'
+    left: fx '  11. item 11 with code11' / xfx '  10. item 10 with code10'
+    left: fx '  12. Step 12 runs cmd-12 --flag on the tree' / xfx '  11. Step 11 runs cmd-11 --flag on the tree'
+    left: fx '  2. Step 2 runs cmd-2 --flag on the tree' / xfx '  1. Step 1 runs cmd-1 --flag on the tree'
+    left: fx '  3. Step 3 runs cmd-3 --flag on the tree' / xfx '  2. Step 2 runs cmd-2 --flag on the tree'
+    left: fx '  4. Step 4 runs cmd-4 --flag on the tree' / xfx '  3. Step 3 runs cmd-3 --flag on the tree'
+    left: fx '  5. Step 5 runs cmd-5 --flag on the tree' / xfx '  4. Step 4 runs cmd-4 --flag on the tree'
+    left: fx '  6. Step 6 runs cmd-6 --flag on the tree' / xfx '  5. Step 5 runs cmd-5 --flag on the tree'
+    left: fx '  7. Step 7 runs cmd-7 --flag on the tree' / xfx '  6. Step 6 runs cmd-6 --flag on the tree'
+    left: fx '  8. Step 8 runs cmd-8 --flag on the tree' / xfx '  7. Step 7 runs cmd-7 --flag on the tree'
+    left: fx '  9. Step 9 runs cmd-9 --flag on the tree' / xfx '  8. Step 8 runs cmd-8 --flag on the tree'
+    left: fx '  9. item 9 with code9' / xfx ''
+    left: fx '  A list that starts at nine:' / xfx ''
+    left: fx ' Run zig build test before you push, and read src/ui/render.zig first.' / xfx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response'
+    left: fx '  Steps:' / xfx ''
+    left: fx '  XXXXXXXXXXXXXXXXXXXXXXX KST · Response' / xfx ''
+    left: fx '  zig build test' / xfx '  ─ sh ─────────'
+    left: fx '  • bullet with inline code' / xfx ''
+    left: fx '  ─ sh ─────────' / xfx ''
+    left: fx '  ──────────────' / xfx '  zig build test'
+p5-transcript-question full-60: 1 differing rows left, 1 new
+    left: fx '<banner>' / xfx 'x𝒇x v0.2.0 (debug 2026-11-11-1018-e2fc7e94d66e) · Run /help…'
+    NEW:  fx '<banner>' / xfx 'x𝒇x v0.2.0 (debug 2026-11-11-1059-2c575f52db5d) · Run /help…'
+verdicts moved: 6
+    p5-transcript-md answered: identical -> normalized-identical
+    p5-transcript-md closed: identical -> normalized-identical
+    p5-transcript-md full: unresolved-defect -> normalized-identical
+    p5-transcript-md-light full: unresolved-defect -> normalized-identical
+    p5-transcript-submit-multi filled: identical -> normalized-identical
+    p5-transcript-submit-multi second: identical -> normalized-identical
+fx screens not the same in the two sweeps: 114
+    approvals-big end
+    fulltranscript end
+    fulltranscript end.full
+    fulltranscript full
+    fulltranscript full-esc
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full2-cc
+    fulltranscript full3
+    fulltranscript full3-close
+    fulltranscript second
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    links full
+    model-parked answered
+    model-reask turn-running
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-input-paste-field answered
+    p5-input-question20 q20-answered
+    p5-input-question20 q20-answered.full
+    p5-input-question20 resumed
+    p5-input-question20 resumed.full
+    p5-panels-badsettings launch
+    p5-panels-permissions status-grants
+    p5-question-resume-ctrlo resumed-ctrlo
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid end
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-anchormid running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 full
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-tools end
+    p5-transcript-tools end.full
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tools running
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    question-field answered
+    question-field end.full
+    question-field q2
+    question-field q2-cc
+    question-other answered
+    question-other end.full
+    question-other q2
+    question-other q2-esc
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    timeout live-ctrl-o
+xfx screens not the same in the two sweeps: 217
+    approvals after-cc-cmd-ask
+    approvals cmd2-ask
+    approvals edit-amend-typed
+    approvals edit-ask
+    approvals edit-down1
+    approvals edit-down3-wrap
+    approvals edit-tab-amend
+    approvals write-ask
+    approvals-amend-limit asked
+    approvals-amend-limit refused
+    approvals-amend-limit refused-after-edit
+    approvals-amend-limit refused-again
+    approvals-big write-big
+    approvals-big write-big-walked
+    fulltranscript cmd-ask
+    fulltranscript cmd-ask-ctrl-o
+    fulltranscript edit-ask
+    fulltranscript end
+    fulltranscript end.full
+    fulltranscript full
+    fulltranscript full-esc
+    fulltranscript full-pgdn
+    fulltranscript full-pgup
+    fulltranscript full-up2
+    fulltranscript full2
+    fulltranscript full2-cc
+    fulltranscript full3
+    fulltranscript full3-close
+    fulltranscript second
+    fulltranscript-notice end
+    fulltranscript-notice full
+    fulltranscript-notice full-pgup
+    fulltranscript-notice full-top
+    links answered
+    links full
+    links second
+    links second.full
+    model-busy-known during
+    model-column-reask col-held
+    model-parked answered
+    p5-approval-horizontal-keys alt-b
+    p5-approval-horizontal-keys alt-f
+    p5-approval-horizontal-keys alt-left
+    p5-approval-horizontal-keys alt-right
+    p5-approval-horizontal-keys amend-alt-b
+    p5-approval-horizontal-keys amend-keys
+    p5-approval-horizontal-keys answered
+    p5-approval-horizontal-keys ask
+    p5-approval-horizontal-keys back
+    p5-approval-horizontal-keys ctrl-b
+    p5-approval-horizontal-keys ctrl-f
+    p5-approval-horizontal-keys ctrl-left
+    p5-approval-horizontal-keys ctrl-right
+    p5-approval-horizontal-keys down
+    p5-approval-horizontal-keys kitty-alt-b
+    p5-approval-horizontal-keys kitty-alt-f
+    p5-approval-horizontal-keys left
+    p5-approval-horizontal-keys left-wrap
+    p5-approval-horizontal-keys mok-alt-b
+    p5-approval-horizontal-keys mok-alt-f
+    p5-approval-horizontal-keys right
+    p5-approval-horizontal-keys right-wrap
+    p5-approval-horizontal-keys shift-alt-f
+    p5-approval-horizontal-keys shift-left
+    p5-approval-horizontal-keys shift-right
+    p5-approval-horizontal-keys super-left
+    p5-approval-horizontal-keys super-right
+    p5-approval-horizontal-keys tab-back
+    p5-approval-horizontal-keys unpainted
+    p5-approval-vertical-keys alt-down
+    p5-approval-vertical-keys alt-up
+    p5-approval-vertical-keys amend-alt-down
+    p5-approval-vertical-keys amend-alt-up
+    p5-approval-vertical-keys amend-ctrl-down
+    p5-approval-vertical-keys amend-ctrl-n
+    p5-approval-vertical-keys amend-ctrl-p
+    p5-approval-vertical-keys amend-ctrl-up
+    p5-approval-vertical-keys amend-kitty-alt-down
+    p5-approval-vertical-keys amend-kitty-alt-up
+    p5-approval-vertical-keys amend-shift-down
+    p5-approval-vertical-keys amend-shift-up
+    p5-approval-vertical-keys amend-super-down
+    p5-approval-vertical-keys amend-super-up
+    p5-approval-vertical-keys answered
+    p5-approval-vertical-keys ask
+    p5-approval-vertical-keys choice-1
+    p5-approval-vertical-keys ctrl-down
+    p5-approval-vertical-keys ctrl-n
+    p5-approval-vertical-keys ctrl-p
+    p5-approval-vertical-keys ctrl-up
+    p5-approval-vertical-keys kitty-alt-down
+    p5-approval-vertical-keys kitty-alt-up
+    p5-approval-vertical-keys shift-down
+    p5-approval-vertical-keys shift-up
+    p5-approval-vertical-keys super-down
+    p5-approval-vertical-keys super-up
+    p5-ctrlo-wider-diff-fam full
+    p5-ctrlo-wider-fence ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo
+    p5-ctrlo-wider-inline-fam ctrlo-resized
+    p5-input-paste-amend amend-keep
+    p5-input-paste-amend amend-paste-enter
+    p5-input-paste-amend answered
+    p5-input-paste-amend asked
+    p5-input-paste-amend choice-paste-enter
+    p5-input-question20 q20-answered
+    p5-input-question20 q20-answered.full
+    p5-input-question20 resumed
+    p5-input-question20 resumed.full
+    p5-panels-permissions approval
+    p5-panels-permissions status-grants
+    p5-panels-permissions-saved approval
+    p5-question-resume-ctrlo resumed-ctrlo
+    p5-toolgroup-ctrlo full-dark
+    p5-toolgroup-ctrlo full-dark-again
+    p5-toolgroup-ctrlo full-light
+    p5-toolgroup-ctrlo-tc full-dark
+    p5-toolgroup-ctrlo-tc full-dark-again
+    p5-toolgroup-ctrlo-tc full-light
+    p5-transcript-anchor full-pgup
+    p5-transcript-anchor full-pgup2
+    p5-transcript-anchor full-pgup2-after
+    p5-transcript-anchor full-running
+    p5-transcript-anchormid full-end
+    p5-transcript-anchormid full-pgup
+    p5-transcript-anchormid full-pgup-after
+    p5-transcript-anchormid full-pgup-back
+    p5-transcript-anchormid full-pgup-up
+    p5-transcript-anchormid full-running
+    p5-transcript-cancel cmd-running
+    p5-transcript-cancel full
+    p5-transcript-diffask ask
+    p5-transcript-diffask full
+    p5-transcript-diffbad full
+    p5-transcript-diffctl full
+    p5-transcript-diffodd full
+    p5-transcript-diffwide full
+    p5-transcript-diffwide2 full
+    p5-transcript-diffwrap closed
+    p5-transcript-diffwrap edited
+    p5-transcript-diffwrap full
+    p5-transcript-diffwrap2 closed
+    p5-transcript-diffwrap2 edited
+    p5-transcript-diffwrap2 full
+    p5-transcript-md answered
+    p5-transcript-md answered.full
+    p5-transcript-md closed
+    p5-transcript-md full
+    p5-transcript-md full-pgup
+    p5-transcript-md-light full
+    p5-transcript-md-light full-pgup
+    p5-transcript-question full-120
+    p5-transcript-question full-60
+    p5-transcript-records full-records
+    p5-transcript-records full-records-120
+    p5-transcript-records full-records-80
+    p5-transcript-resize full-pgup
+    p5-transcript-resize full-pgup-120
+    p5-transcript-resize full-pgup-80
+    p5-transcript-resize full-pgup-after
+    p5-transcript-resize full-pgup-back
+    p5-transcript-resize full-pgup-up
+    p5-transcript-resize full-running
+    p5-transcript-resize full-tail-120
+    p5-transcript-resize full-tail-120-pgup
+    p5-transcript-resize full-tail-120-up
+    p5-transcript-resize full-tail-80
+    p5-transcript-resize full-tail-80-pgup
+    p5-transcript-resize full-tail-80-up
+    p5-transcript-safe full
+    p5-transcript-safe full-pgup
+    p5-transcript-safetab full
+    p5-transcript-submit-multi filled
+    p5-transcript-submit-multi second
+    p5-transcript-submit-multi second.full
+    p5-transcript-submit-multi submit-0.15
+    p5-transcript-tools full-pgup
+    p5-transcript-tools full-pgup-after
+    p5-transcript-tools full-running
+    p5-transcript-tools full-tail
+    p5-transcript-tools full-tail-up4
+    p5-transcript-tz full
+    p5-transcript-tzsys full
+    permissions-midturn second-asks
+    permissions-midturn switched
+    question-field answered
+    question-field end.full
+    question-field q2
+    question-field q2-cc
+    question-other answered
+    question-other end.full
+    question-other q2
+    question-other q2-esc
+    read-failures ctrl-o
+    read-failures ctrl-o-up1
+    read-failures live-ctrl-o
+    read-failures live-ctrl-o-up1
+    resume-tools cmd-ask
+    resume-tools ctrl-o
+    resume-tools ctrl-o-up1
+    resume-tools ctrl-o-up2
+    resume-tools edit-ask
+    resume-tools exit-ask
+    resume-tools live-ctrl-o
+    resume-tools live-ctrl-o-up1
+    resume-tools live-ctrl-o-up2
+    resume-tools live-ctrl-o-up3
+    resume-tools write-ask
+    rules-read ask
+    rules-read ask2
+    rules-read-auto grep-amend
+    rules-read-auto grep-ask
+    rules-read-auto listed
+    rules-read-auto read-ask
+    rules-read-auto remembered
+    timeout live
+    timeout live-ctrl-o
+passed on the reference, not on the train: 0; of them fx's screen moved and xfx's did not: 0
+pairs that gained a differing row: 2

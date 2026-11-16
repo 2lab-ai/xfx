@@ -1,0 +1,86 @@
+# The rest of the tilde grammar (TILDE-EMPTY-MODIFIER). fx v0.0.16 reads
+# every field of `CSI ... ~` as a number (escape_parser.zig:19-23,
+# :583-603, :662-666, :741-744@481104fd): a modifier field of `1`, empty or
+# `0` holds no modifier and is the bare key (:694-718), a leading zero is the
+# number, a modifier past 256 is its bits, Delete reads the raw modifiers
+# (`forwardDeleteKeyAction`, :175-180), so a lock bit alone is nothing, and
+# a third field is a key report whatever the first holds (:746-752). Each
+# key here moves the caret of a one-line draft or deletes beside it, and the
+# letter typed after it shows what it did. No Shift bit in any field: fx's
+# would extend a selection the next letter replaces. The bytes go to the
+# pane as they are (`key -H`).
+wait 4
+xfx: wait 3
+type abc def
+wait 0.5
+snap typed
+# CSI 1 ; 1 ~, Home with a field that holds no modifier
+key -H 1b 5b 31 3b 31 7e
+type A
+wait 0.5
+snap home-1-1
+# CSI 4 ; ~, End with an empty field
+key -H 1b 5b 34 3b 7e
+type B
+wait 0.5
+snap end-4-empty
+# CSI 7 ; 0 ~, Home with a field of 0
+key -H 1b 5b 37 3b 30 7e
+type C
+wait 0.5
+snap home-7-0
+# CSI 08 ~, End with a leading zero
+key -H 1b 5b 30 38 7e
+type D
+wait 0.5
+snap end-08
+# CSI 01 ; 03 ~, Alt-Home, a leading zero in both fields
+key -H 1b 5b 30 31 3b 30 33 7e
+type E
+wait 0.5
+snap home-01-03
+# CSI 4 ; 259 ~, End with Alt and a bit past eight (258 = 0x102)
+key -H 1b 5b 34 3b 32 35 39 7e
+type F
+wait 0.5
+snap end-4-259
+# CSI 1 ; 257 ~, Home with a bit past eight and nothing else (256)
+key -H 1b 5b 31 3b 32 35 37 7e
+type G
+wait 0.5
+snap home-1-257
+# CSI 3 ; 1 ~, Delete with a field that holds no modifier
+key -H 1b 5b 33 3b 31 7e
+type H
+wait 0.5
+snap delete-3-1
+# CSI 3 ; ~, Delete with an empty field
+key -H 1b 5b 33 3b 7e
+type I
+wait 0.5
+snap delete-3-empty
+# CSI 3 ; 65 ~, Delete with Caps Lock alone: nothing upstream
+key -H 1b 5b 33 3b 36 35 7e
+type J
+wait 0.5
+snap delete-3-caps
+# CSI 03 ~, Delete with a leading zero
+key -H 1b 5b 30 33 7e
+type K
+wait 0.5
+snap delete-03
+# CSI 4 ; 5 ; 101 ~, Ctrl-E as a key report under a first field of 4
+key -H 1b 5b 34 3b 35 3b 31 30 31 7e
+type L
+wait 0.5
+snap ctrl-e-4-5-101
+# CSI 7 ; 5 ; 97 ~, Ctrl-A the same way under 7
+key -H 1b 5b 37 3b 35 3b 39 37 7e
+type M
+wait 0.5
+snap ctrl-a-7-5-97
+# CSI 3 ; 99999 ~, Delete with a field past 16 bits: 65535, so Super
+key -H 1b 5b 33 3b 39 39 39 39 39 7e
+type N
+wait 0.5
+snap delete-3-99999

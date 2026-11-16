@@ -1,0 +1,32 @@
+# GREEN, round 2: the unit's tests at 61010585, both suites:
+# cargo test --locked [--features fault-injection] --lib -- every_modifier_on_the_vertical paragraph_boundaries alt_on_the_vertical_arrows sessions_not_the_editors the_fold_maps held_up_at_an_empty held_up_or_down_in_a_draft held_up_or_down_walks no_held_up_or_down up_and_down_move_the_choice_whether a_held_arrow_under_the_full_transcript a_held_arrow_at_a_questions_choice
+# plain
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::editor::tests::the_paragraph_boundaries_are_upstreams_blank_lines_and_all ... ok
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+test tui::editor::tests::alt_on_the_vertical_arrows_moves_by_paragraph_and_ends_a_run_and_a_selection ... ok
+test tui::editor::tests::shifts_and_ctrls_held_up_and_down_are_the_sessions_not_the_editors ... ok
+test tui::shell::tests::a_held_up_at_an_empty_composer_takes_a_waiting_steer_back_only_under_ctrl ... ok
+test tui::shell::tests::up_and_down_move_the_choice_whether_or_not_a_draft_is_open ... ok
+test tui::shell::tests::a_held_up_at_an_empty_composer_recalls_only_under_ctrl ... ok
+test tui::shell::tests::no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::a_held_up_or_down_in_a_draft_is_fxs_move_and_only_ctrls_reaches_the_edge_or_history ... ok
+test tui::shell::tests::a_held_up_or_down_walks_a_picker_under_ctrl_and_shift_and_only_moves_the_caret_under_alt_and_super ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4783 filtered out; finished in 0.08s
+# --features fault-injection
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::editor::tests::the_paragraph_boundaries_are_upstreams_blank_lines_and_all ... ok
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+test tui::editor::tests::alt_on_the_vertical_arrows_moves_by_paragraph_and_ends_a_run_and_a_selection ... ok
+test tui::editor::tests::shifts_and_ctrls_held_up_and_down_are_the_sessions_not_the_editors ... ok
+test tui::shell::tests::a_held_up_at_an_empty_composer_takes_a_waiting_steer_back_only_under_ctrl ... ok
+test tui::shell::tests::up_and_down_move_the_choice_whether_or_not_a_draft_is_open ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::a_held_up_at_an_empty_composer_recalls_only_under_ctrl ... ok
+test tui::shell::tests::no_held_up_or_down_moves_a_compact_menu_or_a_rule_confirmation ... ok
+test tui::shell::tests::a_held_up_or_down_in_a_draft_is_fxs_move_and_only_ctrls_reaches_the_edge_or_history ... ok
+test tui::shell::tests::a_held_up_or_down_walks_a_picker_under_ctrl_and_shift_and_only_moves_the_caret_under_alt_and_super ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4806 filtered out; finished in 0.10s

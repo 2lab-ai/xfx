@@ -1143,6 +1143,21 @@ type ThreadMask = (std::thread::ThreadId, Vec<(libc::c_int, bool)>);
 #[cfg(test)]
 static RUNTIME_MASKS: Mutex<Vec<ThreadMask>> = Mutex::new(Vec::new());
 
+/// What a runtime thread read of the process once its runtime was built --
+/// the Gateway's address, git's selectors, the link bases -- by the thread's
+/// id: what a case compares (never prints) against the fake process it
+/// launched in (`crate::test_env`).
+#[cfg(test)]
+type LaunchReads = (
+    std::thread::ThreadId,
+    Option<String>,
+    crate::permission::GitEnvironment,
+    Vec<crate::permission::LinkBase>,
+);
+
+#[cfg(test)]
+static RUNTIME_READS: Mutex<Vec<LaunchReads>> = Mutex::new(Vec::new());
+
 /// Starts the runtime thread, and hands back the channel the UI reads.
 ///
 /// **Started with every owned signal blocked** ([`super::signals::spawn_unsignalled`]),
@@ -1289,6 +1304,18 @@ pub(crate) fn spawn(
             return None;
         };
         let mut state = Runtime::new(config, store, prompter, questioner);
+        #[cfg(test)]
+        RUNTIME_READS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                std::thread::current().id(),
+                crate::gateway::Endpoint::from_process()
+                    .ok()
+                    .map(|endpoint| endpoint.url().to_string()),
+                crate::permission::GitEnvironment::from_process(),
+                crate::permission::LinkBase::from_environment(),
+            ));
         state.next_session = next_session;
         state.reply = loops_reply;
         state.grants = publishes_grants;
@@ -1778,6 +1805,12 @@ impl Runtime {
         prompter: TuiPrompter,
         questioner: Arc<TuiQuestioner>,
     ) -> Self {
+        // In a unit test, what this runtime reads of the process -- the
+        // Gateway's address, git's selectors, the link bases -- is `env`'s
+        // where `env` holds it, and the thread's fake process's for the rest,
+        // on this thread from now on (`crate::test_env`).
+        #[cfg(test)]
+        env.fake_process().over_this_thread();
         let selector = ModelSelector::new(&config);
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let settings = crate::provider::effort::TurnSettings {
@@ -7406,6 +7439,20 @@ mod tests {
         tokio::task::LocalSet::new().block_on(&runtime, work)
     }
 
+    /// [`on_a_runtime`] on a paused clock: tokio's time moves only while
+    /// every task is parked, straight to the next timer, so a thread held by
+    /// a loaded machine is no time at all. Only for work that waits on
+    /// nothing outside the runtime: an answer from another thread is not
+    /// waited for, the clock runs on to the next timer instead.
+    fn on_a_paused_runtime<T>(work: impl Future<Output = T>) -> T {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(true)
+            .build()
+            .expect("a runtime");
+        tokio::task::LocalSet::new().block_on(&runtime, work)
+    }
+
     #[test]
     fn a_cancellation_reaches_a_turn_that_is_still_running() {
         // The claim the whole mid-turn race exists for. `turn_loop` reads
@@ -7597,7 +7644,7 @@ mod tests {
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
         );
-        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let mut state = a_runtime(config, store, prompter, a_questioner());
         let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
         handle.live().set_mode(PermissionMode::Ask);
         state.live = handle.live().clone();
@@ -8503,12 +8550,18 @@ mod tests {
     fn the_runtime_thread_is_started_with_every_owned_signal_blocked() {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
-        let (mut worker, mut events) = spawn(
-            config(home.path(), workspace.path()),
-            Cancellation::new(CancelToken::new()),
-            None,
-        )
-        .expect("a runtime");
+        // A launch reads the process; this one reads the case's
+        // (`crate::test_env`), on the runtime thread too.
+        let (mut worker, mut events) = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            })
+            .expect("a runtime");
         let id = worker
             .thread
             .as_ref()
@@ -8537,6 +8590,69 @@ mod tests {
                 "signal {signal} is deliverable on the runtime thread"
             );
         }
+    }
+
+    /// A worker launched in a fake process reads, on its runtime thread, what
+    /// the case gave it -- the Gateway's address, git's selectors, `ZDOTDIR`
+    /// -- and not only the part of it an [`Environment`] holds. Compared, never
+    /// printed.
+    #[test]
+    fn a_launched_worker_reads_the_whole_fake_process_it_was_launched_in() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let zdotdir = tempfile::tempdir().expect("a ZDOTDIR");
+        let (mut worker, mut events) = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .var("XFX_GATEWAY_URL", "https://fake-gateway.invalid/v1")
+            .var("GIT_CONFIG_GLOBAL", "/dev/null")
+            .var("GIT_CONFIG_NOSYSTEM", "1")
+            .var("ZDOTDIR", zdotdir.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            })
+            .expect("a runtime");
+        let id = worker
+            .thread
+            .as_ref()
+            .expect("the thread is held")
+            .thread()
+            .id();
+        let deadline = Instant::now() + TEST_DRAIN;
+        let (endpoint, git, links) = loop {
+            let found = RUNTIME_READS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .find(|(thread, ..)| *thread == id)
+                .map(|(_, endpoint, git, links)| (endpoint.clone(), git.clone(), links.clone()));
+            if let Some(found) = found {
+                break found;
+            }
+            assert!(Instant::now() < deadline, "the runtime never started");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        worker.shutdown(&mut events, Instant::now() + TEST_DRAIN, |_| {});
+        assert!(
+            endpoint.as_deref() == Some("https://fake-gateway.invalid/v1"),
+            "the worker's XFX_GATEWAY_URL is not the case's"
+        );
+        assert!(
+            git == crate::permission::GitEnvironment::default()
+                .with("GIT_CONFIG_GLOBAL", "/dev/null")
+                .with("GIT_CONFIG_NOSYSTEM", "1"),
+            "the worker's GIT_CONFIG_* are not the case's"
+        );
+        assert!(
+            links
+                == [crate::permission::LinkBase::Root(
+                    zdotdir.path().to_path_buf()
+                )],
+            "the worker's ZDOTDIR is not the case's"
+        );
     }
 
     #[test]
@@ -8626,7 +8742,7 @@ mod tests {
         assert!(gateway_credential(&config).is_some());
         let store = open_store(&config).expect("an unsaved store");
         assert!(store.is_unsaved());
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state
             .conversation(&CancelToken::new())
             .expect("a conversation opens unsaved");
@@ -8675,7 +8791,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let state = a_runtime(config, store, a_prompter(), a_questioner());
         assert_eq!(state.resumable(), None);
         assert_eq!(sessions_in(home.path()), Vec::<String>::new());
     }
@@ -8875,7 +8991,7 @@ mod tests {
 
         // The picker's, across the channel as the runtime sends it.
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         // The picker's resume does not wait on a writer lock, and a sibling
         // test that forks a command in the instant this one closed the log
         // can hold the lock's descriptor until its child execs: a held lock
@@ -8929,7 +9045,7 @@ mod tests {
             Some("first question alpha")
         );
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state.resume(resumed, &CancelToken::new());
 
         // The conversation before any prompt, and it is the saved one: the
@@ -8963,7 +9079,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         state
             .rename("My Title", &CancelToken::new())
             .expect("the rename is written");
@@ -8999,7 +9115,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         state
             .rename("My Title", &CancelToken::new())
             .expect("the first rename is written");
@@ -9039,7 +9155,7 @@ mod tests {
         let grant = Grant::new("edit_file", "notes.txt".to_string());
         let saved = a_saved_session(&config, &grant);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         // This runtime's own session: renamed, so on disk, but empty.
         state
             .rename("Only a title", &CancelToken::new())
@@ -9076,7 +9192,7 @@ mod tests {
         let grant = Grant::new("edit_file", "notes.txt".to_string());
         let saved = a_saved_session(&config, &grant);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         // The conversation it is in now has a turn, so it is kept.
         state
             .conversation(&CancelToken::new())
@@ -9165,7 +9281,7 @@ mod tests {
             .expect("the saved session opens");
         assert_eq!(resumed.model(), saved_under.model);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         let before = log_text(state_with_log(&mut state, resumed));
         let recorded = |state: &Runtime| {
             let recorded = state.conversation.as_ref().expect("bound").recorder.state();
@@ -9271,7 +9387,7 @@ mod tests {
         let mut config = saved_under.clone();
         config.permission_mode = PermissionMode::Yolo;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let before = session_files(&state, &saved);
 
         state
@@ -9339,7 +9455,7 @@ mod tests {
         let mut config = saved_under.clone();
         config.permission_mode = PermissionMode::Yolo;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let before = session_files(&state, &saved);
         state
             .resume_by_id(saved.as_str(), &CancelToken::new())
@@ -9399,7 +9515,7 @@ mod tests {
     /// one of them before a first prompt -- and then that prompt.
     fn chosen_before_the_first_prompt(config: RuntimeConfig) -> (Runtime, SessionId) {
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(speed_catalog()));
@@ -9525,7 +9641,7 @@ mod tests {
         drop(resumed);
 
         let store = open_store(&later).expect("a store");
-        let mut state = Runtime::new(later, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(later, store, a_prompter(), a_questioner());
         state
             .resume_by_id(id.as_str(), &CancelToken::new())
             .expect("resumed");
@@ -9543,7 +9659,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         state.settings.effort = crate::provider::effort::Effort::Named("high".to_string());
         let id = state
             .conversation(&CancelToken::new())
@@ -9617,7 +9733,7 @@ mod tests {
         let mut config = config(home.path(), workspace.path());
         config.permission_mode = PermissionMode::Auto;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let target = state.next_rules_path();
         assert_eq!(
             confirmed(&state, HELD_DENY).1,
@@ -9685,7 +9801,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config.clone(), store, a_prompter(), a_questioner());
         let target = state.next_rules_path();
         confirmed(&state, HELD_DENY);
         state
@@ -9694,7 +9810,7 @@ mod tests {
         let saved = crate::permission::session_rules::load(&target).expect("the file");
         assert_eq!(saved.rules.len(), 1, "{saved:?}");
         // A session nothing was held for gets no file, as before.
-        let mut clean = Runtime::new(
+        let mut clean = a_runtime(
             config.clone(),
             open_store(&config).expect("a store"),
             a_prompter(),
@@ -9720,7 +9836,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         confirmed(&state, HELD_DENY);
         let sessions = state.store.sessions_dir().to_path_buf();
         let before = std::fs::metadata(&sessions)
@@ -9826,7 +9942,7 @@ mod tests {
         let mut config = config(home.path(), workspace.path());
         config.permission_mode = PermissionMode::Auto;
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         let at = state.next_rules_path();
         let set = |n: usize| slash::Confirmation {
             question: "",
@@ -10004,7 +10120,7 @@ mod tests {
             conversation.recorder.id().clone()
         };
         let store = open_store(&launched).expect("a store");
-        let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(launched, store, a_prompter(), a_questioner());
         assert_eq!(state.settings, TurnSettings::default());
         state
             .resume_by_id(saved.as_str(), &CancelToken::new())
@@ -10073,7 +10189,7 @@ mod tests {
         let resumed = Resumption::open(&saved_under, &crate::session::Selector::Id(id))
             .expect("the saved session opens");
         let store = open_store(&saved_under).expect("a store");
-        let mut state = Runtime::new(saved_under.clone(), store, a_prompter(), a_questioner());
+        let mut state = a_runtime(saved_under.clone(), store, a_prompter(), a_questioner());
         let before = log_text(state_with_log(&mut state, resumed));
 
         assert!(matches!(
@@ -10195,6 +10311,22 @@ mod tests {
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
         )
+    }
+
+    /// A runtime over `config` whose reloads read the home `config` was
+    /// loaded from, and no variable: [`Runtime::new`] would read the process
+    /// the suite runs in, which a unit test may not (`crate::test_env`).
+    fn a_runtime(
+        config: RuntimeConfig,
+        store: SessionStore,
+        prompter: TuiPrompter,
+        questioner: Arc<TuiQuestioner>,
+    ) -> Runtime {
+        let env = Environment::new(
+            config.home().map(std::path::Path::to_path_buf),
+            BTreeMap::new(),
+        );
+        Runtime::with_environment(config, env, store, prompter, questioner)
     }
 
     /// The same, for the requester the model's questions go through. Nothing on
@@ -13146,7 +13278,7 @@ mod tests {
         drop(resumed);
         // From the picker, into a runtime in other settings.
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         assert_eq!(state.settings, TurnSettings::default());
         let replay = state
             .resume_by_id(saved.as_str(), &CancelToken::new())
@@ -13226,7 +13358,7 @@ mod tests {
         let resumed = opened(&older);
         assert!(resumed.keeps_fast_binding(ProviderId::Llmux, model, true));
         assert!(!resumed.keeps_fast_binding(ProviderId::Llmux, model, false));
-        let mut state = Runtime::new(
+        let mut state = a_runtime(
             config.clone(),
             open_store(&config).expect("a store"),
             a_prompter(),
@@ -13452,7 +13584,7 @@ mod tests {
                     .join(on_gateway.as_str())
                     .join(crate::session::store::EVENTS_FILE);
                 let before = std::fs::read(&events).expect("the log");
-                let mut state = Runtime::new(launched, store, a_prompter(), a_questioner());
+                let mut state = a_runtime(launched, store, a_prompter(), a_questioner());
                 state.resume(resumed, &CancelToken::new());
                 assert_eq!(
                     std::fs::read(&events).expect("the log"),
@@ -13527,7 +13659,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let saved = saved_on(&config, Some("llmux"), "m-1");
-        let mut state = Runtime::new(
+        let mut state = a_runtime(
             config.clone(),
             open_store(&config).expect("a store"),
             a_prompter(),
@@ -14306,7 +14438,7 @@ mod tests {
             Cancellation::new(CancelToken::new()),
         );
 
-        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let mut state = a_runtime(config, store, prompter, a_questioner());
         // Through `authority()`, which is what `ready` opens a real
         // conversation with: a fixture that built its own permission session
         // would be asserting against its own argument.
@@ -14446,7 +14578,7 @@ mod tests {
         .expect("an owner-only profile");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         // At launch: the table the profile holds.
         assert_eq!(
             state.authority().rules().rules(),
@@ -14796,11 +14928,17 @@ mod tests {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let gate = RUNTIME_MASKS.lock().unwrap_or_else(PoisonError::into_inner);
-        let spawned = spawn(
-            config(home.path(), workspace.path()),
-            Cancellation::new(CancelToken::new()),
-            None,
-        );
+        // A launch reads the process; this one reads the case's
+        // (`crate::test_env`), on the runtime thread too.
+        let spawned = crate::test_env::FakeProcess::new()
+            .home(home.path())
+            .run(|| {
+                spawn(
+                    config(home.path(), workspace.path()),
+                    Cancellation::new(CancelToken::new()),
+                    None,
+                )
+            });
         let seed = spawned
             .as_ref()
             .map(|(worker, _)| worker.handle().trace_facts())
@@ -15294,7 +15432,7 @@ mod tests {
             ControlChannel::new(control_rx),
             cancel.clone(),
         );
-        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let mut state = a_runtime(config, store, prompter, a_questioner());
         // The UI's handle and the runtime share one live authority, as
         // `spawn` makes them.
         let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
@@ -15934,7 +16072,7 @@ mod tests {
         .expect("load a configuration");
         assert_eq!(config.provider, ProviderId::Gateway);
         let store = open_store(&config).expect("a store");
-        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
         // The stand-in first, which leaves nothing loaded; then the answer.
         state.selector.set_fetcher_for_test(Box::new(Answering {
             entries: Vec::new(),
@@ -16712,7 +16850,7 @@ mod tests {
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
         let store = open_store(&config).expect("a store");
-        let state = Runtime::new(config, store, a_prompter(), a_questioner());
+        let state = a_runtime(config, store, a_prompter(), a_questioner());
         assert_eq!(points(&state), Vec::new());
 
         let (_home, _workspace, mut state) = recording();
@@ -17148,7 +17286,7 @@ mod tests {
         )
         .expect("an untitled session with no turn");
         let untitled = untitled.recorder.id().clone();
-        let other = Runtime::new(config, store, a_prompter(), a_questioner());
+        let other = a_runtime(config, store, a_prompter(), a_questioner());
         let listed = other.sessions().expect("reads");
         let rows: Vec<(String, Option<String>, u64)> = listed
             .current
@@ -18524,63 +18662,66 @@ mod tests {
     // stop
     // -----------------------------------------------------------------------
 
+    /// A runtime under `anthropic/claude-sonnet-5`, whose window is known
+    /// without the catalog, with one answered turn in its conversation that
+    /// carried an image: every later request re-sends it, so the image route
+    /// asks about the model at a turn's first request. The catalog reads as
+    /// one that lists the model as reading images.
+    fn with_a_history_image() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([(
+                "XFX_MODEL".to_string(),
+                "anthropic/claude-sonnet-5".to_string(),
+            )]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let conversation = open_conversation(
+            &store,
+            &config,
+            &config.model.clone(),
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        state.conversation = Some(conversation);
+        let mut seeing = published(state.selector.model());
+        seeing.facts.image_input = true;
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![seeing]));
+        let image = crate::image::Image::new(
+            1,
+            std::path::PathBuf::from("shot.png"),
+            crate::image::MediaType::Png,
+            std::sync::Arc::from(&b"png"[..]),
+        );
+        one_turn_with_images(
+            &mut state,
+            "look",
+            vec![image],
+            Box::new(ScriptedProvider::new(vec![answers("seen")])),
+        );
+        (home, workspace, state)
+    }
+
     /// A runtime whose catalog failed and whose retry -- the one a submitted
     /// prompt starts -- is on its way and does not land while the returned
-    /// sender is held (its gate opens when the sender goes), answered by a provider
-    /// that answers twice: the turn's start waits for that retry when the
-    /// model in force has no window without the catalog (`recording`'s), the
-    /// image route at the first request when `history_image` puts an image
-    /// in the history and the model's window is known.
+    /// [`Held::Retry`] is held, answered by a provider that answers twice:
+    /// the turn's start waits for that retry when the model in force has no
+    /// window without the catalog (`recording`'s), the image route at the
+    /// first request when `history_image` puts an image in the history and
+    /// the model's window is known.
     fn retry_never_lands(
         history_image: bool,
-    ) -> (
-        tempfile::TempDir,
-        tempfile::TempDir,
-        Runtime,
-        tokio::sync::oneshot::Sender<()>,
-    ) {
+    ) -> (tempfile::TempDir, tempfile::TempDir, Runtime, Held) {
         let (home, workspace, mut state) = if history_image {
-            let home = tempfile::tempdir().expect("a home");
-            let workspace = tempfile::tempdir().expect("a workspace");
-            let env = Environment::new(
-                Some(home.path().to_path_buf()),
-                BTreeMap::from([(
-                    "XFX_MODEL".to_string(),
-                    "anthropic/claude-sonnet-5".to_string(),
-                )]),
-            );
-            let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
-            let store = open_store(&config).expect("a store");
-            let conversation = open_conversation(
-                &store,
-                &config,
-                &config.model.clone(),
-                PermissionSession::new(config.permission_mode),
-                None,
-                &CancelToken::new(),
-            )
-            .expect("open a conversation");
-            let mut state =
-                Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
-            state.conversation = Some(conversation);
-            let mut seeing = published(state.selector.model());
-            seeing.facts.image_input = true;
-            state
-                .selector
-                .set_catalog_for_test(CatalogState::Loaded(vec![seeing]));
-            let image = crate::image::Image::new(
-                1,
-                std::path::PathBuf::from("shot.png"),
-                crate::image::MediaType::Png,
-                std::sync::Arc::from(&b"png"[..]),
-            );
-            one_turn_with_images(
-                &mut state,
-                "look",
-                vec![image],
-                Box::new(ScriptedProvider::new(vec![answers("seen")])),
-            );
-            (home, workspace, state)
+            with_a_history_image()
         } else {
             recording()
         };
@@ -18601,25 +18742,257 @@ mod tests {
             id: ProviderId::Gateway,
             stream: Box::new(ScriptedProvider::new(vec![answers("one"), answers("two")])),
         });
-        (home, workspace, state, open)
+        (home, workspace, state, Held::Retry(open))
+    }
+
+    /// [`with_a_history_image`] with no catalog read yet and the first load on
+    /// its way, held at the returned gate, with a row that reads images: the
+    /// image route at the first request waits for it ([`image_refusal`]).
+    fn first_load_behind_a_history_image() -> (tempfile::TempDir, tempfile::TempDir, Runtime, Held)
+    {
+        let (home, workspace, mut state) = with_a_history_image();
+        let mut seeing = published(state.selector.model());
+        seeing.facts.image_input = true;
+        state.selector.set_catalog_for_test(CatalogState::NotLoaded);
+        let (open, gate) = tokio::sync::oneshot::channel::<()>();
+        state.selector.set_fetcher_for_test(Box::new(Gated {
+            entries: vec![seeing],
+            gate: Mutex::new(Some(gate)),
+        }));
+        let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(async { begin_catalog_read(&mut state, &events) });
+        assert!(state.selector.is_loading(), "no first load on its way");
+        assert!(
+            state.context_window().is_some(),
+            "the turn's start waits too"
+        );
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![answers("one"), answers("two")])),
+        });
+        (home, workspace, state, Held::FirstLoad(open))
+    }
+
+    /// What holds a turn's catalog wait back. Made only where the gate is
+    /// made ([`retry_never_lands`], [`first_load_behind_a_history_image`],
+    /// [`waiting_in`]), and spent only by [`Held::run`], which picks the
+    /// clock the loop runs on and lets the gate go: no test that takes one
+    /// holds a gate's sender of its own. (The twenty-question test builds
+    /// its own gate and clock; it takes no `Held`.)
+    enum Held {
+        /// The retry behind a failed catalog, which does not land while the
+        /// loop runs: its gate opens when the sender goes, once the loop is
+        /// over. The wait it holds ends on its own after
+        /// [`FAILED_CATALOG_RETRY_WAIT`], tokio's timer, so the loop runs on a
+        /// paused clock ([`on_a_paused_runtime`]); no answer from the
+        /// catalog's thread is waited for in it, which a paused clock would
+        /// run past to the timer.
+        Retry(tokio::sync::oneshot::Sender<()>),
+        /// The first load, which lands when its gate opens: [`FIRST_LOAD_LANDS`]
+        /// in when nothing stops the turn, and -- with a stop -- only once the
+        /// stopped turn has ended, so nothing but the stop can end its wait.
+        /// Its answer comes from the catalog's own thread, which no timer
+        /// stands for: with a stop the loop runs on a paused clock, and the
+        /// harness asserts no time moved on it; without one, on the wall
+        /// clock, from which the load's 1.5 s are counted.
+        FirstLoad(tokio::sync::oneshot::Sender<()>),
+    }
+
+    impl Held {
+        /// Whether a run under this wait is on tokio's clock, paused.
+        fn paused(&self, stop: bool) -> bool {
+            stop || matches!(self, Self::Retry(_))
+        }
+
+        /// Runs the loop and its band, `run`, on this wait's clock
+        /// ([`Self::paused`]), and lets the gate go as the wait needs: a
+        /// retry's after the run; a first load's, with a stop, to `run`,
+        /// to open once the stopped turn has ended; without one, to an
+        /// opener [`FIRST_LOAD_LANDS`] after the wall-clock reading `run` is
+        /// given, which is taken before the opener starts.
+        fn run<T, F: Future<Output = T>>(
+            self,
+            stop: bool,
+            run: impl FnOnce(Option<tokio::sync::oneshot::Sender<()>>, Instant) -> F,
+        ) -> T {
+            let begun = Instant::now();
+            match self {
+                Self::Retry(open) => {
+                    let out = on_a_paused_runtime(run(None, begun));
+                    drop(open);
+                    out
+                }
+                Self::FirstLoad(open) if stop => on_a_paused_runtime(run(Some(open), begun)),
+                Self::FirstLoad(open) => {
+                    let opener = std::thread::spawn(move || {
+                        std::thread::sleep(FIRST_LOAD_LANDS);
+                        let _ = open.send(());
+                    });
+                    let out = on_a_runtime(run(None, begun));
+                    opener.join().expect("the load's opener");
+                    out
+                }
+            }
+        }
+    }
+
+    /// When a first load that nothing stops lands, counted from before the
+    /// opener starts.
+    const FIRST_LOAD_LANDS: Duration = Duration::from_millis(1_500);
+
+    /// How long, on the wall clock, a stopped first turn may take from its
+    /// stop to its end in [`first_of_two_and_a_stop`]: a watchdog for a
+    /// stop held up off tokio's timers, which the paused clock reads as no
+    /// time. **Empirical, not a guarantee.** The segment holds the stopped
+    /// turn's own `fsync`ed record (`session::store`), and its end is the
+    /// watcher thread's *observation* of the place given back, not the
+    /// release itself ([`watched`]): scheduling delay counts in it, and so
+    /// would a stall at the next turn's start that falls before the watcher
+    /// looks. Sized at about twelve times the most the receipt's 50-run
+    /// repeat measured, 832 ms at load up to 23 (CATALOG-WAIT-CLOCK,
+    /// `load-check3.txt`) -- past both the crate's 2 s for "at once" and the
+    /// ten times its brief asked for -- as [`TEST_DRAIN`]'s 10 s.
+    const STOP_TO_END: Duration = TEST_DRAIN;
+
+    /// When `outstanding` first drops below `from`, on the wall clock, as a
+    /// watcher thread sees it while `run` runs; `None` when it never did.
+    /// The watcher looks every millisecond, so the stamp is its observation
+    /// -- a millisecond or so after the drop on a quiet machine, later when
+    /// its thread waits for a core -- and it stamps `late` after seeing it
+    /// (zero, but in the test that delays it). It is stopped by a guard
+    /// however `run` ends, a panic included, so the scope never waits on a
+    /// watcher that cannot end.
+    fn watched<T>(
+        outstanding: &AtomicUsize,
+        from: usize,
+        late: Duration,
+        run: impl FnOnce() -> T,
+    ) -> (T, Option<Instant>) {
+        struct StopWatching<'a>(&'a AtomicBool);
+        impl Drop for StopWatching<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
+        let watching = AtomicBool::new(true);
+        let seen = std::sync::OnceLock::<Instant>::new();
+        let out = std::thread::scope(|scope| {
+            scope.spawn(|| loop {
+                // Read before the place, so a run that ended between two
+                // looks is still seen once more: its place is back.
+                let over = !watching.load(Ordering::Acquire);
+                if outstanding.load(Ordering::Acquire) < from {
+                    std::thread::sleep(late);
+                    let _ = seen.set(Instant::now());
+                    return;
+                }
+                if over {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            });
+            // Dropped as this closure ends or unwinds, before the scope
+            // joins the watcher.
+            let _stop = StopWatching(&watching);
+            run()
+        });
+        (out, seen.get().copied())
+    }
+
+    /// How long the band waits, on the wall clock, for a run that never ends:
+    /// far past anything here, because it bounds a **failure**.
+    const RUN_DEADLINE: Duration = Duration::from_secs(30);
+
+    /// A deadline on the wall clock, whichever clock the loop runs on: `due`
+    /// answers once `after` has passed. A tokio timeout would not do on a
+    /// paused clock, which runs straight to it whenever the loop waits on
+    /// another thread. Dropped, its thread is let go at once.
+    struct WallDeadline {
+        done: Option<std::sync::mpsc::Sender<()>>,
+        thread: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl WallDeadline {
+        fn start(after: Duration) -> (Self, tokio::sync::oneshot::Receiver<()>) {
+            let (due_tx, due) = tokio::sync::oneshot::channel::<()>();
+            let (done, done_rx) = std::sync::mpsc::channel::<()>();
+            let thread = std::thread::spawn(move || {
+                if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = done_rx.recv_timeout(after)
+                {
+                    let _ = due_tx.send(());
+                }
+            });
+            let deadline = Self {
+                done: Some(done),
+                thread: Some(thread),
+            };
+            (deadline, due)
+        }
+    }
+
+    impl Drop for WallDeadline {
+        fn drop(&mut self) {
+            drop(self.done.take());
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+        }
     }
 
     /// Two prompts through the real loop, submissions 1 and 2, and -- when
-    /// `stop_after` says when -- a Ctrl-C quoting 1 sent into the first:
+    /// `stop` -- a Ctrl-C quoting 1 sent into the first's catalog wait:
     /// every event the band was told, with when, until the second turn ended.
-    fn two_prompts_and_a_stop(
-        state: Runtime,
-        stop_after: Option<Duration>,
-    ) -> Vec<(Duration, UiEvent)> {
-        first_of_two_and_a_stop(state, TurnWork::Submit("first".to_string()), stop_after)
+    fn two_prompts_and_a_stop(state: Runtime, stop: bool, held: Held) -> Vec<(Duration, UiEvent)> {
+        first_of_two_and_a_stop(state, TurnWork::Submit("first".to_string()), stop, held)
     }
 
     /// [`two_prompts_and_a_stop`] with the first submission given: a prompt
-    /// with images attached, say.
+    /// with images attached, say. Each event comes with when the band read
+    /// it on the loop's clock ([`Held`] says which), counted from before the
+    /// loop began.
+    ///
+    /// **No clock places the stop.** The band is read on the loop's own
+    /// thread, so it hears the first turn's start only once the loop has
+    /// gone as far as it can without waiting: the first turn parked in its
+    /// catalog wait, the first thing its body waits for ([`one_turn`],
+    /// [`image_refusal`]). The stop is sent then, and read before the turn
+    /// moves again ([`raced_against_control`] reads control first). A first
+    /// load is held until the stopped turn has ended ([`Held::FirstLoad`]);
+    /// a retry's wait has an end of its own, [`FAILED_CATALOG_RETRY_WAIT`].
+    ///
+    /// **A stopped run is on tokio's clock, paused**: it moves only when
+    /// every task is parked, straight to the next timer. A turn the stop
+    /// ended at once ends with no tokio time gone; one that waited the retry
+    /// out ends at its two seconds, and one whose stop slept on a tokio timer
+    /// first ends that much later, however long the machine holds the
+    /// thread. What it cannot see is lateness off the loop runtime's timers
+    /// -- the thread held, `spawn_blocking`, a wait on another thread with
+    /// no timer standing -- which reads as no time at all. For that, a
+    /// watchdog on the wall clock bounds the stopped turn from its stop to
+    /// its end ([`STOP_TO_END`]): the stop is stamped as the band sends it,
+    /// the end when a watcher thread sees the loop give the first turn's
+    /// place back (`outstanding`, which the loop does after the turn's
+    /// terminal event and before it takes the next work). The watcher's
+    /// stamp is an observation, so it may land after the next turn has
+    /// started; in a normal run nothing stalls a turn's start, and that
+    /// lateness is the watcher's scheduling.
     fn first_of_two_and_a_stop(
         state: Runtime,
         first: TurnWork,
-        stop_after: Option<Duration>,
+        stop: bool,
+        held: Held,
+    ) -> Vec<(Duration, UiEvent)> {
+        first_of_two_and_a_stop_watched(state, first, stop, held, Duration::ZERO)
+    }
+
+    /// [`first_of_two_and_a_stop`] with its watcher stamping the first
+    /// turn's end `watcher_late` after it sees it ([`watched`]).
+    fn first_of_two_and_a_stop_watched(
+        state: Runtime,
+        first: TurnWork,
+        stop: bool,
+        held: Held,
+        watcher_late: Duration,
     ) -> Vec<(Duration, UiEvent)> {
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(2);
         work_tx.try_send(first).expect("room");
@@ -18627,51 +19000,164 @@ mod tests {
             .try_send(TurnWork::Submit("second".to_string()))
             .expect("room");
         drop(work_tx);
+        // Held until the loop has run out of work: a closed control channel
+        // is the session's end, which stops every turn.
         let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let outstanding = AtomicUsize::new(2);
-        let started = Instant::now();
-        let stopper = std::thread::spawn(move || {
-            if let Some(after) = stop_after {
-                std::thread::sleep(after);
-                let _ = control_tx.send(TurnControl::Cancel { through: 1 });
-            }
-            // Held until the loop has run out of work: a closed control
-            // channel is no stop.
-            std::thread::sleep(Duration::from_secs(8));
-        });
-        let log = on_a_runtime(async {
-            let run = turn_loop(
-                state,
-                &events,
-                &mut work_rx,
-                &mut changes,
-                ControlChannel::new(control_rx),
-                Cancellation::new(CancelToken::new()),
-                &outstanding,
-            );
-            let watch = async {
-                let mut log = Vec::new();
-                let mut ends = 0;
-                while ends < 2 {
-                    match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
-                        Ok(Some(event)) => {
-                            if matches!(event, UiEvent::TurnEnded { .. }) {
-                                ends += 1;
+        let paused = held.paused(stop);
+        let first_load = matches!(held, Held::FirstLoad(_));
+        let (deadline, mut due) = WallDeadline::start(RUN_DEADLINE);
+        // The stop as the band sends it, on the wall clock.
+        let stop_sent = std::cell::Cell::new(None::<Instant>);
+        let run_loop = || {
+            let (events, work_rx, changes, outstanding) =
+                (&events, &mut work_rx, &mut changes, &outstanding);
+            let (seen, due, control_tx, stop_sent) = (&mut seen, &mut due, &control_tx, &stop_sent);
+            held.run(stop, |mut load, begun| async move {
+                let started = if paused {
+                    tokio::time::Instant::now()
+                } else {
+                    tokio::time::Instant::from_std(begun)
+                };
+                let run = turn_loop(
+                    state,
+                    events,
+                    work_rx,
+                    changes,
+                    ControlChannel::new(control_rx),
+                    Cancellation::new(CancelToken::new()),
+                    outstanding,
+                );
+                let watch = async {
+                    let mut log = Vec::new();
+                    let mut ends = 0;
+                    while ends < 2 {
+                        let event = tokio::select! {
+                            biased;
+                            event = seen.recv() => event,
+                            Ok(()) = &mut *due => None,
+                        };
+                        let Some(event) = event else { break };
+                        match &event {
+                            UiEvent::TurnStarted { submission: 1 } if stop => {
+                                stop_sent.set(Some(Instant::now()));
+                                let _ = control_tx.send(TurnControl::Cancel { through: 1 });
                             }
-                            log.push((started.elapsed(), event));
+                            UiEvent::TurnEnded { .. } => {
+                                ends += 1;
+                                if let Some(open) = load.take() {
+                                    let _ = open.send(());
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => break,
+                        log.push((started.elapsed(), event));
                     }
-                }
+                    // Given up on a turn that never ended: its load is let
+                    // go, so the loop can run out of work and return.
+                    drop(load.take());
+                    log
+                };
+                let (_, log) = tokio::join!(run, watch);
                 log
-            };
-            let (_, log) = tokio::join!(run, watch);
-            log
-        });
-        drop(stopper);
+            })
+        };
+        let (log, first_end) = if stop {
+            watched(&outstanding, 2, watcher_late, run_loop)
+        } else {
+            (run_loop(), None)
+        };
+        drop(deadline);
+        drop(control_tx);
+        if paused && first_load {
+            // No advance of the paused clock before the last event the band
+            // read: the waits were the catalog thread's, not a timer's.
+            assert!(
+                log.iter().all(|(at, _)| at.is_zero()),
+                "the paused clock moved in a first load's run: {:?}",
+                log.iter().map(|(at, _)| *at).collect::<Vec<_>>()
+            );
+        }
+        if stop {
+            let sent = stop_sent.get().expect("the band never sent the stop");
+            let end = first_end.expect("the watcher never saw the first turn's place given back");
+            let took = end.saturating_duration_since(sent);
+            // Read by the receipt's repeat check (`--nocapture`).
+            eprintln!("stop-to-end-us {}", took.as_micros());
+            assert!(
+                took < STOP_TO_END,
+                "the stopped turn ended {took:?} after its stop on the wall clock, past {STOP_TO_END:?}"
+            );
+        }
         log
+    }
+
+    #[test]
+    fn the_place_watcher_ends_when_the_run_it_watches_panics() {
+        // [`watched`] around a run that panics before any place is given
+        // back: the panic reaches the caller, within a wall bound, instead of
+        // the scope waiting for ever on a watcher whose place never drops.
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let runner = std::thread::spawn(move || {
+            let outstanding = AtomicUsize::new(2);
+            let caught = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                watched(&outstanding, 2, Duration::ZERO, || -> () {
+                    panic!("before the first place is given back")
+                })
+            }));
+            let _ = done_tx.send(caught.is_err());
+        });
+        let panicked = done_rx
+            .recv_timeout(TEST_DRAIN)
+            .expect("the scope never joined: the watcher outlived a panicking run");
+        assert!(panicked, "the run's panic did not reach its caller");
+        runner.join().expect("the runner");
+    }
+
+    #[test]
+    fn a_late_watcher_moves_the_stop_to_end_reading_and_fails_it_only_past_the_bound() {
+        // The end of the harness's stop-to-end segment is the watcher's
+        // observation, not the release ([`watched`]). A watcher that stamps
+        // three seconds late reads three seconds more, and the verdict holds
+        // under [`STOP_TO_END`]; one late past it fails the run, with the
+        // product right -- the bound is a watchdog, not a guarantee.
+        let cancelled = Some(bridge::TURN_CANCELLED.to_string());
+        let first_end = |log: &[(Duration, UiEvent)]| {
+            log.iter().find_map(|(_, event)| match event {
+                UiEvent::TurnEnded { failure } => Some(failure.clone()),
+                _ => None,
+            })
+        };
+        let (_home, _workspace, state, held) = retry_never_lands(false);
+        let log = first_of_two_and_a_stop_watched(
+            state,
+            TurnWork::Submit("first".to_string()),
+            true,
+            held,
+            Duration::from_secs(3),
+        );
+        assert_eq!(first_end(&log), Some(cancelled), "below the bound");
+        let (_home, _workspace, state, held) = retry_never_lands(false);
+        let past = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            first_of_two_and_a_stop_watched(
+                state,
+                TurnWork::Submit("first".to_string()),
+                true,
+                held,
+                STOP_TO_END + Duration::from_secs(1),
+            )
+        }));
+        let message = past.expect_err("a watcher late past the bound passed");
+        let message = message
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
+        assert!(
+            message.contains("after its stop on the wall clock, past"),
+            "{message}"
+        );
     }
 
     #[test]
@@ -18685,17 +19171,33 @@ mod tests {
         // (`TurnControl::Cancel { through }`), and each start names its own
         // (`UiEvent::TurnStarted { submission }`), so the band tells the turn
         // it stopped from one typed after it. A Ctrl-C quoting the first of
-        // two prompts, 300 ms into the first's wait for a retry that never
+        // two prompts, read while the first waits for a retry that never
         // lands: the first ends at once, not two seconds later, as the stop's
         // own end; the second starts as submission 2 and runs. Without the
         // stop, the first waits its two seconds -- the wait the stop cut --
-        // and ends as MODELS-REASK ends it.
+        // and ends as MODELS-REASK ends it. The image route waits for a first
+        // load still on its way the same way (`.loading`, `:855-866`), raced
+        // against the stop ([`image_refusal`]).
+        //
+        // "At once" is measured on tokio's clock, paused
+        // ([`first_of_two_and_a_stop`]): it moves only while every task is
+        // parked, so the stopped turn ends with no tokio time gone --
+        // asserted -- where one that waited the retry out ends at its two
+        // seconds (`FAILED_CATALOG_RETRY_WAIT`), however long the machine
+        // holds the thread. The stop is placed by the loop, not by a clock.
         let mut got = Vec::new();
-        for (case, history_image) in [("the turn's start", false), ("the image route", true)] {
-            for stop in [Some(Duration::from_millis(300)), None] {
-                let (_home, _workspace, state, open) = retry_never_lands(history_image);
-                let log = two_prompts_and_a_stop(state, stop);
-                drop(open);
+        for case in [
+            "the turn's start",
+            "the image route",
+            "the image route's first load",
+        ] {
+            for stop in [true, false] {
+                let (_home, _workspace, state, held) = match case {
+                    "the image route's first load" => first_load_behind_a_history_image(),
+                    _ => retry_never_lands(case == "the image route"),
+                };
+                let retry = matches!(held, Held::Retry(_));
+                let log = two_prompts_and_a_stop(state, stop, held);
                 let starts: Vec<usize> = log
                     .iter()
                     .filter_map(|(_, event)| match event {
@@ -18713,15 +19215,18 @@ mod tests {
                 let first = ends.first().cloned();
                 got.push((
                     case,
-                    stop.is_some(),
+                    stop,
                     starts,
                     first.as_ref().map(|(_, failure)| failure.clone()),
                     first.as_ref().is_some_and(|(at, _)| {
-                        if stop.is_some() {
-                            // After the stop, and long before the wait's end.
-                            *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000)
-                        } else {
+                        if stop {
+                            // At once: no tokio time gone, where waiting the
+                            // retry out is its two seconds.
+                            at.is_zero()
+                        } else if retry {
                             *at >= Duration::from_millis(1_900)
+                        } else {
+                            *at >= FIRST_LOAD_LANDS
                         }
                     }),
                     ends.len(),
@@ -18766,7 +19271,7 @@ mod tests {
                     "the image route",
                     true,
                     vec![1, 2],
-                    cancelled,
+                    cancelled.clone(),
                     true,
                     2,
                     unknown.clone(),
@@ -18783,10 +19288,32 @@ mod tests {
                     2,
                     unknown,
                 ),
+                // The first load lands with a row that reads images, after the
+                // stopped turn has ended: the second turn sends the history's
+                // image, as an answered first one does.
+                (
+                    "the image route's first load",
+                    true,
+                    vec![1, 2],
+                    cancelled,
+                    true,
+                    2,
+                    Some(None),
+                ),
+                (
+                    "the image route's first load",
+                    false,
+                    vec![1, 2],
+                    Some(None),
+                    true,
+                    2,
+                    Some(None),
+                ),
             ],
             "each: the starts, the first turn's end, whether it came when it should (with \
-             the stop: 300 ms to 1 s; without it: past the wait's 1.9 s), the ends, the \
-             second turn's end"
+             the stop: with no tokio time gone on the paused clock; without it: past the \
+             retry's 1.9 s, or the first load's 1.5 s on the wall clock), the ends, the second \
+             turn's end"
         );
     }
 
@@ -18802,7 +19329,8 @@ mod tests {
         /// is on (`orchestrator.zig:5885@481104fd`), and waits for the retry.
         UltraRetry,
         /// Ultra on an OpenAI model while the first load is on its way; it
-        /// lands 1.5 s in, with a row that does not offer Ultra.
+        /// lands as [`Held::FirstLoad`] says, with a row that does not offer
+        /// Ultra.
         UltraFirstLoad,
         /// A prompt with an image, on a model whose window is known, behind a
         /// failed catalog whose retry does not land: the prompt's images ask
@@ -18810,15 +19338,22 @@ mod tests {
         PromptImageRetry,
         /// A prompt with an image, on a model whose window is known and with
         /// no level or speed, while the first load is on its way; it lands
-        /// 1.5 s in, with a row that reads images. The prompt's images ask
-        /// at the turn's start as the retry's do (`:5886`), and a load is
-        /// what upstream's resolve waits for first (`.loading`,
-        /// `model_cache_runtime.zig:855-866`).
+        /// as [`Held::FirstLoad`] says, with a row that reads images. The
+        /// prompt's images ask at the turn's start as the retry's do
+        /// (`:5886`), and a load is what upstream's resolve waits for first
+        /// (`.loading`, `model_cache_runtime.zig:855-866`).
         PromptImageFirstLoad,
         /// No Ultra, no image, on the default model, whose window nothing but
         /// the catalog gives, behind a failed catalog whose retry does not
         /// land: the turn that ends as a stop already, and what it records.
         WindowRetry,
+        /// The same default model while the first load is on its way: the
+        /// window is the catalog's only (`requiresResolvedRequestCapabilities`,
+        /// `orchestrator.zig:5658-5670@481104fd`), so the turn's start waits
+        /// for the load (`.loading`, `model_cache_runtime.zig:855-866`) --
+        /// what a prompt typed right after launch meets. It lands as
+        /// [`Held::FirstLoad`] says, with the model's row.
+        WindowFirstLoad,
     }
 
     /// A runtime on a fresh conversation under `model` (as `XFX_MODEL`
@@ -18851,8 +19386,7 @@ mod tests {
     }
 
     /// A runtime waiting as `wait` says, the first prompt it is given, and
-    /// what holds the catalog's read back: a retry's gate, held until it is
-    /// dropped, or the thread that opens a first load's 1.5 s in.
+    /// what holds the catalog's read back ([`Held`]).
     fn waiting_in(
         wait: CatalogWait,
     ) -> (
@@ -18860,14 +19394,14 @@ mod tests {
         tempfile::TempDir,
         Runtime,
         TurnWork,
-        Option<tokio::sync::oneshot::Sender<()>>,
+        Held,
     ) {
         let model = match wait {
             CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad => "openai/gpt-6-astra",
             CatalogWait::PromptImageRetry | CatalogWait::PromptImageFirstLoad => {
                 "anthropic/claude-sonnet-5"
             }
-            CatalogWait::WindowRetry => crate::config::DEFAULT_MODEL,
+            CatalogWait::WindowRetry | CatalogWait::WindowFirstLoad => crate::config::DEFAULT_MODEL,
         };
         let (home, workspace, mut state) = under_model(model);
         assert_eq!(state.selector.model(), model);
@@ -18877,7 +19411,9 @@ mod tests {
         let (events, _received) = mpsc::channel(bridge::UI_EVENTS);
         let held = if matches!(
             wait,
-            CatalogWait::UltraFirstLoad | CatalogWait::PromptImageFirstLoad
+            CatalogWait::UltraFirstLoad
+                | CatalogWait::PromptImageFirstLoad
+                | CatalogWait::WindowFirstLoad
         ) {
             let mut row = published(model);
             row.facts.image_input = wait == CatalogWait::PromptImageFirstLoad;
@@ -18887,11 +19423,7 @@ mod tests {
             }));
             on_a_runtime(async { begin_catalog_read(&mut state, &events) });
             assert!(state.selector.is_loading(), "no first load on its way");
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(1_500));
-                let _ = open.send(());
-            });
-            None
+            Held::FirstLoad(open)
         } else {
             state
                 .selector
@@ -18904,7 +19436,7 @@ mod tests {
             assert!(matches!(state.selector.catalog(), CatalogState::Failed(_)));
             backdate_catalog(&mut state, Duration::from_secs(6));
             retry_behind_failure(&mut state, &events);
-            Some(open)
+            Held::Retry(open)
         };
         let first = if matches!(
             wait,
@@ -18983,13 +19515,23 @@ mod tests {
         // `interruption.zig:198-223`), and it checks the stop once more after
         // it (`orchestrator.zig:5923-5948`), before any request is planned --
         // Ultra's refusal is a request's (`:7657`). So a Ctrl-C quoting the
-        // first of two prompts, 300 ms into the first's wait: the first ends
+        // first of two prompts, read while the first waits: the first ends
         // at once as the stop's own end, its prompt (and its image) in the log
         // with the stop's conclusion, as a stop in the default model's window
         // wait already ends; the second starts as submission 2 and ends as it
         // does without the stop, unless the stopped prompt's image is in its
         // history. Without the stop, the first waits out its wait and is
         // refused (Ultra, the image) or answered (the window).
+        //
+        // "At once": a first load is held until the stopped turn has ended
+        // ([`Held::FirstLoad`]), so a turn that ends at all was not ended by
+        // the load; a retry's wait ends by itself after
+        // `FAILED_CATALOG_RETRY_WAIT`, tokio's timer. Every stopped run is on
+        // tokio's clock, paused, and the first turn's end is asserted at no
+        // tokio time gone: where one that waited the retry out ends at its
+        // two seconds, and one whose stop slept on a timer first that much
+        // later, however long the machine holds the thread
+        // ([`first_of_two_and_a_stop`]).
         let cancelled = Some(bridge::TURN_CANCELLED.to_string());
         let ultra = Some(ULTRAFAST_UNAVAILABLE.to_string());
         let unknown = Some(crate::image::CAPABILITY_UNKNOWN.to_string());
@@ -19007,9 +19549,11 @@ mod tests {
             CatalogWait::PromptImageRetry,
             CatalogWait::PromptImageFirstLoad,
             CatalogWait::WindowRetry,
+            CatalogWait::WindowFirstLoad,
         ] {
-            for stop in [Some(Duration::from_millis(300)), None] {
+            for stop in [true, false] {
                 let (_home, _workspace, state, first, held) = waiting_in(wait);
+                let first_load = matches!(held, Held::FirstLoad(_));
                 let sessions = state.store.sessions_dir().to_path_buf();
                 let id = state
                     .conversation
@@ -19018,8 +19562,7 @@ mod tests {
                     .recorder
                     .id()
                     .clone();
-                let log = first_of_two_and_a_stop(state, first, stop);
-                drop(held);
+                let log = first_of_two_and_a_stop(state, first, stop, held);
                 let starts: Vec<usize> = log
                     .iter()
                     .filter_map(|(_, event)| match event {
@@ -19034,16 +19577,19 @@ mod tests {
                         _ => None,
                     })
                     .collect();
-                let on_time = ends.first().is_some_and(|(at, _)| match stop {
-                    // After the stop, and long before the wait's end.
-                    Some(_) => {
-                        *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000)
-                    }
-                    None => *at >= Duration::from_millis(1_200),
-                });
+                let on_time = ends
+                    .first()
+                    .is_some_and(|(at, _)| match (stop, first_load) {
+                        // At once: no tokio time gone, where waiting the retry
+                        // out is its two seconds; a first load is held until
+                        // the stopped turn has ended.
+                        (true, _) => at.is_zero(),
+                        (false, false) => *at >= Duration::from_millis(1_900),
+                        (false, true) => *at >= FIRST_LOAD_LANDS,
+                    });
                 got.push((
                     wait,
-                    stop.is_some(),
+                    stop,
                     starts,
                     ends.iter()
                         .map(|(_, failure)| failure.clone())
@@ -19051,7 +19597,7 @@ mod tests {
                     on_time,
                     turns_logged(&sessions, &id),
                 ));
-                let (ended, logged) = match (wait, stop.is_some()) {
+                let (ended, logged) = match (wait, stop) {
                     (CatalogWait::UltraRetry | CatalogWait::UltraFirstLoad, true) => {
                         (vec![cancelled.clone(), ultra.clone()], stopped("first"))
                     }
@@ -19095,7 +19641,7 @@ mod tests {
                             "final stop".to_string(),
                         ],
                     ),
-                    (CatalogWait::WindowRetry, true) => (
+                    (CatalogWait::WindowRetry | CatalogWait::WindowFirstLoad, true) => (
                         vec![cancelled.clone(), None],
                         [
                             stopped("first"),
@@ -19103,7 +19649,7 @@ mod tests {
                         ]
                         .concat(),
                     ),
-                    (CatalogWait::WindowRetry, false) => (
+                    (CatalogWait::WindowRetry | CatalogWait::WindowFirstLoad, false) => (
                         vec![None, None],
                         vec![
                             "asked first".to_string(),
@@ -19113,7 +19659,7 @@ mod tests {
                         ],
                     ),
                 };
-                want.push((wait, stop.is_some(), vec![1, 2], ended, true, logged));
+                want.push((wait, stop, vec![1, 2], ended, true, logged));
             }
         }
         // The second turn ends as it does without the stop -- the stop quoted
@@ -19133,7 +19679,9 @@ mod tests {
         assert_eq!(
             got, want,
             "each: the starts, both turns' ends, whether the first came when it should (with \
-             the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns"
+             the stop: with no tokio time gone on the paused clock; without it: past the \
+             retry's 1.9 s, or the first load's 1.5 s on the wall clock), what the log says of \
+             the turns"
         );
     }
 
@@ -19172,17 +19720,22 @@ mod tests {
     fn a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop() {
         // Train 9, join check 2 (STOP-IN-CATALOG-WAIT x QUESTIONS-20). A
         // prompt with an image, on a model whose window is known, waits at its
-        // start for the first catalog load, which lands 1.5 s in with a row
-        // that reads images (`CatalogWait::PromptImageFirstLoad`); once asked,
-        // the model asks twenty questions in one call. The band's questioner
-        // is on the band's own channels, as `spawn` wires it, and the band
-        // answers a batch it is shown.
+        // start for the first catalog load, which lands with a row that reads
+        // images (`CatalogWait::PromptImageFirstLoad`) -- 1.5 s in without a
+        // stop, and with one only once the band has seen the turn end, so
+        // the load cannot end its wait; once asked, the model asks twenty
+        // questions in one call. The band's questioner is on the band's own
+        // channels, as `spawn` wires it, and the band answers a batch it is
+        // shown.
         //
         // Without the stop the batch reaches the band whole -- twenty entries,
         // which QUESTIONS-20's cap lets through (`max_questions = 20`,
         // `question_answer.zig:9@481104fd`) -- is answered, and the turn
-        // finishes after a second request. With a Ctrl-C 300 ms into the wait
-        // the turn ends at once as the stop's own end (`resolveForRequest`,
+        // finishes after a second request. With a Ctrl-C sent when the band
+        // hears the turn start -- no clock places it -- the turn ends as the
+        // stop's own end, with no tokio time gone: the stopped run is on
+        // tokio's clock, paused, which only a timer moves, and nothing the
+        // turn waits for is one (`resolveForRequest`,
         // `model_cache_runtime.zig:855-866`; `orchestrator.zig:5893-5919`,
         // `:5923-5948`): the model is never asked, no question reaches the
         // band, and the log keeps the prompt, its image and the stop, as fx's
@@ -19197,7 +19750,7 @@ mod tests {
             )
         };
         let mut got = Vec::new();
-        for stop in [Some(Duration::from_millis(300)), None] {
+        for stop in [true, false] {
             let home = tempfile::tempdir().expect("a home");
             let workspace = tempfile::tempdir().expect("a workspace");
             let model = "anthropic/claude-sonnet-5";
@@ -19268,27 +19821,30 @@ mod tests {
             drop(work_tx);
             let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
             let outstanding = AtomicUsize::new(1);
+            // Before the opener: a thread held between them cannot make the
+            // load look early.
             let started = Instant::now();
-            let opener = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(1_500));
-                let _ = open.send(());
-            });
+            let (opener, held) = if stop {
+                (None, Some(open))
+            } else {
+                let opener = std::thread::spawn(move || {
+                    std::thread::sleep(FIRST_LOAD_LANDS);
+                    let _ = open.send(());
+                });
+                (Some(opener), None)
+            };
             // The band, on a thread of its own: the questioner parks the
             // runtime's thread while its panel is up, as it does in production.
             let band_control = control_tx.clone();
             let band = std::thread::spawn(move || {
                 let mut log = Vec::new();
-                let mut stopped = false;
-                let deadline = Instant::now() + TEST_DRAIN;
+                let deadline = Instant::now() + RUN_DEADLINE;
                 while Instant::now() < deadline {
-                    if let Some(after) = stop {
-                        if !stopped && started.elapsed() >= after {
-                            let _ = band_control.send(TurnControl::Cancel { through: 1 });
-                            stopped = true;
-                        }
-                    }
                     match seen.try_recv() {
                         Ok(event) => {
+                            if stop && matches!(event, UiEvent::TurnStarted { submission: 1 }) {
+                                let _ = band_control.send(TurnControl::Cancel { through: 1 });
+                            }
                             if let UiEvent::Question(request) = &event {
                                 let answers = (1..=request.entries.len())
                                     .map(|index| format!("Keep {index}"))
@@ -19307,19 +19863,36 @@ mod tests {
                         Err(_) => std::thread::sleep(Duration::from_millis(2)),
                     }
                 }
+                // The turn ended, or the band gave up on it: a load still held
+                // is let go, so the loop can return.
+                drop(held);
                 log
             });
-            on_a_runtime(turn_loop(
-                state,
-                &events,
-                &mut work_rx,
-                &mut changes,
-                control,
-                cancel,
-                &outstanding,
-            ));
+            // The loop's own run, on tokio's clock: paused with a stop, so
+            // only a timer moves it.
+            let run = async {
+                let began = tokio::time::Instant::now();
+                turn_loop(
+                    state,
+                    &events,
+                    &mut work_rx,
+                    &mut changes,
+                    control,
+                    cancel,
+                    &outstanding,
+                )
+                .await;
+                began.elapsed()
+            };
+            let took = if stop {
+                on_a_paused_runtime(run)
+            } else {
+                on_a_runtime(run)
+            };
             let log = band.join().expect("the band");
-            opener.join().expect("the load's opener");
+            if let Some(opener) = opener {
+                opener.join().expect("the load's opener");
+            }
             drop(control_tx);
             let shown: Vec<usize> = log
                 .iter()
@@ -19335,13 +19908,16 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            let on_time = ends.first().is_some_and(|(at, _)| match stop {
-                // After the stop, and long before the load lands.
-                Some(_) => *at >= Duration::from_millis(300) && *at < Duration::from_millis(1_000),
-                None => *at >= Duration::from_millis(1_200),
+            let on_time = ends.first().is_some_and(|(at, _)| {
+                if stop {
+                    // At once: no tokio time gone over the whole run.
+                    took.is_zero()
+                } else {
+                    *at >= FIRST_LOAD_LANDS
+                }
             });
             got.push((
-                stop.is_some(),
+                stop,
                 shown,
                 ends.into_iter()
                     .map(|(_, failure)| failure)
@@ -19372,8 +19948,9 @@ mod tests {
                 (false, vec![20], vec![None], true, 2, kept("final stop")),
             ],
             "each: whether stopped, the batches the band was shown (their sizes), the turn's \
-             end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past \
-             1.2 s), the model's requests, what the log says of the turn"
+             end, whether it came when it should (with the stop: no tokio time gone on the \
+             paused clock; without it: past the load's 1.5 s on the wall clock), the model's \
+             requests, what the log says of the turn"
         );
     }
 
@@ -20154,11 +20731,14 @@ mod tests {
         // request), on the real `turn_loop`. Three submissions: a prompt
         // stopped in its catalog wait before its request (`WindowRetry`), a
         // `/compact` queued behind it, and a prompt after them. A Ctrl-C
-        // quoting the first two, 300 ms in: the compaction the stop dropped
-        // before it began is told the band once, `Dropped`, inside the stop
+        // quoting the first two, sent when the band hears the first turn
+        // start, as [`first_of_two_and_a_stop`] sends one, on the paused
+        // clock a retry run takes: the compaction the stop dropped before it
+        // began is told the band once, `Dropped`, inside the stop
         // (`Queue::abandon` -> `try_send_terminal`), before the next turn
         // starts; and every place is given back.
         let (_home, _workspace, state, first, held) = waiting_in(CatalogWait::WindowRetry);
+        assert!(matches!(held, Held::Retry(_)), "WindowRetry is a retry");
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(3);
         work_tx.try_send(first).expect("room");
         work_tx.try_send(TurnWork::Compact).expect("room");
@@ -20170,14 +20750,9 @@ mod tests {
         let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         let (events, mut seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
         let outstanding = AtomicUsize::new(3);
-        let stopper = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
-            let _ = control_tx.send(TurnControl::Cancel { through: 2 });
-            // Held until the loop has run out of work: a closed control
-            // channel is no stop.
-            std::thread::sleep(Duration::from_secs(8));
-        });
-        let log = on_a_runtime(async {
+        let (deadline, mut due) = WallDeadline::start(RUN_DEADLINE);
+        // A retry: on the paused clock, its gate let go after the run.
+        let log = held.run(true, |_, _| async {
             let run = turn_loop(
                 state,
                 &events,
@@ -20191,23 +20766,30 @@ mod tests {
                 let mut log = Vec::new();
                 let mut ends = 0;
                 while ends < 2 {
-                    match tokio::time::timeout(TEST_DRAIN, seen.recv()).await {
-                        Ok(Some(event)) => {
-                            if matches!(event, UiEvent::TurnEnded { .. }) {
-                                ends += 1;
-                            }
-                            log.push(event);
+                    let event = tokio::select! {
+                        biased;
+                        event = seen.recv() => event,
+                        Ok(()) = &mut due => None,
+                    };
+                    let Some(event) = event else { break };
+                    match &event {
+                        UiEvent::TurnStarted { submission: 1 } => {
+                            let _ = control_tx.send(TurnControl::Cancel { through: 2 });
                         }
-                        _ => break,
+                        UiEvent::TurnEnded { .. } => ends += 1,
+                        _ => {}
                     }
+                    log.push(event);
                 }
                 log
             };
             let (_, log) = tokio::join!(run, watch);
             log
         });
-        drop(stopper);
-        drop(held);
+        drop(deadline);
+        // Held until the loop has run out of work: a closed control channel
+        // is the session's end, which stops every turn.
+        drop(control_tx);
         let mut ends = Vec::new();
         let mut started = 0;
         let mut compactions = Vec::new();

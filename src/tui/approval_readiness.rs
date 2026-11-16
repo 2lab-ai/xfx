@@ -6,7 +6,7 @@
 //! target, its three controls and what "always" would grant reach the terminal,
 //! and is that frame still what the terminal is showing.**
 //!
-//! Three properties, and each is here because leaving it out is a way to grant
+//! Four properties, and each is here because leaving it out is a way to grant
 //! against nothing:
 //!
 //! * **Disclosure is decided at composition, from the source text and the rows
@@ -25,6 +25,14 @@
 //!   `super::frame::Commit::NoChange` says the screen already holds these bytes,
 //!   which is proof only if something proved them before -- for this same
 //!   request, at this same size, in this same layout.
+//! * **A change the frame has not shown yet holds every grant back.** A marker
+//!   moved, a draft typed into, the change walked: until a frame composed after
+//!   it is proven, an Enter would answer what nobody has seen -- Down and Enter
+//!   in one read would grant `Always` under a frame that marked `Apply once`.
+//!   fx v0.0.16's one condition, no modal frame pending (`settledForApproval`,
+//!   `render_request.zig:172-177@481104fd`), which fx asks of a file approval
+//!   only (`input_approval_runtime.zig:191-192`) and xfx of every one
+//!   ([`Readiness::changed`]).
 //!
 //! Pure state: no I/O, no `Shell`, no `Band`. What calls it is
 //! `super::shell::Shell`, and where each call sits in a tick is
@@ -101,9 +109,11 @@ pub(crate) struct Disclosure {
 ///
 /// The **identity of a screen** as far as readiness is concerned: which
 /// question, on which plane, at which size, laid out how. Deliberately not the
-/// cursor -- a marker that moved repaints and re-earns a receipt through
-/// [`Outcome::Painted`], and treating that as a different screen would revoke a
-/// grant for a keystroke that disclosed nothing new.
+/// cursor -- a marker that moved does not make it another screen, so a repaint
+/// that wrote nothing still keeps the receipt ([`Readiness::landed`]). What the
+/// marker, the caret and the draft hold is the `revision` the composition was
+/// made at, and a receipt answers only for the revision it shows
+/// ([`Readiness::changed`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Intent {
     id: ApprovalId,
@@ -111,6 +121,19 @@ pub(crate) struct Intent {
     cols: u16,
     rows: u16,
     disclosure: Disclosure,
+    /// [`Readiness`]'s count of changes when this was composed, stamped by
+    /// [`Readiness::intend`].
+    revision: u64,
+}
+
+impl Intent {
+    /// The same screen, whatever revision either shows.
+    fn same_screen(&self, other: &Intent) -> bool {
+        Intent {
+            revision: other.revision,
+            ..self.clone()
+        } == *other
+    }
 }
 
 impl Intent {
@@ -139,6 +162,7 @@ impl Intent {
             cols,
             rows,
             disclosure,
+            revision: 0,
         })
     }
 }
@@ -166,6 +190,9 @@ pub(crate) struct Readiness {
     /// So the shell can say *why* an affirmative is impossible rather than
     /// gating in silence.
     undisclosed: bool,
+    /// How many times what the question shows has changed
+    /// ([`Self::changed`]).
+    revision: u64,
 }
 
 impl Readiness {
@@ -186,7 +213,12 @@ impl Readiness {
     pub(crate) fn intend(&mut self, intent: Option<Intent>) {
         self.undisclosed = intent.is_none();
         match intent {
-            Some(intent) => self.pending = Some(intent),
+            Some(intent) => {
+                self.pending = Some(Intent {
+                    revision: self.revision,
+                    ..intent
+                })
+            }
             // Everything, `seen` included: it is the one piece of state a later
             // receipt may lean on rather than re-earn.
             None => self.invalidate(),
@@ -199,9 +231,11 @@ impl Readiness {
     /// receipt: the post-write check is [`Self::reconcile`]'s.
     ///
     /// `Unchanged` keeps a standing receipt only when the composition it was
-    /// asked to repaint **is** that receipt. A zero-byte repaint is the screen
-    /// saying it already holds these bytes, which proves nothing on its own --
-    /// so it can never grant first-time readiness.
+    /// asked to repaint **is** that receipt's screen. A zero-byte repaint is
+    /// the screen saying it already holds these bytes, which proves nothing on
+    /// its own -- so it can never grant first-time readiness. Kept, the receipt
+    /// takes the composition's revision: the screen holds what is current (a
+    /// marker moved and moved back, a caret sent to where it was).
     pub(crate) fn landed(&mut self, outcome: Outcome) {
         let pending = self.pending.take();
         match outcome {
@@ -209,7 +243,15 @@ impl Readiness {
             // Retained only for the *same* screen: same request, same plane,
             // same size, same layout. Anything else is the screen saying it
             // already holds bytes nobody proved, so both go.
-            Outcome::Unchanged if self.receipt.is_some() && self.receipt == pending => {}
+            Outcome::Unchanged
+                if self
+                    .receipt
+                    .as_ref()
+                    .zip(pending.as_ref())
+                    .is_some_and(|(receipt, pending)| receipt.same_screen(pending)) =>
+            {
+                self.receipt = pending;
+            }
             Outcome::Unchanged => {
                 self.provisional = None;
                 self.receipt = None;
@@ -264,15 +306,45 @@ impl Readiness {
         self.seen = None;
     }
 
-    /// Whether an affirmative answer to `id` may be taken at this size.
+    /// What the question shows changed -- its marker, a draft, the part of
+    /// the change in view -- and no frame has shown it yet.
+    ///
+    /// fx v0.0.16's one condition: no affirmative while a modal frame is
+    /// pending (`settledForApproval`, `render_request.zig:172-177@481104fd`;
+    /// `reasonsAffectApproval`, `:367-370`), which every such change asks for
+    /// (`input_approval_runtime.zig:86`, `:117`; `app_input_runtime.zig:1251-1255`).
+    /// Not a revocation: the receipt stands, and the next frame composed after
+    /// this, once proven, answers for it. **For every approval** -- fx asks it of
+    /// a file approval only (`input_approval_runtime.zig:191-192`); a grant
+    /// widened past what the frame showed is a safety matter on any. The one
+    /// place to restrict it to files is its caller, `Shell::approval_changed`.
+    pub(crate) fn changed(&mut self) {
+        self.revision += 1;
+    }
+
+    /// The receipt for `id` at this size, whatever revision it shows.
+    fn proven(&self, id: ApprovalId, cols: u16, rows: u16) -> Option<&Intent> {
+        self.receipt.as_ref().filter(|receipt| {
+            receipt.id == id
+                && receipt.cols == cols
+                && receipt.rows == rows
+                && (receipt.disclosure.change_visible || self.seen == Some((id, cols, rows)))
+        })
+    }
+
+    /// Whether an affirmative answer to `id` may be taken at this size: a
+    /// proven frame, and nothing changed since it was composed.
     pub(crate) fn ready(&self, id: ApprovalId, cols: u16, rows: u16) -> bool {
-        let Some(receipt) = self.receipt.as_ref() else {
-            return false;
-        };
-        receipt.id == id
-            && receipt.cols == cols
-            && receipt.rows == rows
-            && (receipt.disclosure.change_visible || self.seen == Some((id, cols, rows)))
+        self.proven(id, cols, rows)
+            .is_some_and(|receipt| receipt.revision == self.revision)
+    }
+
+    /// Whether the only thing between `id` and an answer is a change the
+    /// screen has not shown yet ([`Self::changed`]): the next frame settles
+    /// it, so there is nothing to tell the user.
+    pub(crate) fn unshown(&self, id: ApprovalId, cols: u16, rows: u16) -> bool {
+        self.proven(id, cols, rows)
+            .is_some_and(|receipt| receipt.revision != self.revision)
     }
 
     /// Why an affirmative is impossible at this size, for the notice.
@@ -434,6 +506,76 @@ mod tests {
         assert!(
             !readiness.ready(ApprovalId(7), 80, 24),
             "a different layout is a different screen"
+        );
+    }
+
+    #[test]
+    fn a_change_holds_every_grant_until_a_frame_composed_after_it_is_proven() {
+        let mut readiness = granted(7);
+        readiness.changed();
+        assert!(
+            !readiness.ready(ApprovalId(7), 80, 24),
+            "a change no frame showed was answerable"
+        );
+        assert!(readiness.unshown(ApprovalId(7), 80, 24));
+        readiness.intend(intent(7));
+        readiness.landed(Outcome::Painted);
+        assert!(
+            !readiness.ready(ApprovalId(7), 80, 24),
+            "a frame showing it is written, not yet proven"
+        );
+        readiness.reconcile(80, 24, false);
+        assert!(readiness.ready(ApprovalId(7), 80, 24));
+        assert!(!readiness.unshown(ApprovalId(7), 80, 24));
+    }
+
+    #[test]
+    fn a_frame_composed_before_a_change_does_not_settle_it() {
+        let mut readiness = granted(7);
+        readiness.intend(intent(7));
+        readiness.changed();
+        readiness.landed(Outcome::Painted);
+        readiness.reconcile(80, 24, false);
+        assert!(
+            !readiness.ready(ApprovalId(7), 80, 24),
+            "a frame composed before the change answered for it"
+        );
+        readiness.intend(intent(7));
+        readiness.landed(Outcome::Painted);
+        readiness.reconcile(80, 24, false);
+        assert!(readiness.ready(ApprovalId(7), 80, 24));
+    }
+
+    #[test]
+    fn a_repaint_that_wrote_nothing_settles_a_change_it_already_shows() {
+        // A marker moved and moved back, or a caret sent to where it was: the
+        // frame composed after it is the bytes already on the screen, so the
+        // screen shows what is current. A receipt that kept its old revision
+        // here would refuse every Enter until some other change repainted.
+        let mut readiness = granted(7);
+        readiness.changed();
+        readiness.intend(intent(7));
+        readiness.landed(Outcome::Unchanged);
+        assert!(readiness.ready(ApprovalId(7), 80, 24));
+        // And never for another screen: that drops the receipt as before.
+        readiness.changed();
+        readiness.intend(intent(9));
+        readiness.landed(Outcome::Unchanged);
+        assert!(!readiness.ready(ApprovalId(7), 80, 24));
+        assert!(!readiness.unshown(ApprovalId(7), 80, 24));
+    }
+
+    #[test]
+    fn a_change_with_nothing_proven_is_not_unshown_but_unready() {
+        let mut readiness = Readiness::default();
+        readiness.changed();
+        assert!(!readiness.unshown(ApprovalId(7), 80, 24));
+        assert!(!readiness.ready(ApprovalId(7), 80, 24));
+        let mut other = granted(7);
+        other.changed();
+        assert!(
+            !other.unshown(ApprovalId(8), 80, 24),
+            "another request's receipt is no receipt"
         );
     }
 

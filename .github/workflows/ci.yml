@@ -50,13 +50,16 @@ jobs:
       # its archive, not to replace it with a build that is never run.
       #
       # `script_tests` marks one row per OS for the tests of the gate scripts
-      # themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
-      # test-preview-contract.sh and test-check-no-local-paths.sh). They exercise the OS's bash, grep, git
-      # and getconf -- bash 3.2 and BSD grep on macOS, GNU grep on Linux --
-      # and build nothing for the target, so a second row of the same OS
-      # repeats them on the same userland. On the x86_64 macOS row they would
-      # have cost minutes against its 60-minute timeout (PR #80: 47m29s). The
-      # gates themselves (every check-*.sh) still run on every row.
+      # themselves: test-gate-env.sh (which also runs test-check-no-secrets.sh
+      # whole), test-preview-contract.sh, test-check-no-local-paths.sh,
+      # test-early-stop.sh and check-env-reads.py --self-test. They exercise
+      # the OS's own tools -- bash, grep, git and getconf (BSD grep on macOS,
+      # GNU grep on Linux), and the self-test python and clippy on its
+      # fixtures -- and no build of xfx for the target, so a second row of the
+      # same OS repeats them on the same userland. On the x86_64 macOS row
+      # they would have cost minutes against its 60-minute timeout (PR #80:
+      # 47m29s). The gates themselves (every check-*.sh) still run on every
+      # row.
       #
       # `part` splits one target's gate over two jobs on two runners of the
       # same label, both on the commit under test: `checks` runs the steps up
@@ -70,6 +73,13 @@ jobs:
       # the other rows have room and keep one job each, because GitHub-hosted
       # macOS runners are scarce (`macos-15` jobs have been cancelled waiting
       # for one). A split row carries `script_tests` on its `checks` part only.
+      #
+      # The gate scripts start `#!/usr/bin/env bash`: they run the first bash
+      # on PATH. `bash32` puts a link to /bin/bash first on PATH for the rest
+      # of that row's steps, so the macOS script-test row runs them under the
+      # bash macOS ships, where the EXIT-trap class shows (a stopped script
+      # exiting 0; scripts/test-early-stop.sh). The step after it prints, on
+      # each script-test row, the bash they then run.
       matrix:
         include:
           - runner: ubuntu-24.04
@@ -80,6 +90,7 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
             script_tests: true
+            bash32: true
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             part: checks
@@ -87,10 +98,14 @@ jobs:
             target: x86_64-apple-darwin
             part: release
     steps:
+      # No step after this one talks to the remote, so the token the
+      # checkout uses is not left in `.git/config`, where a test's git -- whose
+      # HOME is a fresh empty one -- would still find it.
       - name: Check out the exact commit
         uses: actions/checkout@v4
         with:
           ref: ${{ env.COMMIT_UNDER_TEST }}
+          persist-credentials: false
 
       # `build.rs` resolves the revision with `git rev-parse HEAD`, so the
       # checkout above is also what ends up in `xfx status`. Asserting it here
@@ -110,8 +125,8 @@ jobs:
 
       - name: Install the pinned toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy
+          rustup default 1.99.1
           rustc --version
           cargo --version
 
@@ -123,6 +138,35 @@ jobs:
             exit 1
           fi
 
+      # Only if /bin/bash is bash 3.2: on another the row would not run the
+      # class it is here for, and says so.
+      - name: The gate scripts run /bin/bash
+        if: matrix.bash32
+        run: |
+          version="$(/bin/bash -c 'printf %s "$BASH_VERSION"')"
+          case "$version" in
+          3.2.*) echo "/bin/bash is bash $version" ;;
+          *)
+            echo "/bin/bash is bash $version, not 3.2" >&2
+            exit 1
+            ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/bash32"
+          ln -sf /bin/bash "$RUNNER_TEMP/bash32/bash"
+          printf '%s\n' "$RUNNER_TEMP/bash32" >>"$GITHUB_PATH"
+
+      # What `#!/usr/bin/env bash` runs here, from a script that starts so.
+      - name: Which bash the gate scripts run
+        if: matrix.script_tests
+        run: |
+          # shellcheck disable=SC2016 # the script's own expansions
+          printf '%s\n' '#!/usr/bin/env bash' \
+            'printf "#!/usr/bin/env bash runs %s, bash %s\n" "$BASH" "$BASH_VERSION"' >"$RUNNER_TEMP/which-bash"
+          chmod 755 "$RUNNER_TEMP/which-bash"
+          "$RUNNER_TEMP/which-bash"
+          printf 'command -v bash: %s\n' "$(command -v bash)"
+          bash --version | sed -n 1p
+
       - name: Formatting
         if: matrix.part != 'release'
         run: cargo fmt --check
@@ -130,6 +174,30 @@ jobs:
       - name: Lints
         if: matrix.part != 'release'
         run: cargo clippy --locked --all-targets -- -D warnings
+
+      # Clippy refuses every read of the process environment and every start
+      # of a child but where an allow lets one through. This runs it again
+      # with the lint forced on, so no allow of any spelling -- a group,
+      # `warnings`, `expect`, `cfg_attr`, a crate-level one -- hides a read,
+      # and holds each it lets through to a list: an `env_exception!`, whose
+      # names are literals, to its file and names; a start to its file; an
+      # `env!` to a name cargo or build.rs sets. It runs clippy in the dev
+      # and release profiles, each with the default and with all features,
+      # so the release part of a split row needs no run of its own: release
+      # code is checked here.
+      - name: Every read of the environment clippy lets through is listed
+        if: matrix.part != 'release'
+        run: python3 -I scripts/check-env-reads.py
+
+      # The check above is worth its `OK` only while it refuses what it was
+      # written to refuse: each way round the rule a review found -- a
+      # renamed import, an alias of an alias, a closure, a shadowed constant,
+      # a crate-level allow, a constant passed to the macro -- is a fixture,
+      # compiled with the real macro under the real clippy.toml, and each
+      # must be refused for its reason.
+      - name: The environment check refuses every way round it
+        if: matrix.script_tests
+        run: python3 -I scripts/check-env-reads.py --self-test
 
       - name: Tests
         if: matrix.part != 'release'
@@ -212,6 +280,16 @@ jobs:
       - name: The preview contract catches every mutant it exists for
         if: matrix.script_tests
         run: ./scripts/test-preview-contract.sh
+
+      # Under bash 3.2.57 a gate script stopped by an error of its own left
+      # through its EXIT trap with status 0: a pass that looked at nothing.
+      # Every gate script with an EXIT trap now fails such a stop. This stops
+      # test-gate-env.sh and smoke.sh right after they install theirs; the
+      # other gates' cases are in their own tests. The macOS row runs it under
+      # /bin/bash (`bash32`).
+      - name: A gate script that stops early fails
+        if: matrix.script_tests
+        run: ./scripts/test-early-stop.sh
 
       # The TUI output check runs in front of every frame a released binary
       # writes, so its cost is a property of the product rather than a number in

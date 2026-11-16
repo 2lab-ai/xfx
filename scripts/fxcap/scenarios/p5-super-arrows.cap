@@ -1,0 +1,127 @@
+# COMPOSER-SUPER-ARROWS: Left, Right, Home and End held, in the composer, as
+# fx v0.0.16 decodes them (modifiedArrowAction, escape_parser.zig:73-108
+# @481104fd): Super first -- Left and Right line_start/line_end whatever else
+# is held, Home and End draft_start/draft_end -- then Alt, whose arm has no
+# Home or End and leaves the plain key, then Ctrl (Home and End the draft's
+# edges), then Shift (the line's). The tilde Home and End are the line's with
+# any modifier and the draft's with Ctrl (:699-707), Super or not. The
+# composer moves the caret and nothing else (app_input_runtime.zig:298-309;
+# horizontal_navigation.zig:29-38), the line being the one the line breaks
+# delimit (text_boundaries.zig:79-89), not the screen row.
+#
+# First `/statusline`, a compact menu, which acts on the plain arrows alone
+# (app_input_runtime.zig:2228-2263): Super-Left, Super-Right and Ctrl-Home
+# leave its mark and its values. Then the draft
+# `one two/<a line of 249 cells, wrapped over three rows>/the end`, the caret
+# on the wrapped line's last row, seven cells in (Up from the end of `the
+# end`), and each key on its own, each followed by its own letter. Shift-Home
+# and Shift-End select what they cross in fx (COMPOSER-SELECTION-EXTEND): a
+# `cursor` line each, then the plain Home or End, which ends fx's selection
+# where the caret already is, before any letter.
+wait 2.5
+xfx: wait 3
+type /statusline
+key Enter
+wait 0.7
+snap statusline
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+snap statusline-super-left
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+snap statusline-super-right
+key -H 1b 5b 31 3b 35 48
+wait 0.4
+snap statusline-ctrl-home
+key Escape
+wait 0.7
+type one two
+key C-j
+type abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd abcd
+key C-j
+type the end
+key Up
+wait 0.5
+cursor draft
+snap draft
+# Super-Left from the wrapped line's last row: its first row's start (`A`).
+key -H 1b 5b 31 3b 39 44
+wait 0.4
+type A
+wait 0.4
+snap super-left
+# Super-Right from there: the wrapped line's end, on its last row (`B`).
+key -H 1b 5b 31 3b 39 43
+wait 0.4
+type B
+wait 0.4
+snap super-right
+# Ctrl-Home: the draft's start (`C`).
+key -H 1b 5b 31 3b 35 48
+wait 0.4
+type C
+wait 0.4
+snap ctrl-home
+# Super-End: the draft's end (`D`).
+key -H 1b 5b 31 3b 39 46
+wait 0.4
+type D
+wait 0.4
+snap super-end
+# Ctrl-Super-Left from `the e|ndD`: Super wins, the line's start (`E`).
+key Left Left Left
+key -H 1b 5b 31 3b 31 33 44
+wait 0.4
+type E
+wait 0.4
+snap ctrl-super-left
+# Alt-Super-Right from `Eth|e endD`: the line's end (`F`).
+key Right Right
+key -H 1b 5b 31 3b 31 31 43
+wait 0.4
+type F
+wait 0.4
+snap alt-super-right
+# Up to the wrapped line's last row; Shift-Home and Shift-End, a cursor line
+# each; then Alt-Home, the plain Home (`G`).
+key Up
+wait 0.4
+key -H 1b 5b 31 3b 32 48
+wait 0.4
+cursor shift-home
+key Home
+key -H 1b 5b 31 3b 32 46
+wait 0.4
+cursor shift-end
+key End
+key -H 1b 5b 31 3b 33 48
+wait 0.4
+type G
+wait 0.4
+snap alt-home
+# Ctrl-Alt-Home two cells in: Alt's arm, the plain Home again (`H`).
+key Right Right
+key -H 1b 5b 31 3b 37 48
+wait 0.4
+type H
+wait 0.4
+snap ctrl-alt-home
+# The tilde Ctrl-Home: the draft's start (`I`).
+key -H 1b 5b 31 3b 35 7e
+wait 0.4
+type I
+wait 0.4
+snap tilde-ctrl-home
+# The tilde Super-End: the line's end, Super being no bit the tilde reads
+# (`J`).
+key -H 1b 5b 34 3b 39 7e
+wait 0.4
+type J
+wait 0.4
+snap tilde-super-end
+# The keypad's Ctrl-End (kitty's code): the draft's end (`K`).
+key -H 1b 5b 35 37 34 32 34 3b 35 75
+wait 0.4
+type K
+wait 0.4
+snap keypad-ctrl-end

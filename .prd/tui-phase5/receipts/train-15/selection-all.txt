@@ -1,0 +1,131 @@
+# train 15's sweep selection: the brief's globs, then the scenarios named by the ledger entries the merges and the ledger commits after them (2ff302c5, ed92e515, b10ca771, 88e83a68, 07eefa89, a14df710) touched, then the scenarios the merges added
+composer*
+p5-modified-*
+p5-paragraph-*
+p5-super-arrows*
+p5-page-keys*
+p5-input-*
+fulltranscript*
+p5-transcript*
+approval*
+p5-approval*
+question*
+p5-question*
+cancel*
+p5-cancel*
+# 2ff302c5 (a merge): 0 entries
+# ed92e515 (a merge): 2 entries
+#   cause fulltranscript-response-header (added): p5-modified-page-keys, p5-modified-arrows-full, p5-transcript-md, p5-transcript-md-light
+#   cause question-resume-ctrlo-detail (changed): p5-question-resume-ctrlo
+# b10ca771 (a merge): 4 entries
+#   cause full-transcript-shift (changed): fulltranscript, fulltranscript-notice, links, read-failures, resume-tools, timeout
+#   cause fulltranscript-response-header (removed): p5-modified-page-keys, p5-modified-arrows-full, p5-transcript-md, p5-transcript-md-light
+#   cause question-resume-ctrlo-detail (changed): p5-question-resume-ctrlo
+#   cause session-record-page-bottom (added): p5-transcript-md, p5-transcript-md-light, p5-modified-page-keys
+# 88e83a68 (a merge): 2 entries
+#   cause approval-settled-every-approval (added): p5-approval-readiness-settled
+#   cause rule-confirm-card-after-stop (added): p5-rule-confirm-keys-turn
+# 07eefa89 (a merge): 0 entries
+# a14df710 (a merge): 3 entries
+#   normalization capture-tmpdir (changed): names no scenario
+#   normalization run-directory (changed): names no scenario
+#   normalization tmux-dead-pane (changed): names no scenario
+# da8e4c1a (the re-point: listed, not selected): 18 entries
+#   cause activity-tokens-before-request (changed): model-parked
+#   cause amendment-card-after-stop (changed): approvals
+#   cause answer-modifier-sequence-wider (changed): p5-ctrlo-wider-mod
+#   cause at-resize-band-at-the-bottom (changed): p5-input-at-resize
+#   cause cancel-page-edge (changed): p5-transcript-cancel
+#   cause full-transcript-shift (changed): fulltranscript, fulltranscript-notice, links, read-failures, resume-tools, timeout
+#   cause profile-refuse-at-launch (changed): p5-panels-badsettings
+#   cause resize-document-repaint (changed): p5-ctrlo-wider-inline-fam, h1-resize
+#   cause rule-confirm-card-after-stop (changed): p5-rule-confirm-keys-turn
+#   cause safe-page-edge (changed): p5-transcript-safe, p5-transcript-safetab
+#   cause session-record (changed): *
+#   cause session-record-page-bottom (changed): p5-transcript-md, p5-transcript-md-light, p5-modified-page-keys
+#   cause stats-bytes (changed): *
+#   cause toolgroup-ctrlo-record-short (changed): p5-toolgroup-ctrlo, p5-toolgroup-ctrlo-tc
+#   cause transcript-page-offset (changed): p5-transcript-anchor, p5-transcript-anchormid, p5-transcript-resize, p5-transcript-records, p5-transcript-question
+#   divergence answer-drawn-wider-named (changed): p5-ctrlo-wider-inline-fam
+#   divergence answer-label-and-modifier-named (changed): p5-ctrlo-wider-fence, p5-ctrlo-wider-mod
+#   divergence ctrl-o-drawn-wider-named (changed): p5-ctrlo-wider-diff-fam
+# fulltranscript: in the brief's globs already
+# fulltranscript-notice: in the brief's globs already
+links
+# p5-approval-readiness-settled: in the brief's globs already
+# p5-modified-arrows-full: in the brief's globs already
+# p5-modified-page-keys: in the brief's globs already
+# p5-question-resume-ctrlo: in the brief's globs already
+p5-rule-confirm-keys-turn
+# p5-transcript-md: in the brief's globs already
+# p5-transcript-md-light: in the brief's globs already
+read-failures
+resume-tools
+timeout
+# p5-decoder-tilde-home-end: added by ed92e515
+p5-decoder-tilde-home-end
+# p5-modified-arrows-full: added by ed92e515, selected already
+# p5-modified-arrows-question: added by ed92e515, selected already
+# p5-modified-page-keys: added by ed92e515, selected already
+# p5-paragraph-move-column: added by ed92e515, selected already
+# p5-paragraph-move-menus: added by ed92e515, selected already
+# p5-paragraph-move: added by ed92e515, selected already
+# p5-super-arrows-approval: added by ed92e515, selected already
+# p5-super-arrows-question: added by ed92e515, selected already
+# p5-super-arrows: added by ed92e515, selected already
+# p5-tilde-empty-modifier: added by ed92e515
+p5-tilde-empty-modifier
+# fulltranscript-response-split: added by b10ca771, selected already
+# p5-approval-ctrl-j-panel: added by 88e83a68, selected already
+# p5-approval-ctrl-j: added by 88e83a68, selected already
+# p5-approval-draft-keys: added by 88e83a68, selected already
+# p5-approval-readiness-settled: added by 88e83a68, selected already
+# p5-rule-confirm-keys-cmd: added by 88e83a68
+p5-rule-confirm-keys-cmd
+# p5-rule-confirm-keys-turn: added by 88e83a68, selected already
+# p5-rule-confirm-keys: added by 88e83a68
+p5-rule-confirm-keys
+# p5-question-ctrl-j-panel: added by 07eefa89, selected already
+# p5-question-ctrl-j: added by 07eefa89, selected already
+# train 15's extra selection: the scenarios the da8e4c1a re-point's entries name that the first selection (selection-all.txt) did not take
+# *: every scenario (session-record, stats-bytes): left out
+# approvals (amendment-card-after-stop): in the first selection
+# fulltranscript (full-transcript-shift): in the first selection
+# fulltranscript-notice (full-transcript-shift): in the first selection
+# h1-resize: resize-document-repaint
+h1-resize
+# links (full-transcript-shift): in the first selection
+# model-parked: activity-tokens-before-request
+model-parked
+# p5-ctrlo-wider-diff-fam: ctrl-o-drawn-wider-named
+p5-ctrlo-wider-diff-fam
+# p5-ctrlo-wider-fence: answer-label-and-modifier-named
+p5-ctrlo-wider-fence
+# p5-ctrlo-wider-inline-fam: resize-document-repaint, answer-drawn-wider-named
+p5-ctrlo-wider-inline-fam
+# p5-ctrlo-wider-mod: answer-modifier-sequence-wider, answer-label-and-modifier-named
+p5-ctrlo-wider-mod
+# p5-input-at-resize (at-resize-band-at-the-bottom): in the first selection
+# p5-modified-page-keys (session-record-page-bottom): in the first selection
+# p5-panels-badsettings: profile-refuse-at-launch
+p5-panels-badsettings
+# p5-rule-confirm-keys-turn (rule-confirm-card-after-stop): in the first selection
+# p5-toolgroup-ctrlo: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo
+# p5-toolgroup-ctrlo-tc: toolgroup-ctrlo-record-short
+p5-toolgroup-ctrlo-tc
+# p5-transcript-anchor (transcript-page-offset): in the first selection
+# p5-transcript-anchormid (transcript-page-offset): in the first selection
+# p5-transcript-cancel (cancel-page-edge): in the first selection
+# p5-transcript-md (session-record-page-bottom): in the first selection
+# p5-transcript-md-light (session-record-page-bottom): in the first selection
+# p5-transcript-question (transcript-page-offset): in the first selection
+# p5-transcript-records (transcript-page-offset): in the first selection
+# p5-transcript-resize (transcript-page-offset): in the first selection
+# p5-transcript-safe (safe-page-edge): in the first selection
+# p5-transcript-safetab (safe-page-edge): in the first selection
+# read-failures (full-transcript-shift): in the first selection
+# resume-tools (full-transcript-shift): in the first selection
+# timeout (full-transcript-shift): in the first selection
+# train 15's extra selection: the scenarios the 2c575f52 re-point's entries name that the first selection (selection-all.txt) did not take
+# *: every scenario (status-panel-sandbox, status-panel-step-limit, status-panel-updates): left out

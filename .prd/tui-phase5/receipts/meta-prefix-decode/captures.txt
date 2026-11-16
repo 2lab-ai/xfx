@@ -1,0 +1,10 @@
+# What fx/, red/ and xfx/ were captured with, at 40x120, the three sides in one run under the suite lock:
+#   FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx <scenario> 40x120 fx
+#   XFX_BIN=<the base's build> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 red
+#   XFX_BIN=<the code head's build> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx <scenario> 40x120 xfx
+# then each run's gateway log and request bodies left out (no claim rests on them).
+fx    v0.0.16, sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 (capture.sh's guard: unchanged before and after each run), FX_AUTO_UPGRADE=0
+red   xfx built at df45025c (the base), XFX_BUILD_REVISION set to it, banner `v0.1.0-df45025 [debug]`, sha256 6ca5732b40c5b75b58ae808f307b0a71f26ac3f27d9e901beb7fafca8e5111d1
+xfx   xfx built at 47fccd97 (the code head), XFX_BUILD_REVISION set to it, banner `v0.1.0-47fccd9 [debug]`, sha256 91d446f5d2130b66fe87d93c49daa1665293dfbc8bda62bb9ec70512c2b32dd7
+scenarios: p5-cancel-double-escape (6 snaps), p5-cancel-double-escape-turn (5 snaps), p5-modified-meta-prefix (14 snaps), scripts/fxcap/scenarios/ at 47fccd97
+first fx run (before 47fccd97, not kept): the same scenarios as c76e5a51 committed them; its b-burst-kept and d-burst-kept snaps showed the draft cleared and its b-burst-running the turn cancelled, which is what 47fccd97 corrected (README)

@@ -1,0 +1,16 @@
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+index 38ccfbb9..7d479304 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -3869,6 +3869,11 @@ async fn run_turn(
+         submission: queue.taken,
+     };
+     let _ = bridge::send_ui(events, &turn.token, started).await;
++    // SCRATCH ONLY (catalog-wait-clock RED): the loop's thread off the CPU
++    // for XFX_SCRATCH_TURN_STALL_MS right after the turn starts.
++    if let Some(ms) = std::env::var("XFX_SCRATCH_TURN_STALL_MS").ok().and_then(|v| v.parse::<u64>().ok()) {
++        std::thread::sleep(std::time::Duration::from_millis(ms));
++    }
+     // The title answers, held by the turn while it holds the runtime: the
+     // first prompt's question is asked as it is submitted, and an answer that
+     // waited for the turn to end would keep the window on the workspace's

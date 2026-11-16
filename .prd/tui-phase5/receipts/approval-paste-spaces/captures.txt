@@ -1,0 +1,9 @@
+# What fx/, red/ and xfx/ were captured with, at 40x120, each run under the suite lock:
+#   FX_BIN=<fx v0.0.16> TMPDIR=<tmp> scripts/fxcap/capture.sh fx p5-approval-paste-spaces 40x120 fx
+#   XFX_BIN=<the base's build> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx p5-approval-paste-spaces 40x120 red
+#   XFX_BIN=<the code head's build> TMPDIR=<tmp> scripts/fxcap/capture.sh xfx p5-approval-paste-spaces 40x120 xfx
+# then each run's gateway log and request bodies left out (no claim rests on them).
+fx    v0.0.16, sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2 (capture.sh's guard: unchanged before and after each run), FX_AUTO_UPGRADE=0
+red   xfx built at df45025c (the base) in a --no-local clone, banner `v0.1.0-df45025 [debug]`, sha256 b9ab686e150b328730380aeb469744afe34cab7b59ef1fe542a4cdb082ed4a0e
+xfx   xfx built at 9a73d0ba (the code head) in a --no-local clone, banner `v0.1.0-9a73d0b [debug]`, sha256 4e675c9a3f59fa9e8c1e44e49f5bc761e756fc7c2d3be61857f29f233537f0bd
+scenario: p5-approval-paste-spaces (9 snaps), scripts/fxcap/scenarios/ at b9afbe3b (a5cf9567's with its one `cursor` line dropped; the same nine snaps)

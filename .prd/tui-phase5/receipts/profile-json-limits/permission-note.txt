@@ -1,0 +1,21 @@
+== xfx doctor (binary at 78c0d164), scratch HOME, loopback gateway: the note a permission action fx refuses gets
+-- profile: {"permission": {"bash": {"*": 1e400}}}
+[ok] config: loaded settings from ~/.xfx/settings.json
+[warn] config: user config diagnostic: invalid_value key=permission `1.7976931348623157e+308` is not a permission action; use allow, ask or deny
+-- profile: {"permission": {"bash": {"*": 1.5}}}
+[ok] config: loaded settings from ~/.xfx/settings.json
+[warn] config: user config diagnostic: invalid_value key=permission `1.5` is not a permission action; use allow, ask or deny
+
+== fx v0.0.16 (sha256 8e6cda2e...), the same two profiles, scratch HOME, FX_AUTO_UPGRADE=0, loopback
+-- profile: {"permission": {"bash": {"*": 1e400}}}
+   fx ask hi: exit=1 stderr=fx: InvalidProfileConfiguration|
+   fx status: exit=0 stderr=fx: config user: malformed_settings|
+-- profile: {"permission": {"bash": {"*": 1.5}}}
+   fx ask hi: exit=1 stderr=fx: InvalidProfileConfiguration|
+   fx status: exit=0 stderr=fx: config user: malformed_settings|
+
+== xfx ask (binary at 78c0d164), the same two profiles
+-- profile: {"permission": {"bash": {"*": 1e400}}}
+   xfx ask hi: exit=1 stderr=xfx: InvalidProfileConfiguration|
+-- profile: {"permission": {"bash": {"*": 1.5}}}
+   xfx ask hi: exit=1 stderr=xfx: InvalidProfileConfiguration|

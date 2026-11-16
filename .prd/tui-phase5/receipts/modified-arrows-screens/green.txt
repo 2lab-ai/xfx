@@ -1,0 +1,58 @@
+# Round 2: the unit's tests in round 2's gate run on the clone at 72984456, both suites.
+## test
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
+test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
+test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... ok
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... ok
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::question::tests::ctrl_k_and_alt_backspace_reach_the_answer_as_its_kill_keys ... ok
+## test-fi
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
+test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
+test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... ok
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... ok
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::question::tests::ctrl_k_and_alt_backspace_reach_the_answer_as_its_kill_keys ... ok
+24 of 24 ok
+
+# Round 1 below.
+# The unit's tests in the gate's run at 5e985efb (src/ = 8b5aacaa's but for comments), both suites.
+## test
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
+test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
+test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... ok
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... ok
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::question::tests::ctrl_k_and_alt_backspace_reach_the_answer_as_its_kill_keys ... ok
+## test-fi
+test tui::input::tests::every_modifier_on_the_vertical_arrows_is_kept_apart_from_the_arrow ... ok
+test tui::shell::tests::a_held_arrow_under_the_full_transcript_moves_the_composer_behind_it_not_the_screen ... ok
+test tui::shell::tests::a_held_arrow_at_a_questions_choice_does_nothing_and_in_its_field_is_fxs_move ... ok
+test tui::shell::tests::the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest ... ok
+test tui::shell::tests::alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not ... ok
+test tui::shell::tests::alt_b_in_an_approval_amendment_is_the_word_move ... ok
+test tui::shell::tests::the_horizontal_keys_at_an_approval_choice_are_fxs ... ok
+test tui::shell::tests::the_vertical_spellings_at_an_approval_choice_move_nothing_and_the_arrows_still_do ... ok
+test tui::shell::tests::the_vertical_spellings_in_an_approval_amendment_keep_it_open_as_fxs_do ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_pages_the_composer_behind_the_screen_not_the_screen ... ok
+test tui::shell::tests::a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one ... ok
+test tui::question::tests::ctrl_k_and_alt_backspace_reach_the_answer_as_its_kill_keys ... ok
+24 of 24 ok

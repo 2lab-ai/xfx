@@ -1,0 +1,29 @@
+== python3 -I outcomes.py fx-probe.txt xfx-base-probe.txt (RED: xfx at 9c64ddd3)
+key-upper-ask: status: fx 'ask' xfx 'auto'; json: fx 'ask' xfx 'auto'; doctor: fx 'ask' xfx 'auto'; startup: fx 'ask' xfx 'auto'
+key-upper-full-access: status: fx 'full access' xfx 'auto'; json: fx 'yolo' xfx 'auto'; doctor: fx 'full access' xfx 'auto'; startup: fx 'full access' xfx 'auto'; ask: fx 'full access' xfx 'ran'
+key-full-access-space: status: fx 'full access' xfx 'auto'; json: fx 'yolo' xfx 'auto'; doctor: fx 'full access' xfx 'auto'; startup: fx 'full access' xfx 'auto'; ask: fx 'full access' xfx 'ran'
+key-upper-yolo: status: fx 'full access' xfx 'auto'; json: fx 'yolo' xfx 'auto'; doctor: fx 'full access' xfx 'auto'; startup: fx 'full access' xfx 'auto'; ask: fx 'full access' xfx 'ran'
+key-lower-yolo: status: fx 'full access' xfx 'yolo'; doctor: fx 'full access' xfx 'yolo'; startup: fx 'full access' xfx 'yolo'
+key-padded: status: fx 'auto' xfx 'ask'; json: fx 'auto' xfx 'ask'; doctor: fx 'auto' xfx 'ask'; startup: fx 'auto' xfx 'ask'
+entry-upper-ask: status: fx 'ask' xfx 'auto'; json: fx 'ask' xfx 'auto'; doctor: fx 'ask' xfx 'auto'; startup: fx 'ask' xfx 'auto'
+entry-cap-auto: status: fx 'auto' xfx 'ask'; json: fx 'auto' xfx 'ask'; doctor: fx 'auto' xfx 'ask'; startup: fx 'auto' xfx 'ask'
+entry-upper-full-access: status: fx 'full access' xfx 'ask'; json: fx 'yolo' xfx 'ask'; doctor: fx 'full access' xfx 'ask'; startup: fx 'full access' xfx 'ask'; ask: fx 'full access' xfx 'ran'
+entry-full-access-space: status: fx 'full access' xfx 'ask'; json: fx 'yolo' xfx 'ask'; doctor: fx 'full access' xfx 'ask'; startup: fx 'full access' xfx 'ask'; ask: fx 'full access' xfx 'ran'
+entry-upper-yolo: status: fx 'full access' xfx 'ask'; json: fx 'yolo' xfx 'ask'; doctor: fx 'full access' xfx 'ask'; startup: fx 'full access' xfx 'ask'; ask: fx 'full access' xfx 'ran'
+entry-lower-yolo: status: fx 'full access' xfx 'yolo'; doctor: fx 'full access' xfx 'yolo'; startup: fx 'full access' xfx 'yolo'
+entry-padded: status: fx 'auto' xfx 'ask'; json: fx 'auto' xfx 'ask'; doctor: fx 'auto' xfx 'ask'; startup: fx 'auto' xfx 'ask'
+env-upper-ask: status: fx 'ask' xfx 'auto'; json: fx 'ask' xfx 'auto'; doctor: fx 'ask' xfx 'auto'; startup: fx 'ask' xfx 'auto'
+env-cap-auto: status: fx 'auto' xfx 'ask'; json: fx 'auto' xfx 'ask'; doctor: fx 'auto' xfx 'ask'; startup: fx 'auto' xfx 'ask'
+env-upper-full-access: status: fx 'full access' xfx 'ask'; json: fx 'yolo' xfx 'ask'; doctor: fx 'full access' xfx 'ask'; startup: fx 'full access' xfx 'ask'; ask: fx 'full access' xfx 'ran'
+env-full-access-space: status: fx 'full access' xfx 'ask'; json: fx 'yolo' xfx 'ask'; doctor: fx 'full access' xfx 'ask'; startup: fx 'full access' xfx 'ask'; ask: fx 'full access' xfx 'ran'
+env-upper-yolo: status: fx 'full access' xfx 'ask'; json: fx 'yolo' xfx 'ask'; doctor: fx 'full access' xfx 'ask'; startup: fx 'full access' xfx 'ask'; ask: fx 'full access' xfx 'ran'
+env-lower-yolo: status: fx 'full access' xfx 'yolo'; doctor: fx 'full access' xfx 'yolo'; startup: fx 'full access' xfx 'yolo'
+env-padded: status: fx 'auto' xfx 'ask'; json: fx 'auto' xfx 'ask'; doctor: fx 'auto' xfx 'ask'; startup: fx 'auto' xfx 'ask'
+flag-full-access: ask: fx 'full access' xfx 'parser'
+== 35 fixtures: 14 report the same mode at every entry, 21 do not
+
+== python3 -I outcomes.py fx-probe.txt xfx-head-probe.txt (GREEN: xfx at 9b37d774)
+== 35 fixtures: 35 report the same mode at every entry, 0 do not
+
+== python3 -I outcomes.py fx-probe.txt xfx-head-probe-round2.txt (round 2: xfx at 83ed41a0, src 5891efea)
+== 35 fixtures: 35 report the same mode at every entry, 0 do not

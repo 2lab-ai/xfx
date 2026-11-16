@@ -1,0 +1,184 @@
+# head 2c575f52; sides: main e2fc7e94, train bc9ea199, catalog-wait-clock 72fc9672, decoder df45025c, ftrh fffb3cfe, approval 7c9dfb2e, question-ctrl-j b5cb6f46
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:938]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:197]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:308]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:433]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:124]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:963]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:350]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:71, scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:237, scripts/fxcap/parity-ledger.toml:268, scripts/fxcap/parity-ledger.toml:281, scripts/fxcap/parity-ledger.toml:295, scripts/fxcap/parity-ledger.toml:322, scripts/fxcap/parity-ledger.toml:336, scripts/fxcap/parity-ledger.toml:419]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:62]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:183, scripts/fxcap/parity-ledger.toml:336]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:583, scripts/fxcap/parity-ledger.toml:594]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:801]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:665]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:927]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:765]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:322]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:737]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:451, scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520, scripts/fxcap/parity-ledger.toml:534]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:140, scripts/fxcap/parity-ledger.toml:364, scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:388, scripts/fxcap/parity-ledger.toml:392, scripts/fxcap/parity-ledger.toml:406, scripts/fxcap/parity-ledger.toml:464, scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:813]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:251]
+    main* = row | train* = row | catalog-wait-clock* = row | decoder* = row | ftrh* = row | approval* = row | question-ctrl-j* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+scripts/fxcap/capture.sh:333-335	[scripts/fxcap/parity-ledger.toml:86]
+    main* = | train* = | catalog-wait-clock -> 340-342 | decoder -> 340-342 | ftrh -> 340-342 | approval -> 407-409 | question-ctrl-j -> 340-342
+scripts/fxcap/capture.sh:386-392	[scripts/fxcap/parity-ledger.toml:86]
+    main* = | train* = | catalog-wait-clock -> 393-399 | decoder -> 393-399 | ftrh -> 393-399 | approval -> 671-677 | question-ctrl-j -> 393-399
+scripts/fxcap/capture.sh:446-478	[scripts/fxcap/parity-ledger.toml:79]
+    main* = | train* = | catalog-wait-clock -> 495-527 | decoder -> 495-527 | ftrh -> 495-527 | approval -> 731-763 | question-ctrl-j -> 495-527
+scripts/fxcap/capture.sh:845	[scripts/fxcap/parity-ledger.toml:79]
+    main* = | train -> 868 | catalog-wait-clock -> 1019 | decoder -> 1019 | ftrh -> 1019 | approval -> 1177 | question-ctrl-j -> 1019
+scripts/fxcap/capture.sh:1144	[scripts/fxcap/parity-ledger.toml:86]
+    main* = | train -> 1167 | catalog-wait-clock -> 1321 | decoder -> 1321 | ftrh -> 1321 | approval -> 1516 | question-ctrl-j -> 1321
+scripts/fxcap/capture.sh:1151	[scripts/fxcap/parity-ledger.toml:86]
+    main* = | train -> 1174 | catalog-wait-clock -> 1328 | decoder -> 1328 | ftrh -> 1328 | approval -> 1523 | question-ctrl-j -> 1328
+scripts/fxcap/capture.sh:1324	[scripts/fxcap/parity-ledger.toml:148]
+    main* = | train -> 1347 | catalog-wait-clock -> 1530 | decoder -> 1530 | ftrh -> 1530 | approval -> 1696 | question-ctrl-j -> 1530
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:54]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+scripts/smoke-tui.sh:10483-10498	[docs/parity.md:162, docs/parity.md:237]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval -> 10504-10519 | question-ctrl-j* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/config.rs:850-851	[scripts/fxcap/parity-ledger.toml:552, scripts/fxcap/parity-ledger.toml:553]
+    main* = | train* = | catalog-wait-clock = | decoder = | ftrh = | approval -> 857-858 | question-ctrl-j =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:650, scripts/fxcap/parity-ledger.toml:660, docs/parity.md:237]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/gateway/mod.rs:1005-1006	[docs/parity.md:237]
+    main* = | train* = | catalog-wait-clock -> 1016-1017 | decoder -> 1016-1017 | ftrh -> 1016-1017 | approval -> 1016-1017 | question-ctrl-j -> 1016-1017
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:765]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:251]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:251]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1107, scripts/fxcap/parity-ledger.toml:1215]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/mcp/runtime.rs:1336	[scripts/fxcap/parity-ledger.toml:1107]
+    main* = | train* = | catalog-wait-clock = | decoder = | ftrh = | approval = | question-ctrl-j =
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:916]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:451]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:916]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:799]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/provider/mod.rs:117	[scripts/fxcap/parity-ledger.toml:787]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval -> 118 | question-ctrl-j* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/session/store.rs:74	[docs/parity.md:48]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:961]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1168, docs/parity.md:176]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:592, docs/parity.md:158]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:592, docs/parity.md:158]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:918]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:973]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:799, scripts/fxcap/parity-ledger.toml:834, scripts/fxcap/parity-ledger.toml:846, scripts/fxcap/parity-ledger.toml:857, scripts/fxcap/parity-ledger.toml:868, scripts/fxcap/parity-ledger.toml:904, scripts/fxcap/parity-ledger.toml:949]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:464]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1031]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/frame.rs:2765	[scripts/fxcap/parity-ledger.toml:534]
+    main* = | train* = | catalog-wait-clock -> 2773 | decoder -> 2773 | ftrh -> 2773 | approval -> 2773 | question-ctrl-j -> 2773
+src/tui/frame.rs:2811	[docs/parity.md:244]
+    main* = | train* = | catalog-wait-clock -> 2819 | decoder -> 2819 | ftrh -> 2819 | approval -> 2819 | question-ctrl-j -> 2819
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:364]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/full_transcript.rs:3074	[scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:1031]
+    main -> 3128 | train* = | catalog-wait-clock -> 3138 | decoder -> 3138 | ftrh -> 3084 | approval -> 3138 | question-ctrl-j -> 3138
+src/tui/full_transcript.rs:3125	[scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520]
+    main -> 3179 | train* = | catalog-wait-clock -> 3189 | decoder -> 3189 | ftrh -> 3135 | approval -> 3189 | question-ctrl-j -> 3189
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1202]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1190, scripts/fxcap/parity-ledger.toml:1202]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:1008]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:996, scripts/fxcap/parity-ledger.toml:1044]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval -> 125 | question-ctrl-j* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1214]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:433]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/mod.rs:127-133	[scripts/fxcap/parity-ledger.toml:1177]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/picker.rs:165-167	[docs/parity.md:237]
+    main* = | train* = | catalog-wait-clock = | decoder = | ftrh = | approval = | question-ctrl-j =
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:961]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/shell.rs:183-191	[scripts/fxcap/parity-ledger.toml:45, scripts/fxcap/parity-ledger.toml:46]
+    main* = | train* = | catalog-wait-clock changed | decoder changed | ftrh changed | approval changed | question-ctrl-j changed
+src/tui/shell.rs:1862	[scripts/fxcap/parity-ledger.toml:985]
+    main -> 1867 | train* = | catalog-wait-clock -> 1870 | decoder -> 1870 | ftrh -> 1870 | approval -> 1959 | question-ctrl-j -> 1866
+src/tui/shell.rs:1937	[scripts/fxcap/parity-ledger.toml:893, scripts/fxcap/parity-ledger.toml:895]
+    main -> 1942 | train* = | catalog-wait-clock -> 1945 | decoder -> 1945 | ftrh -> 1945 | approval -> 2034 | question-ctrl-j -> 1941
+src/tui/shell.rs:3828-3845	[scripts/fxcap/parity-ledger.toml:552, scripts/fxcap/parity-ledger.toml:553]
+    main -> 3833-3850 | train* = | catalog-wait-clock -> 3836-3853 | decoder -> 3836-3853 | ftrh -> 3836-3853 | approval -> 3949-3966 | question-ctrl-j -> 3832-3849
+src/tui/shell.rs:4565	[scripts/fxcap/parity-ledger.toml:1137]
+    main -> 4570 | train* = | catalog-wait-clock -> 4573 | decoder -> 4573 | ftrh -> 4573 | approval -> 4787 | question-ctrl-j -> 4569
+src/tui/shell.rs:11069	[scripts/fxcap/parity-ledger.toml:880, scripts/fxcap/parity-ledger.toml:882]
+    main -> 11191 | train* = | catalog-wait-clock -> 11584 | decoder -> 11563 | ftrh -> 11584 | approval -> 11775 | question-ctrl-j -> 11580
+src/tui/shell.rs:14529	[scripts/fxcap/parity-ledger.toml:506]
+    main -> 14703 | train* = | catalog-wait-clock -> 15098 | decoder -> 15042 | ftrh -> 15113 | approval -> 15380 | question-ctrl-j -> 15086
+src/tui/shell.rs:17565	[scripts/fxcap/parity-ledger.toml:694, scripts/fxcap/parity-ledger.toml:1019]
+    main -> 17741 | train* = | catalog-wait-clock -> 18165 | decoder -> 18109 | ftrh -> 18176 | approval -> 18764 | question-ctrl-j -> 18153
+src/tui/shell.rs:49793	[scripts/fxcap/parity-ledger.toml:811, scripts/fxcap/parity-ledger.toml:823, scripts/fxcap/parity-ledger.toml:834, scripts/fxcap/parity-ledger.toml:846, scripts/fxcap/parity-ledger.toml:857, scripts/fxcap/parity-ledger.toml:868, scripts/fxcap/parity-ledger.toml:949]
+    main -> 53171 | train* = | catalog-wait-clock -> 57559 | decoder -> 56409 | ftrh -> 57045 | approval -> 58636 | question-ctrl-j -> 57052
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:904]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:392]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:406]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:350]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:1008]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:478]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+tests/e2e/cli.test.ts:445	[docs/parity.md:244]
+    main* = | train* = | catalog-wait-clock = | decoder = | ftrh = | approval = | question-ctrl-j =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    main* = | train* = | catalog-wait-clock* = | decoder* = | ftrh* = | approval* = | question-ctrl-j* =
+# 91 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it

@@ -17,15 +17,21 @@ wait 4.5
 until gone Full access
 snap btab-full-later
 home btab-full-later
+# Each mode is snapped once the status row says it, not at a second count
+# after the key: on a loaded machine fx's row was still `ask` half a second
+# after the next Shift-Tab (RULE-CONFIRM-KEYS' head sweep).
 key BTab
 wait 0.5
+until shown ask · model-a
 snap btab-ask
 home btab-ask
 key BTab
 wait 0.5
+until shown auto · model-a
 snap btab-auto
 key BTab
 wait 0.5
+until shown full access · model-a
 snap btab-full-again
 type /permissions
 wait 0.3

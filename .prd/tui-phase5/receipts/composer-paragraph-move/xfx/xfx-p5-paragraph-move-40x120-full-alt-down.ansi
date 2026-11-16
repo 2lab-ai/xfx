@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-45d9ad1 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-11-10 22:18:22.037 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 12 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal,[39m
+  [38;5;250m+4 more)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-11-10 22:18:27.284 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 104ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-11-10 22:18:27.111 UTC · Prompt[39m
+[38;5;255m┃[39m [1mhello[0m
+
+[38;5;245m  2026-11-10 22:18:27.241 UTC · Response[39m
+  ALPHA answer line one.
+
+  Second paragraph with [38;5;255mcode[39m.
+
+[38;5;245m  2026-11-10 22:18:27.319 UTC · Usage[39m
+[38;5;245m  0s (↑2 ↓40)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

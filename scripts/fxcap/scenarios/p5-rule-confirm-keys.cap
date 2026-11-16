@@ -1,0 +1,79 @@
+# RULE-CONFIRM-KEYS: the keys of a `/permissions` rule confirmation. fx
+# v0.0.16 asks it in its approval prompt, confirmation-only
+# (`syncRuleManagement`, src/core/permissions/approval_prompt.zig:119-146
+# @481104fd): two choices, no draft, and the approval's keys
+# (app_input_runtime.zig:1161-1185, :964-971). Tab, Right, Left, Alt-f and
+# Alt-b move the mark, wrapping (approval_decision.zig:142-151, :214-229;
+# input_approval_runtime.zig:90-110); C-p, C-n, `3`, Shift-Up and Ctrl-Up
+# do nothing; C-j answers as Enter does, here on Cancel and then on Confirm
+# (src/ui/input/runtime.zig:64); C-c is Cancel (`3 => .deny`, :63;
+# input_approval_runtime.zig:267-275); Escape closes it saying nothing; a
+# kitty Ctrl+J is the byte replayed. One `key` line is one tmux send-keys,
+# one write. The session is open from launch on both (PERMISSIONS-EARLY), so
+# no turn first; the turn at the end is read under the deny confirmed last.
+fx: env FX_AUTO_UPGRADE=0
+gateway p5-permissions-early-read-turn.json
+work permissions-early-ws
+wait 2
+type /permissions remember allow write_file {"path":"b.txt","content":"y"}
+key Enter
+until shown 1. Confirm
+snap prompt
+key Tab
+wait 0.4
+snap tab
+key Right
+wait 0.4
+snap right
+key Left
+wait 0.4
+snap left
+key -H 1b 66
+wait 0.4
+snap alt-f
+key -H 1b 62
+wait 0.4
+snap alt-b
+key -H 10
+wait 0.4
+key -H 0e
+wait 0.4
+key 3
+wait 0.4
+key -H 1b 5b 31 3b 32 41
+wait 0.4
+key -H 1b 5b 31 3b 35 41
+wait 0.4
+snap nothing-keys
+key -H 0a
+wait 1
+snap ctrl-j-cancel
+type /permissions remember allow write_file {"path":"b.txt","content":"y"}
+key Enter
+until shown 1. Confirm
+key -H 0a
+wait 1
+snap ctrl-j
+type /permissions remember deny write_file {"path":"c.txt","content":"z"}
+key Enter
+until shown 1. Confirm
+key C-c
+wait 0.6
+snap ctrl-c
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+wait 2
+key Escape
+wait 0.8
+snap esc
+type /permissions remember deny read_file {"path":"a.txt"}
+key Enter
+until shown 1. Confirm
+key -H 1b 5b 31 30 36 3b 35 75
+wait 1
+snap kitty-ctrl-j
+type read it
+key Enter
+wait 3
+snap turn

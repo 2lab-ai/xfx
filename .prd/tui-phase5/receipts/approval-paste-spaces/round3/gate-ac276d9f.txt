@@ -1,0 +1,28 @@
+# The dispatcher's gate at ac276d9f (round 2's head), copied as the dispatcher wrote it
+suite slot: slot-2 (12:26Z)
+fmt rc=0 2s
+clippy rc=0 9s
+clippy-fi rc=0 7s
+test rc=0 170s
+test-fi rc=0 181s
+identity rc=0 3s
+stubs rc=0 21s
+secrets rc=0 102s
+local-paths rc=0 3s
+local-paths-each rc=0 2s
+contract rc=0 2s
+preflight-cost rc=0 109s
+test-secrets rc=0 83s
+test-gate-env rc=0 279s
+test-contract rc=0 69s
+usage-clock rc=0 1s
+test-sweep rc=0 28s
+test-capture rc=0 441s
+build-rel rc=0 20s
+smoke rc=0 2s
+build-faulty rc=0 23s
+smoke-tui rc=0 71s
+  smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+test: passed=5729 failed=0
+test-fi: passed=5766 failed=0
+tree unchanged: ac276d9f, clean

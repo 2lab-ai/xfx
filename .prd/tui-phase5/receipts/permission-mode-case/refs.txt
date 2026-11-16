@@ -1,0 +1,5 @@
+== python3 -I refs.py 9c64ddd3 WORKTREE (run with the parity edits in the tree). By hand: parity-ledger.toml's docs/parity.md:96 is still the /permissions row, whose text this unit extended; the bare output.rs ref is a phase-3 note citing its own head
+BY HAND scripts/fxcap/parity-ledger.toml: docs/parity.md:96 -- its line changed: "| `/permissions` | slash | implemented | Upstream's `/permissions [ask"
+== refs into changed files: 46 same text, 0 moved, 1 by hand
+BARE .prd/tui-phase3/loop.md: output.rs:1124-1135 (1 tracked files so named; if src/output.rs, its line moved)
+== bare refs to judge by hand: 1
