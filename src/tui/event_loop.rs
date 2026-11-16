@@ -16352,6 +16352,29 @@ mod tests {
         out
     }
 
+    /// The screen and its history as a terminal shows `out`'s wire, with
+    /// every count of seconds as `#s`: a turn's clock counts the run's own
+    /// wall time, which a loaded machine can push past one in either run.
+    fn painted(out: &StatusScreen) -> Vec<String> {
+        let mut terminal = Terminal::new(24, 80);
+        terminal.catch_up(&out.vectors.concat());
+        terminal
+            .everything()
+            .iter()
+            .map(|row| without_seconds(row))
+            .collect()
+    }
+
+    /// The last row of `screen` that is not blank: the band's hint row.
+    fn hint_row(screen: &[String]) -> String {
+        screen
+            .iter()
+            .rev()
+            .find(|row| !row.is_empty())
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// What a run of the loop came to, for one run to be compared with
     /// another: the reports in order, the screen and its history as a
     /// terminal shows them, whether the session is leaving, and everything
@@ -16359,6 +16382,12 @@ mod tests {
     #[derive(Debug, PartialEq)]
     struct Ran {
         reports: Vec<String>,
+        /// The hint row as the keys' own tick painted it. Read there, not at
+        /// the end: its cues expire on the clock (`press ctrl+c again to
+        /// exit` after 3 s, the Escape cue after 1 s), and a stall inside one
+        /// run would compare a cue with its expiry.
+        cue: String,
+        /// The screen at the end, the hint row left out for that reason.
         screen: Vec<String>,
         leaving: bool,
         controls: Vec<crate::tui::bridge::TurnControl>,
@@ -16447,6 +16476,7 @@ mod tests {
             keys,
             pause,
         );
+        let cue = hint_row(&painted(&out));
         // Then the loop runs on until the channel is empty, the answer has
         // been let go of and a tick more has painted it -- or the keys ended
         // the session, where the loop stops turning.
@@ -16483,8 +16513,10 @@ mod tests {
             )
             .expect("the exit's flush");
         }
-        let mut terminal = Terminal::new(24, 80);
-        terminal.catch_up(&out.vectors.concat());
+        let mut screen = painted(&out);
+        if let Some(hint) = screen.iter().rposition(|row| !row.is_empty()) {
+            screen.remove(hint);
+        }
         let mut controls = Vec::new();
         while let Ok(control) = shell._control.try_recv() {
             controls.push(control);
@@ -16495,13 +16527,8 @@ mod tests {
         }
         Ran {
             reports: states(&out),
-            // A turn's clock counts seconds of the run's own wall time, which
-            // a loaded machine can push past one in either run.
-            screen: terminal
-                .everything()
-                .iter()
-                .map(|row| without_seconds(row))
-                .collect(),
+            cue,
+            screen,
             leaving: shell.leaving(),
             controls,
             work,
@@ -16532,6 +16559,12 @@ mod tests {
             let split = split_run(true, keys, pause);
             let late = split_run(false, keys, pause);
             assert_eq!(split, late, "{what}");
+            assert_eq!(
+                split.cue == "press ctrl+c again to exit",
+                matches!(what, "a stop" | "two stops"),
+                "{what}: {:?}",
+                split.cue
+            );
             assert_eq!(
                 split.leaving,
                 matches!(what, "two stops" | "quit"),

@@ -11527,7 +11527,9 @@ impl Shell {
     /// asked through [`Self::keyed`]) -- a prompt held for its turn
     /// ([`Self::status_held`]) whose turn this is, or one this tick's keys
     /// sent; not a start a stop covered, which shows nothing of its turn, nor
-    /// one a reset's drain dropped. The drain stops behind such a start
+    /// one a reset's drain dropped -- unless this tick's keys moved the status,
+    /// when the tick writes its report after its frame whatever the start
+    /// shows, and the drain stops for it too. The drain stops behind such a start
     /// (`super::event_loop`'s `drain_ui_events`), so that frame shows the
     /// turn as it began -- `Thinking` -- and the report follows it, however
     /// much more of the turn the runtime had sent by then: the rest is the

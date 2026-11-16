@@ -19,6 +19,8 @@
 # STARVE_BACKGROUND=1 runs every test at background QoS (`taskpolicy -b`), so
 # the machine's other work -- at normal priority -- comes first: the run-to-run
 # scheduling gaps a 3-core CI runner gives a PTY test, on an 18-core machine.
+# The test name `@suite` runs the whole binary instead, its tests in parallel
+# as `cargo test` runs them (round 3: the paced case inside the tui suite).
 set -u
 
 if [ "${1:-}" = --run ]; then
@@ -26,8 +28,10 @@ if [ "${1:-}" = --run ]; then
 	start=$(date +%s)
 	prefix=()
 	[ "${STARVE_BACKGROUND:-0}" = 1 ] && prefix=(taskpolicy -b)
+	pick=(--exact "$name" --test-threads=1)
+	[ "$name" = @suite ] && pick=()
 	# shellcheck disable=SC2086
-	${prefix[@]+"${prefix[@]}"} "$bin" --exact "$name" --test-threads=1 ${STARVE_TEST_ARGS:-} \
+	${prefix[@]+"${prefix[@]}"} "$bin" ${pick[@]+"${pick[@]}"} ${STARVE_TEST_ARGS:-} \
 		>"$out/$label.$name.$round.$copy.log" 2>&1
 	code=$?
 	echo "$round $label $name $code $(($(date +%s) - start))" >>"$out/results.txt"

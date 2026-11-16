@@ -3600,20 +3600,44 @@ fn paste_with_pauses(
                     .collect(),
                 None => vec![format!(
                     "(no whole frame; the terminal's last bytes) {:?}",
-                    &text[text.len() - text.len().min(400)..]
+                    last_bytes(&text, 400)
                 )],
             };
             eprintln!(
-                "a timing-indeterminate session: the paste paused for {gap:?}; \
+                "a timing-indeterminate session: the paste paused for {gap:?} \
+                 (parts {pause:?} apart); \
                  a second later the screen held:\n{}",
                 screen.join("\n")
             );
             return Err(Rejected { gap, screen });
         }
     }
-    eprintln!("the paste's longest pause: {longest:?}");
+    eprintln!("the paste's longest pause: {longest:?} (parts {pause:?} apart)");
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
+}
+
+/// At most the last `most` bytes of `text`, from a character's start: a
+/// terminal's stream cut at a byte count can land inside a character.
+fn last_bytes(text: &str, most: usize) -> &str {
+    let mut from = text.len() - text.len().min(most);
+    while !text.is_char_boundary(from) {
+        from += 1;
+    }
+    &text[from..]
+}
+
+#[test]
+fn the_last_bytes_of_a_stream_start_at_a_character() {
+    // `┃` is three bytes: a cut one byte into it starts the tail after it.
+    let text = format!("ab\u{2503}{}", "x".repeat(398));
+    assert_eq!(text.len(), 403);
+    assert_eq!(last_bytes(&text, 400), "x".repeat(398));
+    assert_eq!(
+        last_bytes(&text, 401),
+        format!("\u{2503}{}", "x".repeat(398))
+    );
+    assert_eq!(last_bytes("short", 400), "short");
 }
 
 /// A session [`paste_unpaced`] stopped at a pause: the pause, and the screen's
@@ -3649,12 +3673,16 @@ const UNPACED_ATTEMPTS: usize = 3;
 /// retry runs after it. Every session paused is a failure that says so, with
 /// what each one held.
 ///
-/// The measure is the writer's own clock and nothing the TUI does: a reader
-/// that falls behind keeps the queue full, and every attempt the writer makes
-/// against a full queue is one more reading of it, 2 ms apart
-/// ([`IDLE_POLL`]). So a product that breaks the quarantine cannot steer its
-/// sessions into this retry; the receipt's quarantine mutants (CI-PTY-WAIT
-/// round 2) show they fail on a session the writer did not pause.
+/// The measure is the writer's own clock: a reader that falls behind keeps
+/// the queue full, and every attempt the writer makes against a full queue is
+/// one more reading of it, 2 ms apart ([`IDLE_POLL`]). It is not a reading of
+/// what the reader saw, and an accepted session does not prove the reader
+/// ever found the input quiet. A product that breaks the quarantine could
+/// still load the machine until the writer pauses -- at worst a misleading
+/// red (every session rejected, saying so), never a green: a rejected session
+/// asserts nothing, and the case passes only on one the writer did not pause.
+/// The receipt's quarantine mutants (CI-PTY-WAIT round 2) failed on such
+/// sessions.
 fn unpaced_case(mut case: impl FnMut() -> Result<(), Rejected>) {
     let mut paused = Vec::new();
     for _ in 0..UNPACED_ATTEMPTS {
@@ -3755,14 +3783,29 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
 #[test]
 fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing() {
     // The same, from a terminal that pauses 20 ms between its 4 KiB writes:
-    // longer than a turn of the loop (8 ms, `TICK`), so the TUI finds the
-    // input empty and waits between them, and shorter than the quiet that
-    // ends the quarantine (`PASTE_QUIET`). An unpaced write's refill gaps are
-    // a few milliseconds on an idle machine, under one turn, so they never
-    // bring the quarantine's own threshold into play; these pauses do, on
-    // every session the harness accepts (CI-PTY-WAIT round 2: a quarantine
-    // that ends at any quiet, or after 5 or 20 ms, fails here and passes the
-    // unpaced case).
+    // longer than a turn of the loop (8 ms, `TICK`), so an idle TUI finds
+    // the input empty and waits between them, and shorter than the quiet
+    // that ends the quarantine (`PASTE_QUIET`). An unpaced write's refill
+    // gaps are a few milliseconds at idle, under one turn, so the loop never
+    // records a quiet's start there (`burst` returns at its first empty
+    // check); these pauses make it record one, at the seam this case guards:
+    // `burst`, `end_delivery`, on the loop's own clock.
+    //
+    // What it does not carry: the quarantine's threshold, which the lib
+    // pins without a clock (`src/tui/input.rs:3549`, `:4148`); and proof
+    // that the reader saw each pause -- acceptance is measured on the
+    // writer, and a starved reader can take two parts in one read. CI-PTY-WAIT
+    // round 2's quarantine mutants (any quiet, 5 ms, 20 ms) failed here 3/3
+    // each at idle; the 20 ms one only because the writer overslept its
+    // 20 ms sleep (gaps of 30-37 ms measured).
+    //
+    // A red here whose every pause was under 50 ms is not retried, and it
+    // can be the known clock-after-poll defect rather than a regression: the
+    // loop reads its clock after the check that found the input empty
+    // (`src/tui/event_loop.rs:750-751` -> `src/tui/shell.rs:11123-11124` ->
+    // `src/tui/input.rs:822`), so one reader stall there, with the quiet's
+    // start already recorded at a pause, ends the quarantine early. The
+    // queued PASTE-QUARANTINE-CLOCK unit fixes it.
     hostile_paste_types_nothing(std::time::Duration::from_millis(20));
 }
 
