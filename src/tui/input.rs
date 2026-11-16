@@ -60,36 +60,42 @@
 //! read as that key with Alt -- `ESC ESC [ A` a paragraph up, `ESC ESC [ C` a
 //! word right, `ESC ESC [ 1 ; 5 H` the plain Home, since Alt's row has none
 //! ([`prefixed`], [`kitty_key`] for a key report). With nothing behind it the
-//! pair is **two** Escapes once the quiet comes, as fx delivers it: its theme
+//! pair is **two** Escapes, as fx delivers it, in two steps: its theme
 //! monitor, started at every launch, holds the first ESC and hands the second
-//! to the key decoder at once, so the decoder resolves the second, and the
-//! held one, after its 75 ms, on its own (`theme_monitor.zig:7`, `:82-93`,
-//! `:150-164`; `app_bootstrap_runtime.zig:481-483`) -- the same two a person's
-//! presses a quiet apart are, the gesture's two taps ([`super::gesture`]).
-//! Nothing here reads which read a byte came off: the quiet alone tells a
-//! prefix from a press.
+//! to the key decoder at once (`theme_monitor.zig:82-93`;
+//! `app_bootstrap_runtime.zig:481-483`), whose stage resolves it as one
+//! Escape 30 ms later (`main.zig:187`); the held one follows on its own after
+//! its 75 ms (`theme_monitor.zig:7`, `:150-164`) -- the same two a person's presses a quiet
+//! apart are, the gesture's two taps ([`super::gesture`]). Nothing here reads
+//! which read a byte came off: the quiet alone tells a prefix from a press.
 //!
-//! **The quiet is not fx's, and that changes which key is read when the
-//! bytes are spaced, in both directions** (`docs/parity.md`). fx times two
-//! stages: its monitor holds a lone ESC 75 ms (`theme_monitor.zig:7`,
-//! `:91-93`) and hands a second ESC to the decoder at once (`:85-88`), whose
-//! stage then resolves after 30 ms (`main.zig:187`) at the next loop turn,
-//! every 8 ms or less (`main.zig:174`, `:1115-1123`). Here one quiet of
-//! [`Decoder::ESC_TIMEOUT`], 50 ms, does for both. With `t` the time since the
-//! first byte (pinned in `the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50`):
+//! **The pair's stage is fx's; a lone ESC's hold is not.** fx's decoder
+//! resolves a pair's stage 30 ms after its second ESC, at the next loop
+//! turn, every 8 ms or less (`main.zig:174`, `:1115-1123`), while its monitor
+//! keeps the first. Copied: 30 ms ([`Decoder::PAIR_TIMEOUT`]) after `ESC ESC`
+//! with nothing behind it, one Escape, and the pair is one lone ESC from then
+//! on, its clock still the second ESC's as fx's monitor restarts its hold
+//! there (`theme_monitor.zig:85-88`). That lone ESC -- and every lone ESC --
+//! resolves after xfx's one quiet, [`Decoder::ESC_TIMEOUT`], 50 ms, where fx's
+//! monitor holds it 75 ms and its decoder 30 ms more; that is
+//! ESC-MONITOR-TIMING's (`docs/parity.md`). With `t` the time since the first
+//! byte (pinned in `the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50`
+//! and `the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc`):
 //!
 //! | schedule | fx | xfx |
 //! |---|---|---|
-//! | `ESC ESC`, then `[ A` at 40 ms | Escape, Up | `ParagraphUp` |
+//! | `ESC ESC [ A` in one burst, or `[ A` under 30 ms after the pair | `paragraph_up` | `ParagraphUp` |
+//! | `ESC ESC`, then `[ A` at 40 ms | Escape, Up | Escape, Up |
+//! | `ESC ESC`, then Ctrl-C at 40 ms | Escape, Escape, Cancel | Escape, Escape, Cancel |
+//! | `ESC ESC` and nothing more | Escape, Escape | Escape (30 ms), Escape (50 ms) |
 //! | `ESC`, then `ESC [ A` at 60 ms | `paragraph_up` | Escape, Up |
 //! | `ESC`, then CR at 60 ms | Alt-Enter (`insert_newline`) | Escape, Submit |
-//! | `ESC ESC`, then Ctrl-C at 40 ms | Escape, Escape, Cancel | `Ignore` |
 //!
-//! The second and third rows rest on the monitor's 75 ms alone, read from
-//! fx's source. The first and fourth also need fx's loop to have turned
-//! between 30 and 40 ms, which its 8 ms poll makes likely but its frame work
-//! can delay -- inferred from that cadence, not measured. ESC-MONITOR-TIMING
-//! copies the two stages.
+//! The last two rows rest on the monitor's 75 ms alone, read from fx's
+//! source, and are ESC-MONITOR-TIMING's to copy; the base read them as xfx
+//! does. The 40 ms rows also need fx's loop to have turned between 30 and 40
+//! ms, which its 8 ms poll makes likely but its frame work can delay --
+//! inferred from that cadence, not measured.
 //!
 //! A report behind the prefix -- any `OSC`, the background notification --
 //! gives the first ESC back as the Escape key it was. fx's monitor keeps
@@ -657,8 +663,9 @@ enum Stage {
     /// An ESC with nothing after it yet, and when it arrived. `meta` when a
     /// second ESC came before the first had gone quiet: upstream's meta
     /// prefix, a bit of its stage (`escape_parser.zig:25`, `:552-555
-    /// @481104fd`); with nothing behind it, the pair is two Escapes once the
-    /// quiet comes ([`Decoder::flush`]).
+    /// @481104fd`); with nothing behind it, the pair resolves one Escape after
+    /// [`Decoder::PAIR_TIMEOUT`] and is a lone ESC from then on, `at` kept
+    /// ([`Decoder::flush`]).
     Esc { at: Instant, meta: bool },
     /// `ESC [`, reading parameters into [`Decoder::params`]; `meta` behind a
     /// prefix, which the stage keeps (`setBaseEscapeStage`, `:291-293`).
@@ -791,6 +798,16 @@ impl Decoder {
     /// multiplexer, short enough that pressing Escape feels like pressing a key
     /// rather than waiting for one.
     pub(crate) const ESC_TIMEOUT: Duration = Duration::from_millis(50);
+
+    /// How long a pair of ESCs -- the meta prefix with nothing behind it yet
+    /// -- waits before its stage resolves: fx's decoder's timeout
+    /// (`input_escape_timeout_ms`, `main.zig:187@481104fd`). fx's monitor
+    /// holds the first ESC of a pair and hands the second to its decoder at
+    /// once (`theme_monitor.zig:85-88`), whose stage resolves this long after
+    /// it (`terminal_action_decoder.zig:135-139`, `:174-183`); so here the
+    /// pair resolves one Escape after this and keeps one lone ESC pending
+    /// ([`Self::flush`]).
+    pub(crate) const PAIR_TIMEOUT: Duration = Duration::from_millis(30);
 
     /// How long the input must have been quiet after a paste before a byte is
     /// a key again: a divergence from fx, for security (the module's
@@ -1062,25 +1079,35 @@ impl Decoder {
     ///
     /// Exactly one thing: a bare ESC older than
     /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key -- and a meta
-    /// prefix with nothing behind it is two, as fx delivers the pair: its
-    /// theme monitor, started at every launch, holds the first ESC and
-    /// hands the second to the key decoder at once (`theme_monitor.zig:82-93`,
-    /// `app_bootstrap_runtime.zig:481-483@481104fd`), which resolves it (and
-    /// any ESC after it) as one Escape (`escape_parser.zig:327-329`,
-    /// `terminal_action_decoder.zig:174-183`); the held one follows on its own
-    /// once its 75 ms run out (`theme_monitor.zig:7`, `:150-164`) and is the
-    /// second. An unfinished `CSI` is deliberately **not** resolved here -- it
-    /// is a sequence still arriving, and a clock that cut it in half would
-    /// turn an arrow key under load into two events the user never typed.
+    /// prefix with nothing behind it is two, as fx delivers the pair, in two
+    /// steps. fx's theme monitor, started at every launch, holds the first
+    /// ESC and hands the second to the key decoder at once
+    /// (`theme_monitor.zig:82-93`, `app_bootstrap_runtime.zig:481-483
+    /// @481104fd`), which resolves it (and any ESC after it) as one Escape
+    /// [`PAIR_TIMEOUT`](Self::PAIR_TIMEOUT) later (`escape_parser.zig:327-329`,
+    /// `terminal_action_decoder.zig:174-183`, `main.zig:187`) -- copied: one
+    /// Escape then, and the pair becomes one lone ESC, so a key that comes
+    /// after reads behind a bare ESC as fx's held one does (`[ A` is Up,
+    /// Ctrl-C an Escape and a Cancel). The held one is the second Escape once
+    /// its own hold runs out: fx's clock for it restarts at the second ESC
+    /// (`theme_monitor.zig:85-88`), and so does this one's (`at`), but its
+    /// length is xfx's one quiet, `ESC_TIMEOUT`, where fx holds it 75 ms
+    /// (`:7`, `:150-164`) and its decoder 30 ms more -- ESC-MONITOR-TIMING's.
+    /// An unfinished `CSI` is deliberately **not** resolved here -- it is a
+    /// sequence still arriving, and a clock that cut it in half would turn an
+    /// arrow key under load into two events the user never typed.
     pub(crate) fn flush(&mut self, now: Instant, out: &mut Vec<Input>) {
-        if let Stage::Esc { at, meta } = self.stage {
-            if now.saturating_duration_since(at) >= Self::ESC_TIMEOUT {
-                self.stage = Stage::Ground;
-                out.push(Input::Action(Action::Escape));
-                if meta {
-                    out.push(Input::Action(Action::Escape));
-                }
-            }
+        let Stage::Esc { at, meta } = self.stage else {
+            return;
+        };
+        let quiet = now.saturating_duration_since(at);
+        if meta && quiet >= Self::PAIR_TIMEOUT {
+            out.push(Input::Action(Action::Escape));
+            self.stage = Stage::Esc { at, meta: false };
+        }
+        if quiet >= Self::ESC_TIMEOUT {
+            self.stage = Stage::Ground;
+            out.push(Input::Action(Action::Escape));
         }
     }
 
@@ -1184,9 +1211,10 @@ impl Decoder {
             // A second ESC before the first has gone quiet: the meta prefix,
             // and no event (`terminal_action_decoder.zig:84-88`, which starts
             // the clock again from this byte). A third keeps it. With nothing
-            // behind it, the pair is two Escapes once the quiet comes, as fx
-            // delivers it ([`Self::flush`]), and so are a person's two
-            // presses a quiet apart: the gesture's two taps either way.
+            // behind it, the pair resolves one Escape after `PAIR_TIMEOUT` and
+            // one after the quiet, two as fx delivers it ([`Self::flush`]),
+            // and so are a person's two presses a quiet apart: the gesture's
+            // two taps either way.
             0x1b => {
                 self.stage = Stage::Esc {
                     at: now,
