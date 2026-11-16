@@ -1,0 +1,35 @@
+# sweep-compare: every pair's verdict at the base binary (afd891af) and the head's (1ae99e6d), 40x120,
+# --only 'slash*' 'p5-slash*' 'composer*' 'p5-page-keys*' (no p5-page-keys scenario is in this tree), this branch's scenarios and ledger,
+# both sides in one suite-lock slot; python3 -I cmp_sweeps.py <base pairs.json> <head pairs.json>
+change p5-slash-leading-ws/esc-space-back: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 4 -> 0
+change p5-slash-leading-ws/mid: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 1 -> 0
+change p5-slash-leading-ws/newline: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 4 -> 0
+change p5-slash-leading-ws/newline-tab: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 5 -> 0
+change p5-slash-leading-ws/spaces: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 4 -> 0
+change p5-slash-leading-ws/tab: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 5 -> 0
+change p5-slash-leading-ws/vers-recall: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 3 -> 0
+change p5-slash-leading-ws-he/mid: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 1 -> 0
+change p5-slash-leading-ws-he/newline: unresolved-defect -> unresolved-defect; causes ['C8-shell', 'menu-count', 'menu-shift'] -> ['C8-shell', 'menu-count', 'menu-shift']; uncaused 4 -> 0
+change p5-slash-leading-ws-he/spaces: unresolved-defect -> unresolved-defect; causes ['C8-shell', 'menu-count', 'menu-shift'] -> ['C8-shell', 'menu-count', 'menu-shift']; uncaused 4 -> 0
+change p5-slash-leading-ws-short/four: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 4 -> 0
+change p5-slash-leading-ws-short/four-all: unresolved-defect -> unresolved-defect; causes ['menu-count', 'menu-shift'] -> ['menu-count']; uncaused 4 -> 0
+change p5-slash-leading-ws-short/two: unresolved-defect -> normalized-identical; causes ['menu-count', 'menu-shift'] -> []; uncaused 4 -> 0
+change p5-slash-leading-ws-skill/dem-enter: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 3 -> 0
+change p5-slash-leading-ws-skill/dem-tab: unresolved-defect -> normalized-identical; causes [] -> []; uncaused 2 -> 0
+base: 56 pairs, 32 pass, 15 with uncaused rows
+head: 56 pairs, 44 pass, 0 with uncaused rows
+drops: 0
+
+# not passing at the head, each with its causes (the same nine outside this unit's scenarios at the base):
+  composer-keys help: unresolved-defect ['C7-help-entries', 'menu-count', 'menu-shift']
+  composer-keys help-pgdn: unresolved-defect ['C7-help-entries', 'menu-count', 'menu-shift']
+  composer-keys help-pgup: unresolved-defect ['C7-help-entries', 'menu-count', 'menu-shift']
+  p5-slash-leading-ws-he spaces: unresolved-defect ['C8-shell', 'menu-count', 'menu-shift']
+  p5-slash-leading-ws-he newline: unresolved-defect ['C8-shell', 'menu-count', 'menu-shift']
+  p5-slash-leading-ws-short four-all: unresolved-defect ['menu-count']
+  slash slash: unresolved-defect ['menu-count']
+  slash down3: unresolved-defect ['menu-count']
+  slash down7: unresolved-defect ['menu-count', 'menu-shift']
+  slash help: unresolved-defect ['C7-help-entries', 'menu-count', 'menu-shift']
+  slash help-down: unresolved-defect ['C7-help-entries', 'menu-count', 'menu-shift']
+  slash-filter filter-mo: unresolved-defect ['C7-help-entries']

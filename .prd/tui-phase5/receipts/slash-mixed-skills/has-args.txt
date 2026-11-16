@@ -1,0 +1,40 @@
+# fx: 38 commands (fx-src.txt M11); xfx at a2f06462: 34 (SLASH_REGISTRY)
+SAME /alias: fx args; xfx args
+SAME /allowlist: fx args; xfx args
+SAME /clear: fx -; xfx -
+SAME /compact: fx -; xfx -
+SAME /copy: fx -; xfx -
+SAME /credits: fx - /balance; xfx - /balance
+SAME /effort: fx args; xfx args
+SAME /fast: fx -; xfx -
+FX-ONLY /feedback: -
+SAME /fork: fx -; xfx -
+SAME /help: fx -; xfx -
+SAME /image: fx args /img; xfx args /img
+SAME /images: fx args; xfx args
+FX-ONLY /login: args
+FX-ONLY /logout: args
+SAME /mcp: fx args; xfx args
+SAME /model: fx args; xfx args
+SAME /new: fx -; xfx -
+SAME /paste: fx -; xfx -
+SAME /permissions: fx args; xfx args
+SAME /provider: fx args /setup; xfx args /setup
+SAME /quit: fx - /exit; xfx - /exit
+SAME /rename: fx args; xfx args
+SAME /reset: fx -; xfx -
+SAME /resume: fx -; xfx -
+SAME /settings: fx args; xfx args
+FX-ONLY /shell: args
+SAME /skills: fx args; xfx args
+SAME /sound: fx args; xfx args
+SAME /stats: fx -; xfx -
+SAME /status: fx -; xfx -
+SAME /statusline: fx args; xfx args
+SAME /trace: fx -; xfx -
+SAME /ultrafast: fx args; xfx args
+SAME /undo: fx -; xfx -
+SAME /usage: fx -; xfx -
+SAME /version: fx -; xfx -
+SAME /workspace: fx args; xfx args
+# shared 34: 34 the same, 0 different

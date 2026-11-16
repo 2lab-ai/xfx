@@ -1,0 +1,40 @@
+𝒇x v0.0.16 · Run /help for commands
+
+┃
+┃ /he
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 2
+
+  /help    show available slash commands                                                                      General
+  /shell   reload shell startup files for commands                                                            Workspace
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

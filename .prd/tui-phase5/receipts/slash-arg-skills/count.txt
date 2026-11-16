@@ -1,0 +1,6 @@
+# python3 -I .prd/tui-phase5/receipts/slash-arg-skills/count.py 4bb8af77 da9222bc
+src/tui/arg_lists.rs: tests from line 185
+src/tui/mcp_args.rs: tests from line 382
+src/tui/mod.rs: tests from line 835
+src/tui/shell.rs: tests from line 17142
+non-test +309 -29 (of the added, 112 comment lines); test +366 -7
