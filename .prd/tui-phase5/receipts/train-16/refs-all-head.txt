@@ -1,0 +1,74 @@
+# head 2b78aab6; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+docs/parity.md: src/mcp/transport.rs:1318-1320
+    base MOVED -> 1321-1323 | profile MOVED -> 1321-1323 | slash MOVED -> 1321-1323 | lpw MOVED -> 1321-1323 | aps MOVED -> 1321-1323 | mpd MOVED -> 1321-1323
+docs/superpowers/plans/2026-08-24-provider-frame.md: src/session/store.rs:2322
+    profile MOVED -> 2600 | slash MOVED -> 2608 | test-env MOVED -> 2600 | lpw MOVED -> 2600 | aps MOVED -> 2608 | mpd MOVED -> 2608
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/cli.rs:910
+    base MOVED -> 1039 | profile MOVED -> 976 | slash MOVED -> 1109 | test-env MOVED -> 1112 | lpw MOVED -> 1109 | aps MOVED -> 1109 | mpd MOVED -> 1109
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/gateway.rs:987
+    base MOVED -> 967 | profile MOVED -> 967 | slash MOVED -> 967 | lpw MOVED -> 967 | aps MOVED -> 967 | mpd MOVED -> 967
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/permissions.rs:2524
+    base MOVED -> 2519 | profile MOVED -> 2519 | slash MOVED -> 2519 | lpw MOVED -> 2519 | aps MOVED -> 2519 | mpd MOVED -> 2519
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/sessions.rs:281
+    base MOVED -> 283 | profile MOVED -> 284 | slash MOVED -> 283 | test-env MOVED -> 282 | lpw MOVED -> 284 | aps MOVED -> 283 | mpd MOVED -> 283
+docs/superpowers/plans/2026-08-24-provider-frame.md: tests/tool_loop.rs:1266
+    base MOVED -> 1257 | profile MOVED -> 1257 | slash MOVED -> 1257 | lpw MOVED -> 1257 | aps MOVED -> 1257 | mpd MOVED -> 1257
+docs/superpowers/plans/2026-08-24-tui-phase1.md: src/output.rs:968-972
+    base MOVED -> 974-978 | profile MOVED -> 976-980 | slash MOVED -> 982-986 | test-env MOVED -> 982-986 | lpw MOVED -> 982-986 | aps MOVED -> 982-986 | mpd MOVED -> 982-986
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:122-158
+    test-env MOVED -> 123-159
+docs/superpowers/plans/2026-08-26-tui-phase2.md: src/tui/worker.rs:608-640
+    test-env MOVED -> 609-641
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: docs/parity.md:96-99
+    base CHANGED | profile CHANGED | slash CHANGED | test-env CHANGED | lpw CHANGED | aps CHANGED | mpd CHANGED
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/app.rs:434-436
+    base MOVED -> 451-453 | profile MOVED -> 437-439 | slash MOVED -> 464-466 | test-env MOVED -> 464-466 | lpw MOVED -> 464-466 | aps MOVED -> 464-466 | mpd MOVED -> 464-466
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/output.rs:1124
+    base MOVED -> 1130 | profile MOVED -> 1132 | slash MOVED -> 1138 | test-env MOVED -> 1138 | lpw MOVED -> 1138 | aps MOVED -> 1138 | mpd MOVED -> 1138
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/approval.rs:552-585
+    profile MOVED -> 553-586 | test-env MOVED -> 553-586 | lpw MOVED -> 553-586
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:3108
+    base MOVED -> 3113 | profile MOVED -> 3122 | slash MOVED -> 3119 | test-env MOVED -> 3233 | lpw MOVED -> 3122 | aps MOVED -> 3122 | mpd MOVED -> 3122
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/shell.rs:433
+    profile MOVED -> 436 | slash MOVED -> 436 | test-env MOVED -> 438 | lpw MOVED -> 436 | aps MOVED -> 436 | mpd MOVED -> 436
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:2376
+    base MOVED -> 2409 | profile MOVED -> 2409 | slash MOVED -> 2409 | test-env MOVED -> 2377 | lpw MOVED -> 2409 | aps MOVED -> 2409 | mpd MOVED -> 2409
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:444-446
+    test-env MOVED -> 445-447
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: src/tui/worker.rs:593
+    test-env MOVED -> 594
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: tests/llmux.rs:1636
+    base MOVED -> 1614 | profile MOVED -> 1614 | slash MOVED -> 1614 | lpw MOVED -> 1614 | aps MOVED -> 1614 | mpd MOVED -> 1614
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: tests/parity.rs:280
+    base MOVED -> 283 | profile MOVED -> 283 | slash MOVED -> 283 | lpw MOVED -> 283 | aps MOVED -> 283 | mpd MOVED -> 283
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: tests/parity.rs:349-380
+    base MOVED -> 352-383 | profile MOVED -> 352-383 | slash MOVED -> 352-383 | lpw MOVED -> 352-383 | aps MOVED -> 352-383 | mpd MOVED -> 352-383
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md: tests/tool_loop.rs:188
+    base MOVED -> 179 | profile MOVED -> 179 | slash MOVED -> 179 | lpw MOVED -> 179 | aps MOVED -> 179 | mpd MOVED -> 179
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/agent/machine.rs:470-475
+    profile MOVED -> 471-476 | slash MOVED -> 471-476 | test-env MOVED -> 471-476 | lpw MOVED -> 471-476 | aps MOVED -> 471-476 | mpd MOVED -> 471-476
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/agent/machine.rs:546-588
+    profile MOVED -> 547-589 | slash MOVED -> 547-589 | test-env MOVED -> 547-589 | lpw MOVED -> 547-589 | aps MOVED -> 547-589 | mpd MOVED -> 547-589
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/output.rs:684
+    base MOVED -> 690 | profile MOVED -> 692 | slash MOVED -> 698 | test-env MOVED -> 698 | lpw MOVED -> 698 | aps MOVED -> 698 | mpd MOVED -> 698
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/session/store.rs:1774
+    profile MOVED -> 2045 | slash MOVED -> 2053 | test-env MOVED -> 2045 | lpw MOVED -> 2045 | aps MOVED -> 2053 | mpd MOVED -> 2053
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:499-522
+    profile MOVED -> 500-523 | test-env MOVED -> 500-523 | lpw MOVED -> 500-523
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval.rs:782
+    profile MOVED -> 804 | slash MOVED -> 798 | test-env MOVED -> 804 | lpw MOVED -> 804 | aps MOVED -> 795 | mpd MOVED -> 795
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/approval_readiness.rs:259
+    profile MOVED -> 301 | slash MOVED -> 301 | test-env MOVED -> 301 | lpw MOVED -> 301 | aps MOVED -> 301 | mpd MOVED -> 301
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/shell.rs:1593
+    base MOVED -> 1594 | profile MOVED -> 1602 | slash MOVED -> 1601 | test-env MOVED -> 1691 | lpw MOVED -> 1602 | aps MOVED -> 1602 | mpd MOVED -> 1602
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md: src/tui/theme.rs:333
+    base MOVED -> 321 | profile MOVED -> 321 | slash MOVED -> 321 | lpw MOVED -> 321 | aps MOVED -> 321 | mpd MOVED -> 321
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/event_loop.rs:889-923
+    profile MOVED -> 932-966 | slash MOVED -> 932-966 | test-env MOVED -> 971-1023 | lpw MOVED -> 932-966 | aps MOVED -> 932-966 | mpd MOVED -> 932-966
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md: src/tui/shell.rs:1117
+    profile MOVED -> 1120 | slash MOVED -> 1120 | test-env MOVED -> 1186 | lpw MOVED -> 1120 | aps MOVED -> 1120 | mpd MOVED -> 1120
+scripts/fxcap/test_sweep.py: scripts/fxcap/cells.py:100000
+    profile MOVED -> 100079 | slash MOVED -> 100079 | test-env MOVED -> 100079 | lpw MOVED -> 100079 | aps MOVED -> 100079 | mpd MOVED -> 100079
+src/process.rs: src/process.rs:1096-1098
+    base MOVED -> 1006-1008 | profile MOVED -> 1006-1008 | slash MOVED -> 1006-1008 | lpw MOVED -> 1006-1008 | aps MOVED -> 1006-1008 | mpd MOVED -> 1006-1008
+# 198 references in 649 files; 36 moved or changed on some side that cites them

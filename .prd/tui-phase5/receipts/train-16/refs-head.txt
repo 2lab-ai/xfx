@@ -1,0 +1,182 @@
+# head 2b78aab6; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:959]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:197]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:96	[scripts/fxcap/parity-ledger.toml:308]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:99	[scripts/fxcap/parity-ledger.toml:433]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:107	[scripts/fxcap/parity-ledger.toml:124]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:109	[scripts/fxcap/parity-ledger.toml:984]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:113	[scripts/fxcap/parity-ledger.toml:350]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:115	[scripts/fxcap/parity-ledger.toml:71, scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:237, scripts/fxcap/parity-ledger.toml:268, scripts/fxcap/parity-ledger.toml:281, scripts/fxcap/parity-ledger.toml:295, scripts/fxcap/parity-ledger.toml:322, scripts/fxcap/parity-ledger.toml:336, scripts/fxcap/parity-ledger.toml:419]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:118	[scripts/fxcap/parity-ledger.toml:62]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:120	[scripts/fxcap/parity-ledger.toml:183, scripts/fxcap/parity-ledger.toml:336]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:158	[scripts/fxcap/parity-ledger.toml:580, scripts/fxcap/parity-ledger.toml:591]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:160	[scripts/fxcap/parity-ledger.toml:798]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:162	[scripts/fxcap/parity-ledger.toml:662]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:172	[scripts/fxcap/parity-ledger.toml:948]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:177	[scripts/fxcap/parity-ledger.toml:762]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:210	[scripts/fxcap/parity-ledger.toml:156, scripts/fxcap/parity-ledger.toml:322]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:216	[scripts/fxcap/parity-ledger.toml:734]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:237	[scripts/fxcap/parity-ledger.toml:451, scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520, scripts/fxcap/parity-ledger.toml:534]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:238	[scripts/fxcap/parity-ledger.toml:140, scripts/fxcap/parity-ledger.toml:364, scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:388, scripts/fxcap/parity-ledger.toml:392, scripts/fxcap/parity-ledger.toml:406, scripts/fxcap/parity-ledger.toml:464, scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:810]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+docs/parity.md:243	[scripts/fxcap/parity-ledger.toml:251]
+    base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
+scripts/check-xfx-identity.sh:5	[docs/parity.md:241]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+scripts/fxcap/capture.sh:333-335	[scripts/fxcap/parity-ledger.toml:86]
+    base* = | profile -> 340-342 | slash -> 340-342 | test-env -> 407-409 | lpw -> 340-342 | aps -> 340-342 | mpd -> 340-342
+scripts/fxcap/capture.sh:386-392	[scripts/fxcap/parity-ledger.toml:86]
+    base* = | profile -> 393-399 | slash -> 393-399 | test-env -> 671-677 | lpw -> 393-399 | aps -> 393-399 | mpd -> 393-399
+scripts/fxcap/capture.sh:446-478	[scripts/fxcap/parity-ledger.toml:79]
+    base* = | profile -> 495-527 | slash -> 495-527 | test-env -> 731-763 | lpw -> 495-527 | aps -> 495-527 | mpd -> 495-527
+scripts/fxcap/capture.sh:845	[scripts/fxcap/parity-ledger.toml:79]
+    base* = | profile -> 1009 | slash -> 1019 | test-env -> 1177 | lpw -> 1009 | aps -> 1019 | mpd -> 1019
+scripts/fxcap/capture.sh:1144	[scripts/fxcap/parity-ledger.toml:86]
+    base* = | profile -> 1311 | slash -> 1321 | test-env -> 1516 | lpw -> 1311 | aps -> 1321 | mpd -> 1321
+scripts/fxcap/capture.sh:1151	[scripts/fxcap/parity-ledger.toml:86]
+    base* = | profile -> 1318 | slash -> 1328 | test-env -> 1523 | lpw -> 1318 | aps -> 1328 | mpd -> 1328
+scripts/fxcap/capture.sh:1324	[scripts/fxcap/parity-ledger.toml:148]
+    base* = | profile -> 1520 | slash -> 1530 | test-env -> 1696 | lpw -> 1520 | aps -> 1530 | mpd -> 1530
+scripts/fxcap/cells.py:12-14	[scripts/fxcap/parity-ledger.toml:54]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+scripts/smoke-tui.sh:10483-10498	[docs/parity.md:162, docs/parity.md:237]
+    base* = | profile = | slash* = | test-env -> 10504-10519 | lpw = | aps* = | mpd* =
+src/agent/machine.rs:78-85	[docs/parity.md:237]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/config/schema.rs:545-550	[docs/parity.md:93]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/gateway/mod.rs:59	[scripts/fxcap/parity-ledger.toml:647, scripts/fxcap/parity-ledger.toml:657, docs/parity.md:237]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/gateway/mod.rs:1009-1010	[docs/parity.md:237]
+    base -> 1013-1014 | profile -> 1024-1025 | slash -> 1024-1025 | test-env -> 1020-1021 | lpw -> 1024-1025 | aps -> 1024-1025 | mpd -> 1024-1025
+src/image.rs:101	[scripts/fxcap/parity-ledger.toml:762]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/markdown/theme.rs:49	[scripts/fxcap/parity-ledger.toml:251]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/markdown/theme.rs:69	[scripts/fxcap/parity-ledger.toml:251]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/mcp/runtime.rs:90	[scripts/fxcap/parity-ledger.toml:1128, scripts/fxcap/parity-ledger.toml:1236]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/mcp/runtime.rs:1347	[scripts/fxcap/parity-ledger.toml:1128]
+    base -> 1358 | profile -> 1353 | slash -> 1358 | test-env -> 1352 | lpw -> 1358 | aps -> 1358 | mpd -> 1358
+src/mcp/transport.rs:1318-1320	[docs/parity.md:221]
+    base* -> 1321-1323 MOVED | profile* -> 1321-1323 MOVED | slash* -> 1321-1323 MOVED | test-env* = | lpw* -> 1321-1323 MOVED | aps* -> 1321-1323 MOVED | mpd* -> 1321-1323 MOVED
+src/permission/authority.rs:38-41	[scripts/fxcap/parity-ledger.toml:937]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/permission/authority.rs:737	[scripts/fxcap/parity-ledger.toml:451]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/permission/authority.rs:1145-1149	[scripts/fxcap/parity-ledger.toml:937]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/permission/slash.rs:466	[scripts/fxcap/parity-ledger.toml:796]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/provider/mod.rs:117	[scripts/fxcap/parity-ledger.toml:784]
+    base* = | profile* = | slash* = | test-env -> 118 | lpw* = | aps* = | mpd* =
+src/proxy/server.rs:1583-1613	[docs/parity.md:114]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/session/store.rs:74	[docs/parity.md:48]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/sound.rs:37	[scripts/fxcap/parity-ledger.toml:982]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tools/mcp.rs:422-428	[scripts/fxcap/parity-ledger.toml:1189, docs/parity.md:176]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tools/mutate.rs:437-442	[scripts/fxcap/parity-ledger.toml:589, docs/parity.md:158]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tools/question.rs:60-76	[docs/parity.md:242]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tools/read.rs:1162	[scripts/fxcap/parity-ledger.toml:589, docs/parity.md:158]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tools/spec.rs:214	[scripts/fxcap/parity-ledger.toml:939]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/approval_amendment.rs:81	[scripts/fxcap/parity-ledger.toml:902, scripts/fxcap/parity-ledger.toml:904, scripts/fxcap/parity-ledger.toml:914]
+    base -> 98 | profile -> 96 | slash -> 95 | test-env -> 96 | lpw -> 96 | aps -> 78 | mpd -> 95
+src/tui/approval_amendment.rs:166	[scripts/fxcap/parity-ledger.toml:902, scripts/fxcap/parity-ledger.toml:904, scripts/fxcap/parity-ledger.toml:914]
+    base -> 204 | profile changed | slash changed | test-env changed | lpw changed | aps changed | mpd changed
+src/tui/approval_view.rs:106	[scripts/fxcap/parity-ledger.toml:994]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/approval_view.rs:685	[scripts/fxcap/parity-ledger.toml:796, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:865, scripts/fxcap/parity-ledger.toml:925, scripts/fxcap/parity-ledger.toml:970]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/approval_view.rs:971-976	[scripts/fxcap/parity-ledger.toml:464]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/approval_view.rs:1224	[scripts/fxcap/parity-ledger.toml:1052]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/frame.rs:2765	[scripts/fxcap/parity-ledger.toml:534]
+    base* = | profile -> 2773 | slash -> 2773 | test-env -> 2773 | lpw -> 2773 | aps -> 2773 | mpd -> 2773
+src/tui/frame.rs:2811	[docs/parity.md:244]
+    base* = | profile -> 2819 | slash -> 2819 | test-env -> 2819 | lpw -> 2819 | aps -> 2819 | mpd -> 2819
+src/tui/full_transcript.rs:495	[scripts/fxcap/parity-ledger.toml:364]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/full_transcript.rs:3074	[scripts/fxcap/parity-ledger.toml:492, scripts/fxcap/parity-ledger.toml:1052]
+    base* = | profile -> 3138 | slash -> 3138 | test-env -> 3138 | lpw -> 3138 | aps -> 3138 | mpd -> 3138
+src/tui/full_transcript.rs:3125	[scripts/fxcap/parity-ledger.toml:506, scripts/fxcap/parity-ledger.toml:520]
+    base* = | profile -> 3189 | slash -> 3189 | test-env -> 3189 | lpw -> 3189 | aps -> 3189 | mpd -> 3189
+src/tui/gesture.rs:162-164	[scripts/fxcap/parity-ledger.toml:1223]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/gesture.rs:176-188	[scripts/fxcap/parity-ledger.toml:1211, scripts/fxcap/parity-ledger.toml:1223]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/grid.rs:1088	[scripts/fxcap/parity-ledger.toml:1029]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/layout.rs:98	[scripts/fxcap/parity-ledger.toml:1017, scripts/fxcap/parity-ledger.toml:1065]
+    base* = | profile* = | slash* = | test-env -> 125 | lpw* = | aps* = | mpd* =
+src/tui/mcp_menu.rs:786-791	[scripts/fxcap/parity-ledger.toml:1235]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/mcp_menu.rs:1500	[scripts/fxcap/parity-ledger.toml:433]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/mod.rs:134-140	[scripts/fxcap/parity-ledger.toml:1198]
+    base -> 141-147 | profile* = | slash -> 141-147 | test-env -> 141-147 | lpw -> 141-147 | aps -> 141-147 | mpd -> 141-147
+src/tui/retry.rs:369-381	[docs/parity.md:237]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/settings.rs:361	[scripts/fxcap/parity-ledger.toml:982]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/shell.rs:183-191	[scripts/fxcap/parity-ledger.toml:45, scripts/fxcap/parity-ledger.toml:46]
+    base* = | profile changed | slash changed | test-env changed | lpw changed | aps changed | mpd changed
+src/tui/shell.rs:1863	[scripts/fxcap/parity-ledger.toml:1006]
+    base -> 1864 | profile -> 1872 | slash -> 1871 | test-env -> 1961 | lpw -> 1872 | aps -> 1872 | mpd -> 1872
+src/tui/shell.rs:1938	[scripts/fxcap/parity-ledger.toml:890, scripts/fxcap/parity-ledger.toml:892]
+    base -> 1939 | profile -> 1947 | slash -> 1946 | test-env -> 2036 | lpw -> 1947 | aps -> 1947 | mpd -> 1947
+src/tui/shell.rs:4570	[scripts/fxcap/parity-ledger.toml:1158]
+    base -> 4575 | profile -> 4599 | slash -> 4580 | test-env -> 4795 | lpw -> 4599 | aps -> 4583 | mpd -> 4583
+src/tui/shell.rs:11127	[scripts/fxcap/parity-ledger.toml:877, scripts/fxcap/parity-ledger.toml:879]
+    base -> 11185 | profile -> 11778 | slash -> 11644 | test-env -> 12047 | lpw -> 11778 | aps -> 11679 | mpd -> 11679
+src/tui/shell.rs:14604	[scripts/fxcap/parity-ledger.toml:506]
+    base -> 14679 | profile -> 15389 | slash changed | test-env -> 15757 | lpw -> 15389 | aps -> 15196 | mpd -> 15196
+src/tui/shell.rs:17644	[scripts/fxcap/parity-ledger.toml:691, scripts/fxcap/parity-ledger.toml:1040]
+    base -> 17723 | profile -> 18460 | slash -> 18246 | test-env -> 19147 | lpw -> 18460 | aps -> 18267 | mpd -> 18267
+src/tui/shell.rs:50939	[scripts/fxcap/parity-ledger.toml:808, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:865, scripts/fxcap/parity-ledger.toml:970]
+    base -> 51985 | profile -> 61473 | slash -> 59217 | test-env -> 63795 | lpw -> 61473 | aps -> 58881 | mpd -> 58865
+src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:925]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:392]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/toolgroup.rs:1131	[scripts/fxcap/parity-ledger.toml:406]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/usage_menu.rs:790	[scripts/fxcap/parity-ledger.toml:350]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/wrap.rs:673-693	[scripts/fxcap/parity-ledger.toml:1029]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+src/tui/wrap.rs:726	[scripts/fxcap/parity-ledger.toml:478]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+tests/e2e/cli.test.ts:445	[docs/parity.md:244]
+    base* = | profile = | slash = | test-env = | lpw = | aps = | mpd =
+tests/e2e/file-tool-paths.test.ts:1170-1179	[docs/parity.md:218]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+tests/tla/session_manager/system-design.md:1536-1560	[docs/parity.md:92]
+    base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
+# 90 references; 6 (side, reference) pairs MOVED; * = the side's own text cites it

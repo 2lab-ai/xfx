@@ -1,0 +1,536 @@
+# token_check.py (train 7's, unchanged: byte for byte the same file) over the merges
+merge b2d044c9: ours 866747ff, theirs bacb1052, base 3943d667 -- OK
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 0 tokens added, 3 deleted, all as expected, in order
+  parity row '<line> `580a0c5da9386317251968c09c1cee69e763487': changed by ours; 0 tokens added, 7 deleted, all as expected, in order
+  parity row '`status`': changed by ours+theirs; 40 tokens added, 0 deleted, all as expected; 2 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`doctor`': changed by theirs; 18 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask`': changed by theirs; 42 tokens added, 1 deleted, all as expected, in order
+  parity row '`interactive`': changed by ours; 38 tokens added, 12 deleted, all as expected, in order
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-two below an": changed by ours; 0 tokens added, 10 deleted, all as expected, in order
+  parity row '<line> thirty-two while the number of names the': changed by ours; 0 tokens added, 11 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 105 tokens added, 0 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 55 tokens added, 1 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 68 tokens added, 241 deleted, all as expected, in order
+  parity row '`/permissions`': changed by ours+theirs; 489 tokens added, 4 deleted, all as expected; 7 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`/mcp`': changed by ours; 123 tokens added, 8 deleted, all as expected, in order
+  parity row '`/skills`': changed by ours; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/image`': changed by ours; 672 tokens added, 3 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row '`/version`': changed by ours; 30 tokens added, 27 deleted, all as expected, in order
+  parity row '`write_file`': changed by ours; 3 tokens added, 2 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 1645 tokens added, 31 deleted, all as expected, in order
+  parity row 'tool permission modes': changed by ours+theirs; 68 tokens added, 3 deleted, all as expected; 2 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row 'profile home `~/.xfx`': changed by ours; 7 tokens added, 6 deleted, all as expected, in order
+  parity row 'environment overrides': changed by ours+theirs; 62 tokens added, 4 deleted, all as expected; 7 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row 'config diagnostics': changed by theirs; 1765 tokens added, 1 deleted, all as expected, in order
+  parity row 'session event log': changed by ours; 8 tokens added, 8 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 42 tokens added, 18 deleted, all as expected, in order
+  parity row 'MCP project servers and trust': changed by theirs; 113 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 4129 tokens added, 86 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 729 tokens added, 3 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1852 tokens added, 20 deleted, all as expected, in order
+  parity row 'notifications and status line': changed by ours; 78 tokens added, 19 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'colored and hyperlinked TTY output': changed by ours; 9 tokens added, 17 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 0 tokens added, 14 deleted, all as expected, in order
+  parity row '<line> only. `.prd/03-tui-port.md` item 21 keep': changed by ours; 0 tokens added, 17 deleted, all as expected, in order
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 9 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> and the earlier pins `c1db9191` (fx 0.0.': changed by ours; 21 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-four below a": changed by ours; 10 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> thirty-four while the number of names th': changed by ours; 11 tokens added, 0 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 255 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 14 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> None of the reasons below claims that a': changed by ours; 8 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause P1-carry-notice: deleted by ours, kept so
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause approval-settled-every-approval: added by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause launch-refusal-row: changed by theirs, kept so
+  ledger cause mcp-fail-list-on-a-try: added by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause profile-refuse-at-launch: deleted by theirs (ours changed only its path:line numbers), kept so
+  ledger cause question-resume-ctrlo-detail: added by ours, kept so
+  ledger cause question-resume-replay: deleted by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause rule-confirm-card-after-stop: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause session-record-page-bottom: added by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause verbs-refused-port-word: added by ours, kept so
+  ledger cause xfx-debug-banner-wrap: deleted by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger divergence status-panel-sandbox: changed by ours, kept so
+  ledger divergence status-panel-step-limit: changed by ours, kept so
+  ledger divergence status-panel-updates: changed by ours, kept so
+  ledger normalization activity-pulse: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization product-version: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 27 added, 1 deleted, all as expected
+merge e8b004a5: ours b2d044c9, theirs 32eb858f, base afd891af -- 2 DIFFERENCES
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 0 tokens added, 3 deleted, all as expected, in order
+  parity row '<line> `580a0c5da9386317251968c09c1cee69e763487': changed by ours; 0 tokens added, 7 deleted, all as expected, in order
+  parity row '`status`': changed by ours; 40 tokens added, 0 deleted, all as expected, in order
+  parity row '`doctor`': changed by ours; 18 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask`': changed by ours; 42 tokens added, 1 deleted, all as expected, in order
+  parity row '`interactive`': changed by ours; 38 tokens added, 12 deleted, all as expected, in order
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-two below an": changed by ours; 0 tokens added, 10 deleted, all as expected, in order
+  parity row '<line> thirty-two while the number of names the': changed by ours; 0 tokens added, 11 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 105 tokens added, 0 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 55 tokens added, 1 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 95 tokens added, 5 deleted, all as expected, in order
+  parity row '`/permissions`': changed by ours+theirs; 559 tokens added, 4 deleted, all as expected; 8 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`/allowlist`': changed by theirs; 158 tokens added, 0 deleted, all as expected, in order
+  parity row '`/mcp`': changed by ours+theirs; 153 tokens added, 10 deleted, all as expected; 8 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`/skills`': changed by ours+theirs; 87 tokens added, 3 deleted, all as expected; 6 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row '`/image`': changed by ours; 437 tokens added, 201 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row '`/statusline`': changed by theirs; 59 tokens added, 0 deleted, all as expected, in order
+  parity row '`/sound`': changed by theirs; 43 tokens added, 0 deleted, all as expected, in order
+  parity row '`/workspace`': changed by theirs; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/version`': changed by ours; 30 tokens added, 27 deleted, all as expected, in order
+  parity row '`write_file`': changed by ours; 3 tokens added, 2 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 751 tokens added, 40 deleted, all as expected, in order
+  parity row 'tool permission modes': changed by ours; 68 tokens added, 3 deleted, all as expected, in order
+  parity row 'profile home `~/.xfx`': changed by ours; 7 tokens added, 6 deleted, all as expected, in order
+  parity row 'environment overrides': changed by ours; 62 tokens added, 4 deleted, all as expected, in order
+  parity row 'config diagnostics': changed by ours; 1765 tokens added, 1 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 39 tokens added, 24 deleted, all as expected, in order
+  parity row 'MCP project servers and trust': changed by ours; 113 tokens added, 0 deleted, all as expected, in order
+  PARITY 'full-screen TUI': 2 of 106 clauses not whole, first 'absent. The word has to start the draft: fx opens the menu for a draft whose fir'
+  parity row 'full transcript (`C-o`)': changed by ours; 729 tokens added, 3 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1852 tokens added, 20 deleted, all as expected, in order
+  parity row 'notifications and status line': changed by ours; 78 tokens added, 19 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'colored and hyperlinked TTY output': changed by ours; 9 tokens added, 17 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 0 tokens added, 14 deleted, all as expected, in order
+  parity row '<line> only. `.prd/03-tui-port.md` item 21 keep': changed by ours; 0 tokens added, 17 deleted, all as expected, in order
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 9 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> and the earlier pins `c1db9191` (fx 0.0.': changed by ours; 21 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-four below a": changed by ours; 10 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> thirty-four while the number of names th': changed by ours; 11 tokens added, 0 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 255 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 14 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> None of the reasons below claims that a': changed by ours; 8 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-tokens-before-request: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  LEDGER ('cause', 'amendment-card-after-stop'): both sides changed it differently -- read by hand
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause approval-settled-every-approval: added by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause cancel-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause launch-refusal-row: changed by ours, kept so
+  ledger cause mcp-fail-list-on-a-try: added by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause resize-document-repaint: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause rule-confirm-card-after-stop: added by ours, kept so
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record-page-bottom: added by ours, kept so
+  ledger cause stats-bytes: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause verbs-refused-port-word: added by ours, kept so
+  ledger cause xfx-debug-banner-wrap: deleted by ours, kept so
+  ledger divergence answer-drawn-wider-named: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger divergence status-panel-sandbox: changed by ours, kept so
+  ledger divergence status-panel-step-limit: changed by ours, kept so
+  ledger divergence status-panel-updates: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization product-version: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 27 added, 0 deleted, all as expected
+merge 849f5017: ours e8b004a5, theirs 7c3f6c1e, base 32afd307 -- OK
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 0 tokens added, 3 deleted, all as expected, in order
+  parity row '<line> `580a0c5da9386317251968c09c1cee69e763487': changed by ours; 0 tokens added, 7 deleted, all as expected, in order
+  parity row '`status`': changed by ours; 40 tokens added, 0 deleted, all as expected, in order
+  parity row '`doctor`': changed by ours; 18 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask`': changed by ours; 42 tokens added, 1 deleted, all as expected, in order
+  parity row '`interactive`': changed by ours; 38 tokens added, 12 deleted, all as expected, in order
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-two below an": changed by ours; 0 tokens added, 10 deleted, all as expected, in order
+  parity row '<line> thirty-two while the number of names the': changed by ours; 0 tokens added, 11 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 448 tokens added, 39 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 82 tokens added, 7 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 68 tokens added, 241 deleted, all as expected, in order
+  parity row '`/permissions`': changed by ours; 559 tokens added, 4 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 158 tokens added, 0 deleted, all as expected, in order
+  parity row '`/mcp`': changed by ours; 152 tokens added, 9 deleted, all as expected, in order
+  parity row '`/skills`': changed by ours; 87 tokens added, 3 deleted, all as expected, in order
+  parity row '`/image`': changed by ours; 672 tokens added, 3 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row '`/statusline`': changed by ours; 59 tokens added, 0 deleted, all as expected, in order
+  parity row '`/sound`': changed by ours; 43 tokens added, 0 deleted, all as expected, in order
+  parity row '`/workspace`': changed by ours; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/version`': changed by ours; 30 tokens added, 27 deleted, all as expected, in order
+  parity row '`write_file`': changed by ours; 3 tokens added, 2 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 1645 tokens added, 31 deleted, all as expected, in order
+  parity row 'tool permission modes': changed by ours; 68 tokens added, 3 deleted, all as expected, in order
+  parity row 'profile home `~/.xfx`': changed by ours; 7 tokens added, 6 deleted, all as expected, in order
+  parity row 'environment overrides': changed by ours; 62 tokens added, 4 deleted, all as expected, in order
+  parity row 'config diagnostics': changed by ours; 1765 tokens added, 1 deleted, all as expected, in order
+  parity row 'session event log': changed by ours; 8 tokens added, 8 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 42 tokens added, 18 deleted, all as expected, in order
+  parity row 'MCP project servers and trust': changed by ours; 113 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 7327 tokens added, 89 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 729 tokens added, 3 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1857 tokens added, 22 deleted, all as expected, in order
+  parity row 'notifications and status line': changed by ours; 78 tokens added, 19 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 3 tokens added, 3 deleted, all as expected, in order
+  parity row 'colored and hyperlinked TTY output': changed by ours; 9 tokens added, 17 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 0 tokens added, 14 deleted, all as expected, in order
+  parity row '<line> only. `.prd/03-tui-port.md` item 21 keep': changed by ours; 0 tokens added, 17 deleted, all as expected, in order
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 9 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> and the earlier pins `c1db9191` (fx 0.0.': changed by ours; 21 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-four below a": changed by ours; 10 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> thirty-four while the number of names th': changed by ours; 11 tokens added, 0 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 255 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 14 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> None of the reasons below claims that a': changed by ours; 8 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause P1-carry-notice: deleted by ours, kept so
+  ledger cause activity-row-gap: changed by ours, kept so
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause allowlist-band: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause approval-settled-every-approval: added by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause catalog-window: deleted by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause launch-refusal-row: changed by ours, kept so
+  ledger cause mcp-fail-list-on-a-try: added by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause preview-frame-before-the-turn-start: added by ours, kept so
+  ledger cause provider-label: changed by ours, kept so
+  ledger cause question-resume-ctrlo-detail: added by ours, kept so
+  ledger cause question-resume-replay: deleted by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause rule-confirm-card-after-stop: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause session-record-page-bottom: added by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause submit-multi-card-whole: deleted by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause verbs-refused-port-word: added by ours, kept so
+  ledger cause xfx-debug-banner-wrap: deleted by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger divergence status-panel-sandbox: changed by ours, kept so
+  ledger divergence status-panel-step-limit: changed by ours, kept so
+  ledger divergence status-panel-updates: changed by ours, kept so
+  ledger normalization activity-pulse: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization product-version: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 38 added, 3 deleted, all as expected
+merge dd2ac93d: ours 849f5017, theirs dd9f5f0a, base 71d3e02b -- OK
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 0 tokens added, 3 deleted, all as expected, in order
+  parity row '<line> `580a0c5da9386317251968c09c1cee69e763487': changed by ours; 0 tokens added, 7 deleted, all as expected, in order
+  parity row '`status`': changed by ours; 40 tokens added, 0 deleted, all as expected, in order
+  parity row '`doctor`': changed by ours; 18 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask`': changed by ours; 42 tokens added, 1 deleted, all as expected, in order
+  parity row '`interactive`': changed by ours; 38 tokens added, 12 deleted, all as expected, in order
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-two below an": changed by ours; 0 tokens added, 10 deleted, all as expected, in order
+  parity row '<line> thirty-two while the number of names the': changed by ours; 0 tokens added, 11 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 105 tokens added, 0 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 55 tokens added, 1 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 68 tokens added, 241 deleted, all as expected, in order
+  parity row '`/permissions`': changed by ours; 559 tokens added, 4 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 158 tokens added, 0 deleted, all as expected, in order
+  parity row '`/mcp`': changed by ours; 152 tokens added, 9 deleted, all as expected, in order
+  parity row '`/skills`': changed by ours; 87 tokens added, 3 deleted, all as expected, in order
+  parity row '`/image`': changed by ours; 672 tokens added, 3 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row '`/statusline`': changed by ours; 59 tokens added, 0 deleted, all as expected, in order
+  parity row '`/sound`': changed by ours; 43 tokens added, 0 deleted, all as expected, in order
+  parity row '`/workspace`': changed by ours; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/version`': changed by ours; 30 tokens added, 27 deleted, all as expected, in order
+  parity row '`write_file`': changed by ours; 3 tokens added, 2 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 1645 tokens added, 31 deleted, all as expected, in order
+  parity row 'tool permission modes': changed by ours; 68 tokens added, 3 deleted, all as expected, in order
+  parity row 'profile home `~/.xfx`': changed by ours; 7 tokens added, 6 deleted, all as expected, in order
+  parity row 'environment overrides': changed by ours; 62 tokens added, 4 deleted, all as expected, in order
+  parity row 'config diagnostics': changed by ours; 1765 tokens added, 1 deleted, all as expected, in order
+  parity row 'session event log': changed by ours; 8 tokens added, 8 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 42 tokens added, 18 deleted, all as expected, in order
+  parity row 'MCP project servers and trust': changed by ours; 113 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours; 4996 tokens added, 84 deleted, all as expected, in order
+  parity row 'full transcript (`C-o`)': changed by ours; 729 tokens added, 3 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1852 tokens added, 20 deleted, all as expected, in order
+  parity row 'notifications and status line': changed by ours; 78 tokens added, 19 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'colored and hyperlinked TTY output': changed by ours; 9 tokens added, 17 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 0 tokens added, 14 deleted, all as expected, in order
+  parity row '<line> only. `.prd/03-tui-port.md` item 21 keep': changed by ours; 0 tokens added, 17 deleted, all as expected, in order
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 9 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> and the earlier pins `c1db9191` (fx 0.0.': changed by ours; 21 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-four below a": changed by ours; 10 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> thirty-four while the number of names th': changed by ours; 11 tokens added, 0 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 255 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 14 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> None of the reasons below claims that a': changed by ours; 8 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause P1-carry-notice: deleted by ours, kept so
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause approval-settled-every-approval: added by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: changed by ours, kept so
+  ledger cause full-transcript-shift: changed by ours, kept so
+  ledger cause launch-refusal-row: changed by ours, kept so
+  ledger cause mcp-fail-list-on-a-try: added by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause profile-refuse-at-launch: deleted by ours, kept so
+  ledger cause question-resume-ctrlo-detail: added by ours, kept so
+  ledger cause question-resume-replay: deleted by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause rule-confirm-card-after-stop: added by ours, kept so
+  ledger cause safe-page-edge: changed by ours, kept so
+  ledger cause session-record: changed by ours, kept so
+  ledger cause session-record-page-bottom: added by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: changed by ours, kept so
+  ledger cause transcript-page-offset: changed by ours, kept so
+  ledger cause xfx-debug-banner-wrap: deleted by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger divergence status-panel-sandbox: changed by ours, kept so
+  ledger divergence status-panel-step-limit: changed by ours, kept so
+  ledger divergence status-panel-updates: changed by ours, kept so
+  ledger normalization activity-pulse: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization product-version: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 21 added, 1 deleted, all as expected
+merge 71787971: ours dd2ac93d, theirs ca496c10, base df45025c -- OK
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 0 tokens added, 3 deleted, all as expected, in order
+  parity row '<line> `580a0c5da9386317251968c09c1cee69e763487': changed by ours; 0 tokens added, 7 deleted, all as expected, in order
+  parity row '`status`': changed by ours; 40 tokens added, 0 deleted, all as expected, in order
+  parity row '`doctor`': changed by ours; 18 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask`': changed by ours; 42 tokens added, 1 deleted, all as expected, in order
+  parity row '`interactive`': changed by ours; 38 tokens added, 12 deleted, all as expected, in order
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-two below an": changed by ours; 0 tokens added, 10 deleted, all as expected, in order
+  parity row '<line> thirty-two while the number of names the': changed by ours; 0 tokens added, 11 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 105 tokens added, 0 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 55 tokens added, 1 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 95 tokens added, 5 deleted, all as expected, in order
+  parity row '`/permissions`': changed by ours; 559 tokens added, 4 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 158 tokens added, 0 deleted, all as expected, in order
+  parity row '`/mcp`': changed by ours; 152 tokens added, 9 deleted, all as expected, in order
+  parity row '`/skills`': changed by ours; 87 tokens added, 3 deleted, all as expected, in order
+  parity row '`/image`': changed by ours; 437 tokens added, 201 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row '`/statusline`': changed by ours; 59 tokens added, 0 deleted, all as expected, in order
+  parity row '`/sound`': changed by ours; 43 tokens added, 0 deleted, all as expected, in order
+  parity row '`/workspace`': changed by ours; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/version`': changed by ours; 30 tokens added, 27 deleted, all as expected, in order
+  parity row '`write_file`': changed by ours; 3 tokens added, 2 deleted, all as expected, in order
+  parity row '`ask_user_question`': changed by ours; 481 tokens added, 1 deleted, all as expected, in order
+  parity row 'tool permission modes': changed by ours; 68 tokens added, 3 deleted, all as expected, in order
+  parity row 'profile home `~/.xfx`': changed by ours; 7 tokens added, 6 deleted, all as expected, in order
+  parity row 'environment overrides': changed by ours; 62 tokens added, 4 deleted, all as expected, in order
+  parity row 'config diagnostics': changed by ours; 1765 tokens added, 1 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 39 tokens added, 24 deleted, all as expected, in order
+  parity row 'MCP project servers and trust': changed by ours; 113 tokens added, 0 deleted, all as expected, in order
+  parity row 'full-screen TUI': changed by ours+theirs; 2774 tokens added, 173 deleted, all as expected; 66 clauses (each with its side's token either side) whole and contiguous; each side's tokens in its order
+  parity row 'full transcript (`C-o`)': changed by ours; 476 tokens added, 0 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1852 tokens added, 20 deleted, all as expected, in order
+  parity row 'notifications and status line': changed by ours; 78 tokens added, 19 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'colored and hyperlinked TTY output': changed by ours; 9 tokens added, 17 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 0 tokens added, 14 deleted, all as expected, in order
+  parity row '<line> only. `.prd/03-tui-port.md` item 21 keep': changed by ours; 0 tokens added, 17 deleted, all as expected, in order
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 9 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> and the earlier pins `c1db9191` (fx 0.0.': changed by ours; 21 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-four below a": changed by ours; 10 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> thirty-four while the number of names th': changed by ours; 11 tokens added, 0 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 255 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 14 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> None of the reasons below claims that a': changed by ours; 8 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause amend-draft-window: added by theirs, kept so
+  ledger cause amend-draft-window-tail: added by theirs, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause approval-settled-every-approval: added by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause fulltranscript-response-header: deleted by ours, kept so
+  ledger cause launch-refusal-row: changed by ours, kept so
+  ledger cause mcp-fail-list-on-a-try: added by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause rule-confirm-card-after-stop: added by ours, kept so
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record-page-bottom: added by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause verbs-refused-port-word: added by ours, kept so
+  ledger cause xfx-debug-banner-wrap: deleted by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger divergence status-panel-sandbox: changed by ours, kept so
+  ledger divergence status-panel-step-limit: changed by ours, kept so
+  ledger divergence status-panel-updates: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization product-version: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 27 added, 0 deleted, all as expected
+merge 1bce5348: ours 71787971, theirs 6d94fbc0, base df45025c -- 2 DIFFERENCES
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 0 tokens added, 3 deleted, all as expected, in order
+  parity row '<line> `580a0c5da9386317251968c09c1cee69e763487': changed by ours; 0 tokens added, 7 deleted, all as expected, in order
+  parity row '`status`': changed by ours; 40 tokens added, 0 deleted, all as expected, in order
+  parity row '`doctor`': changed by ours; 18 tokens added, 0 deleted, all as expected, in order
+  parity row '`ask`': changed by ours; 42 tokens added, 1 deleted, all as expected, in order
+  parity row '`interactive`': changed by ours; 38 tokens added, 12 deleted, all as expected, in order
+  parity row '`sessions`': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-two below an": changed by ours; 0 tokens added, 10 deleted, all as expected, in order
+  parity row '<line> thirty-two while the number of names the': changed by ours; 0 tokens added, 11 deleted, all as expected, in order
+  parity row '`/help`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/resume`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/fork`': changed by ours; 35 tokens added, 0 deleted, all as expected, in order
+  parity row '`/model`': changed by ours; 105 tokens added, 0 deleted, all as expected, in order
+  parity row '`/effort`': changed by ours; 55 tokens added, 1 deleted, all as expected, in order
+  parity row '`/provider`': changed by ours; 95 tokens added, 5 deleted, all as expected, in order
+  parity row '`/permissions`': changed by ours; 559 tokens added, 4 deleted, all as expected, in order
+  parity row '`/allowlist`': changed by ours; 158 tokens added, 0 deleted, all as expected, in order
+  parity row '`/mcp`': changed by ours; 152 tokens added, 9 deleted, all as expected, in order
+  parity row '`/skills`': changed by ours; 87 tokens added, 3 deleted, all as expected, in order
+  parity row '`/image`': changed by ours; 437 tokens added, 201 deleted, all as expected, in order
+  parity row '`/settings`': changed by ours; 92 tokens added, 1 deleted, all as expected, in order
+  parity row '`/statusline`': changed by ours; 59 tokens added, 0 deleted, all as expected, in order
+  parity row '`/sound`': changed by ours; 43 tokens added, 0 deleted, all as expected, in order
+  parity row '`/workspace`': changed by ours; 44 tokens added, 0 deleted, all as expected, in order
+  parity row '`/version`': changed by ours; 30 tokens added, 27 deleted, all as expected, in order
+  parity row '`write_file`': changed by ours; 3 tokens added, 2 deleted, all as expected, in order
+  PARITY '`ask_user_question`': missing {'(queued),': 1} extra {}
+  parity row 'tool permission modes': changed by ours; 68 tokens added, 3 deleted, all as expected, in order
+  parity row 'profile home `~/.xfx`': changed by ours; 7 tokens added, 6 deleted, all as expected, in order
+  parity row 'environment overrides': changed by ours; 62 tokens added, 4 deleted, all as expected, in order
+  parity row 'config diagnostics': changed by ours; 1765 tokens added, 1 deleted, all as expected, in order
+  parity row 'session resume': changed by ours; 39 tokens added, 24 deleted, all as expected, in order
+  parity row 'MCP project servers and trust': changed by ours; 113 tokens added, 0 deleted, all as expected, in order
+  PARITY 'full-screen TUI': missing {'queued:': 1} extra {}
+  parity row 'full transcript (`C-o`)': changed by ours; 476 tokens added, 0 deleted, all as expected, in order
+  parity row '`@` file picker': changed by ours; 1852 tokens added, 20 deleted, all as expected, in order
+  parity row 'notifications and status line': changed by ours; 78 tokens added, 19 deleted, all as expected, in order
+  parity row 'terminal program status (OSC 7501)': changed by ours; 1 tokens added, 1 deleted, all as expected, in order
+  parity row 'colored and hyperlinked TTY output': changed by ours; 9 tokens added, 17 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 0 tokens added, 14 deleted, all as expected, in order
+  parity row '<line> only. `.prd/03-tui-port.md` item 21 keep': changed by ours; 0 tokens added, 17 deleted, all as expected, in order
+  parity row '<line> [`vercel-labs/fx`](https://github.com/ve': changed by ours; 9 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> and the earlier pins `c1db9191` (fx 0.0.': changed by ours; 21 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> xfx's shell owns the thirty-four below a": changed by ours; 10 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> thirty-four while the number of names th': changed by ours; 11 tokens added, 0 deleted, all as expected, in order
+  parity row 'version text': changed by ours; 255 tokens added, 0 deleted, all as expected, in order
+  parity row "<line> What the `full-screen TUI` row's partial": changed by ours; 14 tokens added, 0 deleted, all as expected, in order
+  parity row '<line> None of the reasons below claims that a': changed by ours; 8 tokens added, 0 deleted, all as expected, in order
+  parity order: every row in each side's order
+  ledger cause activity-tokens-before-request: changed by ours, kept so
+  ledger cause amend-draft-window: added by ours, kept so
+  ledger cause amend-draft-window-tail: added by ours, kept so
+  ledger cause amendment-card-after-stop: changed by ours, kept so
+  ledger cause answer-modifier-sequence-wider: changed by ours, kept so
+  ledger cause approval-settled-every-approval: added by ours, kept so
+  ledger cause at-folder-row: deleted by ours, kept so
+  ledger cause at-ranking: deleted by ours, kept so
+  ledger cause at-resize-band-at-the-bottom: changed by ours, kept so
+  ledger cause cancel-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause full-transcript-shift: changed by ours, its path:line numbers alone by theirs; ours' entry, the numbers re-pointed (repointed.py)
+  ledger cause fulltranscript-response-header: deleted by ours, kept so
+  ledger cause launch-refusal-row: changed by ours, kept so
+  ledger cause mcp-fail-list-on-a-try: added by ours, kept so
+  ledger cause model-column-clip: added by ours, kept so
+  ledger cause resize-document-repaint: changed by ours, kept so
+  ledger cause rule-confirm-card-after-stop: added by ours, kept so
+  ledger cause safe-page-edge: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause session-record-page-bottom: added by ours, kept so
+  ledger cause stats-bytes: changed by ours, kept so
+  ledger cause toolgroup-ctrlo-record-short: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause transcript-page-offset: both sides changed its path:line numbers alone; kept, the numbers re-pointed (resolve_refs.py, repointed.py)
+  ledger cause verbs-refused-port-word: added by ours, kept so
+  ledger cause xfx-debug-banner-wrap: deleted by ours, kept so
+  ledger divergence answer-drawn-wider-named: changed by ours, kept so
+  ledger divergence answer-label-and-modifier-named: changed by ours, kept so
+  ledger divergence ctrl-o-drawn-wider-named: changed by ours, kept so
+  ledger divergence inline-band-row-anchor: changed by ours, kept so
+  ledger divergence status-panel-sandbox: changed by ours, kept so
+  ledger divergence status-panel-step-limit: changed by ours, kept so
+  ledger divergence status-panel-updates: changed by ours, kept so
+  ledger normalization banner: changed by ours, kept so
+  ledger normalization capture-tmpdir: changed by ours, kept so
+  ledger normalization product-version: changed by ours, kept so
+  ledger normalization run-directory: changed by ours, kept so
+  ledger normalization tmux-dead-pane: changed by ours, kept so
+  ledger comments: 27 added, 0 deleted, all as expected
+# exit 1

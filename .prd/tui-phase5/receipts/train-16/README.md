@@ -1,0 +1,958 @@
+---
+title: 0.0.16 delta -- P5 train 16 receipt (the profile and slash lines, TEST-ENV-ISOLATION, LOCAL-PATHS-WRAP, APPROVAL-PASTE-SPACES and META-PREFIX-DECODE into one branch, on train 15)
+type: receipt
+tags: [xfx, phase5, fx-0.0.16, train]
+---
+
+# P5 train 16: eleven closed units, six merges, one branch
+
+Branch `train/p5-1116`, from **train 15's head `866747ff`** (`train/p5-1111b`,
+reviewed and gated, waiting only for its PR), as the brief set it: train 16
+stacks on train 15 because APPROVAL-PASTE-SPACES and META-PREFIX-DECODE sit on
+the decoder line train 15 brings. Each unit was closed by its own two-engine
+review and the dispatcher's gate; this train combines them. The program goal
+(the user's words): «최신 fx랑 비교해서 ui쪽으로 모든 기능 구현하고
+기본적으로 최신 fx ui를 그대로 구현해줘» (fx v0.0.16, pin `481104fd`).
+
+Oracle: fx v0.0.16, executable sha256
+`8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2`, checked
+by each sweep and capture before and after it ran, `FX_AUTO_UPGRADE=0`.
+
+Model: train 15's receipt (`../train-15/`) and the dispatcher's reviews of
+it. Its scripts are copied here, each saying in its first lines what changed
+for this train (most: nothing but that line); the new ones say so too.
+Train 15's scripts for checks this train has no use for are not copied
+(`cw_runs.py`, `phrases.sh`, `red-r2.sh`, `rerun-job.sh`: the reruns ran
+on the sweeps' own builds); train 14's
+`semantic.py` is back, for merge 3. What those reviews asked is carried:
+every figure rests on a file of this folder, named where it is used; counts
+are checked against the lists they count; the path scans run over this
+folder (`pathcheck.sh` before every commit, `final-scan.sh`); "no code after
+the code head" is shown by `final-scan.txt` part 4 at the receipt's last
+commit; the doc and ledger merges are checked mechanically (the token check
+and its controls, `merge_keep.py`, `owners.py`, `parity-join.txt`). Every
+log this receipt cites was copied into this folder as it was made; the
+scratch root held only raw bulk (the 2026-11-16 lesson: macOS's periodic
+`/tmp` cleanup).
+
+## Units and merges
+
+Each merge is a stack top and carries the units under it; every base is
+git's merge base of the merge's two parents (`merge-ends.txt` names each).
+The chains are `git log`'s (`prescan.txt` counts each range):
+
+| # | merge | units it carries (branch @ tip; commits since its base) | base | conflicts |
+|---|---|---|---|---|
+| 1 | `b2d044c9` | the profile line, oldest first: PROFILE-REFUSE-AT-LAUNCH `0a334851` (13), PROFILE-REFUSE-TYPED-KEYS `9c64ddd3` (15), **PERMISSION-MODE-CASE `f74d2fd5` (9)**, PROFILE-JSON-LIMITS `bacb1052` (12) (`fix/p5-profile-json-limits`; 49) | `3943d667` | `docs/parity.md` 4 blocks, 13 rows; the ledger 1 and `p5-panels-badsettings.cap` 1, `rewrite`; `tests/sessions.rs` 1 `numbers`; `tests/tui.rs` 2, `numbers` and `ours` |
+| 2 | `e8b004a5` | the slash line, oldest first: SLASH-LEADING-WS `4bb8af77` (13), SLASH-ARG-SKILLS `b9b11596` (12), SLASH-MIXED-SKILLS `32eb858f` (11) (`fix/p5-slash-mixed-skills`; 36) | `afd891af` | `src/tui/shell.rs` 1, by hand; the ledger 13 (12 `numbers`, 1 `ours`); `docs/parity.md` 3 blocks, 17 rows |
+| 3 | `849f5017` | TEST-ENV-ISOLATION (`fix/p5-test-env-isolation` @ `7c3f6c1e`; 51) | `32afd307` | `CONTRIBUTING.md` 1, `src/tui/worker.rs` 1, `tests/support/mod.rs` 1, by hand; **and 9 semantic fixes** (`semantic.py`: the merged tree failed fmt and both clippy runs) |
+| 4 | `dd2ac93d` | LOCAL-PATHS-WRAP (`fix/p5-local-paths-wrap` @ `dd9f5f0a`; 14, one of them its own join of `71d3e02b`) | `71d3e02b` | `scripts/fxcap/roots.py` 1, by hand |
+| 5 | `71787971` | APPROVAL-PASTE-SPACES (`fix/p5-approval-paste-spaces` @ `ca496c10`; 21) | `df45025c` | `src/tui/approval_amendment.rs` 1, by hand; the ledger 6 `numbers`; `docs/parity.md` 1 block, 5 rows |
+| 6 | `1bce5348` | META-PREFIX-DECODE (`fix/p5-meta-prefix-decode` @ `6d94fbc0`; 18) | `df45025c` | the ledger 6 `numbers`; `docs/parity.md` 2 blocks, 7 rows, two of ours' words dropped (`--drop`) |
+
+The counts are `git rev-list --count <from>..<to>`: the profile line's 13 +
+15 + 9 + 12 = 49, the slash line's 13 + 12 + 11 = 36; 189 commits in the six
+ranges (`prescan.txt`). **PERMISSION-MODE-CASE is on the profile line**
+(`git merge-base --is-ancestor f74d2fd5 bacb1052` yes, `... 32eb858f` no),
+not on the slash line where the brief listed it; merge 1 brought it. Not
+merged, as the brief has it: COMPACT-MENU-HELD-KEYS, PROFILE-LAYER-DROP,
+CI-PTY-WAIT, LOCAL-PATHS-EXIT-TRAP and every open unit.
+
+After the merges, in order (`git log --first-parent 866747ff..`):
+
+| commit | what |
+|---|---|
+| `622b2865` | **the join commit, docs and tests**: join check 1's MUSTs 2-4 (MUST 1 is merge 3's), join check 2's three join tests, the stale owner clauses, the `/permissions full` scenario's xfx timing |
+| `c637ed4c` | the 42 references the merges and TEST-ENV-ISOLATION moved, re-pointed, numbers only (join check 4) |
+| `15c9744b` | four more the content check reads SAME, read by hand (refs.py, refs_bare.py) |
+| `3d1376b2` | `ci.yml`'s `script_tests` comment, comment only |
+| `2b78aab6` | one of `c637ed4c`'s 42, a pinned reference, put back: **the code head** the gate, the sweeps and the jobs ran at |
+| the receipt's commits | this folder only (`final-scan.txt` part 4) |
+
+## The units' own commits, before any merge (`prescan.sh`, `prescan.txt`)
+
+The brief's mid-branch check came first, since a real name or credential
+stops the train: `midbranch_scan.py` (train 15's, with one optional
+argument: where the documented homes are read, since TEST-ENV-ISOLATION's
+tip predates `check-no-local-paths.sh`) over every commit of the six
+ranges, each as `git show --format=` prints it (LOCAL-PATHS-WRAP's own merge
+as its combined diff), and each range whole; and every commit message by the
+brief's pattern. **189 commits: 0 lines hit, NAME 0, CREDENTIAL 0, no
+message holding the pattern or the account's name**, in every range. There
+was nothing to classify as a placeholder or a scratch root. The scan again
+at the end, over every commit of `866747ff..` (the units' and this train's):
+`final-scan.txt` part 2.
+
+## The conflicts and their resolutions (`resolutions.txt`, `check-merges.txt`)
+
+Every resolution is a script's, redone by `reproduce.sh` in a clone to each
+merge commit's tree: **all six "no difference"**, each resolver's own lines
+(one per block, row or fix) printed under its merge (`resolutions.txt`).
+Before each commit the staged tree passed `cargo check --all-targets` with
+and without `fault-injection`, `cargo fmt --check` and both clippy runs
+(`check-merge.sh`, no lock, as trains 13 to 15; `check-merges.txt`; merge 3's
+first run, which failed, kept beside its second). The tools: `blocks.py`,
+`rowsmerge.py` (its `--drop` used at merge 6), `byhand.py` (this train's
+table, five merges' blocks) and `semantic.py` (train 14's, its fixes this
+train's: merge 3).
+
+**Merge 1** (`b2d044c9`, the profile line onto train 15):
+- The ledger, 1 block, and `scripts/fxcap/scenarios/p5-panels-badsettings.cap`,
+  1 block: `rewrite` -- ours (train 15's re-point `da8e4c1a`) moved only
+  `:3820-3837` to `:3828-3845`, in text PROFILE-REFUSE-AT-LAUNCH rewrote; its
+  text is taken and its numbers re-pointed after (join check 4).
+- `tests/sessions.rs` 1 and `tests/tui.rs` 2: `numbers` and `ours`.
+- `docs/parity.md`, 4 blocks, 13 rows, token by token, none meeting.
+
+**Merge 2** (`e8b004a5`, the slash line):
+- `src/tui/shell.rs`, `Shell::offer_to_mcp_args`' doc, 1 block (`byhand.py
+  2`): ours (PAGE-KEYS-SETTINGS-COLUMN, train 14, `c4bfa8b1`) added PgUp and PgDn and the
+  grown composer's rule; theirs (SLASH-ARG-SKILLS) made the completions
+  "`/mcp `'s or a table's", Tab's space after a table's line and Escape the
+  slash menu's dismissal. Both, the body below merged clean holding both.
+- The ledger, 13 blocks: 12 `numbers`, 1 `ours`.
+- `docs/parity.md`, 3 blocks, 17 rows, token by token, none meeting.
+
+**Merge 3** (`849f5017`, TEST-ENV-ISOLATION, built on main #88):
+- `CONTRIBUTING.md`, "The gate" (`byhand.py 3`): the script tests CI runs
+  on one row per OS -- three on each side, ours' `test-check-no-local-paths.sh`
+  and theirs' `check-env-reads.py --self-test` -- four now, in theirs'
+  wording ("the OS's own tools"); `ci.yml` merged clean and runs all four.
+- `src/tui/worker.rs`, `recording()`: ours' `Runtime::with_environment`
+  over the test's own home (CATALOG-REFRESH `44d7f84c`, the `env` above it
+  merged clean), not theirs' `a_runtime(..)`, which builds the same `env`
+  and would leave ours' unused; neither reads the process.
+- `tests/support/mod.rs`: both added a module where the base has none;
+  theirs' `isolated`, then ours' `profiles` with its comment -- rustfmt's
+  order (ours then theirs fails `cargo fmt --check`: `check-merges.txt`,
+  `m3-first`).
+- **The merged tree did not build its lints** (`check-merges.txt`,
+  `m3-first`: fmt 1, both clippy runs 101). The unit's `clippy.toml` refuses
+  `std::process::Command::new` and `std::env::var_os` but where an allow
+  lets one through, every `tests/*.rs` now declares `mod support;`, and its
+  `check-env-reads.py` holds every compile-time name to a list -- rules
+  everything newer than #88 was written without. `semantic.py 3`, 9 fixes:
+  - `tests/cli.rs` declared `#[path = "support/profiles.rs"] mod profiles;`
+    (PROFILE-REFUSE-AT-LAUNCH) and now `mod support;` too, whose `mod.rs` the
+    profile line gave `pub mod profiles;`: the file loaded twice
+    (`clippy::duplicate_mod`). It takes `use support::profiles;`, as
+    `tests/interactive.rs` does.
+  - The profile line's three `mkfifo` children: `super::command` in
+    `tests/support/profiles.rs` (the unit's one integration-test `Command`,
+    as `tests/tool_loop.rs` makes its FIFO), `crate::process::command` in
+    `src/config.rs`' two tests (as `src/image.rs`' and `src/tui/shell.rs`'
+    tests make theirs).
+  - `src/tui/file_index.rs`' @ benchmark (AT-RANK-PERF, train 14) read
+    `XFX_AT_BENCH_TREE` with `std::env::var_os`: now `env_exception!`, the
+    unit's way for a named variable a test is handed, the name allowed
+    (ALLOWED_NAMES) and listed for that file (EXCEPTIONS). The check refused
+    it with the second missing (`envreads.txt`, run 1). Through
+    `process_env!` a unit test reads its case's fake process, where the
+    person's tree would never be.
+  - **Join MUST 1**: `src/lib.rs` reads `env!("XFX_BUILD_ID")` (#96), which
+    build.rs sets: COMPILE_TIME_NAMES gains it. build.rs no longer sets
+    `XFX_BUILD_REVISION` (#96 folded the revision into the id), so that name
+    leaves the list -- left, an `option_env!` of it would read the person's
+    own environment at compile time -- and the build-script comment names
+    what build.rs reads and runs now (`git_build_id`).
+- Then the merged tree: `check-merge.sh` 0 failed (`check-merges.txt`,
+  `m3`); `check-env-reads.py` OK (`envreads.txt`, run 2); **the whole
+  `cargo test --all-targets`, 0 failed** (`cm/m3-test.txt`): no test from
+  trains 13 to 15 or the profile and slash lines reads the process where
+  the unit's guard would refuse it.
+
+**Merge 4** (`dd2ac93d`, LOCAL-PATHS-WRAP): `scripts/fxcap/roots.py`'s
+docstring, 1 block (`byhand.py 4`): theirs' two new paragraphs, with ours'
+(#94, WORKSPACE-INDEX-AT-PLAN) words for the run directory's name -- `fxcap.`
+and six digits, where it had been mktemp's tail -- and its example, made in
+the sentence theirs moved. `survivors` reads the name it is given, either
+shape; `test_capture.py RootsRewrite` 29 OK on the staged tree
+(`cm/m4-roots.txt`).
+
+**Merge 5** (`71787971`, APPROVAL-PASTE-SPACES, on the decoder line):
+- `src/tui/approval_amendment.rs`, `Draft::apply` (`byhand.py 5`): ours
+  (train 15's APPROVAL-DRAFT-KEYS) took the draft's history out -- no
+  `Undo`, `Redo` or `Yank` -- so `apply` is one `Editor::apply` with its
+  delta dropped; theirs, written before that stack, kept the history's arms
+  and added Home and every line-start spelling to the draft's start, End's
+  to its end. Merged: ours' function, theirs' two arms a mapping ahead of
+  the one call, theirs' comment less "A move records no delta".
+- The ledger, 6 blocks, `numbers`; `docs/parity.md`, 1 block, 5 rows.
+
+**Merge 6** (`1bce5348`, META-PREFIX-DECODE, on the decoder line):
+- The ledger, 6 blocks, `numbers`.
+- `docs/parity.md`, 2 blocks, 7 rows. In two rows ours' edit lay inside
+  theirs': train 15 had turned "(proposed)" to "(queued)" in the owner
+  clauses META-PREFIX-DECODE was named in -- `ask_user_question`'s
+  "Owner unit: **META-PREFIX-DECODE** (proposed), since xfx's decoder has
+  no meta prefix ...", and the full-screen TUI row's "(owner
+  **META-PREFIX-DECODE**, proposed: the decoder has no meta prefix ...)" --
+  and the unit, their owner, deleted the first and rewrote the second
+  around its fix. `rowsmerge.py --drop` leaves ours' word out of each
+  (`resolutions.txt`, merge 6's two lines).
+
+## The token check (`token_check.py`, `token-check.txt`, `token-self-test.txt`, `merge-keep.txt`, `owners.txt`, `parity-join.txt`)
+
+`token_check.py` is train 7's, byte for byte (`token-check.txt`'s first
+line, `cmp` against `../train-7/`): every `docs/parity.md` row and every
+ledger entry of each merge read against its base and both sides. Over the
+six merges it **exits 1, on four lines, two merges' two each, each read
+here** (merges 1, 3, 4 and 5 OK):
+
+1. **Merge 2, full-screen TUI row, "2 of 106 clauses not whole"**: two
+   insertions at one place. Main (PAGE-KEYS-SETTINGS-COLUMN) wrote "... its
+   argument completion are absent. The word has to start the draft: ...
+   not fixed there)."; the slash line rewrote "absent." 's sentence and
+   inserted its own after it ("Upstream's fuzzy matching and its categories
+   are absent. The word may follow blanks, as upstream's does: ..."). The
+   merge holds both, the slash line's first, so each side's clause has the
+   other's text on one flank. The first is the sentence join MUST 2 drops
+   (`622b2865`).
+2. **Merge 2, the ledger's `amendment-card-after-stop`**, "both sides
+   changed it differently": both moved its `shell.rs` numbers alone (the
+   entry is one text on the base, both sides and the merge once every `:N`
+   is masked); ours kept (`blocks.py`'s `ours`), re-pointed after (`:11127`
+   at the head).
+3. **Merge 6, `ask_user_question`, "missing `(queued),`"** and
+4. **merge 6, full-screen TUI row, "missing `queued:`"**: the two words
+   `--drop` left out, where META-PREFIX-DECODE deleted or rewrote the owner
+   clauses around them (merge 6, above).
+
+- **The negative controls** (`token-self-test.txt`). train 7's
+  `--self-test`, as it is, on each merge: merges 3 and 4 42 of 42 found;
+  merge 1 50 of 51; merges 2, 5 and 6 stopped by an exception (`StopIteration`,
+  its line 606) -- two cases its planting cannot make on this train's texts
+  ("Found on the way"). With
+  the two plants fixed (`token_check16.py`, its check's output the same as
+  `token_check.py`'s): **288 of 288 planted cases found** (51, 56, 42, 42, 47 and 50; no row skipped). `token_control.py` (train 13's)
+  plants its two cases on the merged text of every row both sides changed:
+  **38 of 38 found**. `word_control.py` plants a word in `why` of every
+  ledger entry both sides changed in numbers alone: **20 of 20 found** (10,
+  5 and 5 at merges 2, 5 and 6; merges 1, 3 and 4 have no such entry, and
+  the script exits 1 on "0 of 0", by its rule).
+- **`merge_keep.py`** (the dispatcher's, from train 14's review): every unit
+  (a cell, a sentence, a ledger line; 25 characters or more) new on either
+  side, looked for in the merge. As written 23 are not there, 17 of them
+  ledger lines whose numbers the other side moved (kept by `numbers` or
+  `rewrite` and re-pointed after); with digits read as `N`, **6**: merge 2's
+  two pairs of sentences each made one by token-merging -- the full-screen
+  TUI row's "The three lists that took none ... page so too: ..." (train 15)
+  with the slash line's "and the tables beside them" in its last item, and
+  the `/mcp` row's "Up, Down, `C-j` and `C-k` move the mark, ... Tab writes
+  the marked line, Escape closes it", into which PAGE-KEYS-SETTINGS-COLUMN
+  put the page keys and SLASH-ARG-SKILLS its "-- and the slash menu, fx's one
+  `.slash` kind -- while the draft begins with `/`" for "for the line"
+  (each side's words whole in the merged sentence, read in the head's rows)
+  -- and merge 6's two owner clauses META-PREFIX-DECODE retired.
+  None else on any side.
+- **Stale owner clauses, mechanically** (`owners.py`, `owners.txt`): every
+  mention of the eleven units in `docs/parity.md`, the ledger and the
+  tracked source at the code head, and whether `proposed`, `queued`,
+  `owner` or `not fixed` stands within 80 characters: **one hit, and it is
+  not stale** -- "Owner unit: **QUESTION-RESUME-CTRLO** (queued). **`ESC ESC
+  [ D` leaves a choice alone, as fx's does** (META-PREFIX-DECODE)": the
+  queued unit is QUESTION-RESUME-CTRLO. No unit of the eleven is named as
+  the owner of an open difference.
+- **The join commit's and the re-points' `docs/parity.md` edits, word by
+  word** (`parity-join.sh`, `parity-join.txt`: `git diff --word-diff=plain`
+  of each commit, the rows each changed, and the join's sentences as they
+  stand).
+
+## Join checks
+
+Each with its evidence. **Three join tests are added** (join check 2, in
+`622b2865`), where no unit's tests reach the meeting; every other meeting is
+reached by the units' own tests, run in the gate (`unit-tests.txt`), and the
+one join check 1 needs, `/permissions full`, by SLASH-ARG-SKILLS' own.
+
+### 1. The join MUSTs decided at the train split (STATUS, 2026-11-11 05:33Z)
+
+- **TEST-ENV-ISOLATION's COMPILE_TIME_NAMES gains `XFX_BUILD_ID`**: merge
+  3's semantic fix (above); the env check OK at merge 3, at merge 6
+  (`envreads.txt`) and in the gate. Beyond "gains": `XFX_BUILD_REVISION`,
+  which build.rs no longer sets, leaves the list (a decision, below).
+- **PAGE-KEYS-SETTINGS-COLUMN's "SLASH-LEADING-WS not fixed here"
+  sentence** goes (`622b2865`; `parity-join.txt`): "The word has to start
+  the draft: ... Uncaptured; owner SLASH-LEADING-WS (found by
+  PAGE-KEYS-SETTINGS-COLUMN's review, not fixed there)." The slash line's
+  own sentence stands in the same row: "The word may follow blanks, as
+  upstream's does: ...". Merge 2 had put both in the row (the token check's
+  merge-2 difference, below); the row now reads "... when it takes none.
+  **Every line the composer submits is remembered ...**".
+- **`p5-mode-case-full` moves to the slash line, with parity.md:96**
+  (`/permissions`, line 96 still), and **PERMISSION-MODE-CASE's SHOULD 1
+  meets SLASH-ARG-SKILLS** (its opus review: whichever lands second revises
+  the row, attributes the two snaps, re-sweeps). Read in both receipts:
+  PERMISSION-MODE-CASE recorded `/permissions full` as the usage in xfx,
+  "xfx has no argument completion", the two `p5-mode-case-full` snaps under
+  no cause; SLASH-ARG-SKILLS gives `/permissions ` fx's argument table, its
+  Enter the marked row in place of what was typed, and pins `/permissions
+  full` + Enter as full access
+  (`an_argument_nobody_understands_is_the_usage_line_and_changes_nothing`,
+  `fx-p5-slash-arg-skills-40x120-permissions-full-enter`). At the joined
+  head:
+  - The scenario as PERMISSION-MODE-CASE wrote it (its xfx side `wait 1`,
+    written for no menu) read `typed` normalized-identical and `full`
+    unresolved, one row: xfx's hint row still holding the full-access notice
+    fx's had let go (`mode-case-full.txt`, run 1) -- the mode set on both.
+  - `622b2865` gives both sides fx's `until shown` / `until gone Full
+    access`, the scenario's comment says the menu is xfx's too, and the row's
+    sentence now says `/permissions full` takes the menu's `full-access` on
+    both: **both pairs normalized-identical** (`mode-case-full.txt`, run 2;
+    and in the head sweep, below). No cause is needed, so none is written.
+  - PERMISSION-MODE-CASE's README section 8 is that unit's record at its
+    head and is left as it is; this receipt supersedes it.
+
+### 2. APPROVAL-PASTE-SPACES x META-PREFIX-DECODE, and the decoder's other meetings (`mutants.txt`, `parity-join.txt`)
+
+Both units sit on the decoder line apart, after train 15's approval stack
+was written, so no unit's test reaches where they meet. fx, from both
+units' `fx-src.txt` and `src/core/app/input_approval_runtime.zig:71-128@481104fd`:
+a second `ESC` sets the meta prefix, which the arrow table reads beside
+Alt's bit and no Home, End or tilde stage reads; an amendment takes Home,
+End and `line_start`/`draft_start` as its edges (`cursorHome`/`cursorEnd`),
+the word moves as its own, a paragraph move as nothing.
+
+- **New test `a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs`**:
+  from `ab cd |ef`, one prefixed key in one read, then a letter: Home, End,
+  SS3 Home and End, tilde Home and End, Ctrl-Home and -End and Super-Left to
+  the draft's edges; Left and SS3 Left a word left, Right a word right; Up
+  and Down nothing -- 14 spellings, and none of them the Escape that would
+  close the draft.
+- **And META-PREFIX-DECODE meets train 15's two C-j units**: fx reads a
+  Ctrl+J report behind the prefix (`ESC ESC [106;5u`) as the byte -- the
+  report carries the prefix, the Ctrl+letter rule ignores it
+  (`escape_parser.zig:552-555`, `:686-691`, `:255-258@481104fd`), and so
+  does xfx's decoder now (`kitty_key`). QUESTION-CTRL-J's matrix doc and
+  `docs/parity.md` still called those spellings uncopied, owner
+  META-PREFIX-DECODE (queued). **New tests
+  `every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte`**
+  (every report of `ctrl_j_matrix`, 1024, behind the prefix, at a choice and
+  in the field) and
+  **`a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte`**
+  (`CTRL_J`'s ten reports behind the prefix, at a choice and in a draft, on
+  both planes); the matrix doc and the two rows say so (`parity-join.txt`).
+- **Mutants** (`mutants.sh`, a `git clone --no-local` at `622b2865`, 900 s
+  each, the three join tests and their five neighbours each time): the
+  unmutated run passes all 8; MA (the second `ESC` no longer sets the
+  prefix) and MB (the prefix not read as Alt's bit) fail the amendment test
+  alone; MC (the Ctrl+letter rule refuses a report behind the prefix) fails
+  the two C-j join tests alone; MD (End in a draft to its start,
+  APPROVAL-PASTE-SPACES' mapping as the merge made it) fails the amendment
+  test and its two amendment neighbours. **4 of 4 killed**, the clone clean
+  after.
+- `docs/parity.md`: the draft's keys are fx's with no difference left
+  (APPROVAL-PASTE-SPACES closed the one train 15 left it, "a paste's line
+  breaks and tabs kept"), and a meta-prefixed key in a draft is its Alt
+  spelling (`parity-join.txt`).
+- **The 30 ms pair stage** (META-PREFIX-DECODE round 3) is the decoder's
+  alone, pinned there (`the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc`,
+  `the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50`, in
+  `src/tui/input.rs`); no surface reads a byte or a clock, the amendment
+  takes the decoded actions alone (`Draft::apply`, `approval::edits`). The
+  join test feeds each prefixed key in one read, inside the stage; **a
+  split pair in a draft -- `ESC ESC`, the stage's flush, then a key -- is
+  driven by no test** (META-PREFIX-DECODE's own approval test,
+  `a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape`,
+  is at a choice, one read each). By the decoder's pins it is Escape, then
+  the key, as fx's (its README's timing table); named for round 2, the head
+  unchanged for it.
+- **A grant path the join opens** (a decision, below): `ESC ESC [106;5u` at
+  a permission prompt cancelled the turn before (the Escape first) and now
+  answers it -- `Apply once` at choice 1 -- as fx does. Neither unit alone
+  does this.
+
+### 3. The profile line x the slash line x the rest: the shared files (`merge-ends.txt`, `shared.txt`, `functions.txt`, `moved-edits.txt`, `unit-tests.txt`)
+
+- **Each merge from both ends, file by file** (`merge_ends.py`, every file
+  both sides changed against the merge base: the lines ours -> merged
+  removes and adds must be exactly base -> theirs', and theirs -> merged
+  base -> ours'). 53 files both sides changed over the six merges (13, 4,
+  26, 2, 4, 4); 13 disagree once every `:N` is masked, and **each is a block
+  this receipt resolves by hand, by row or by a semantic fix** -- merge 1's
+  and merge 2's `docs/parity.md` (rows merged token by token make lines
+  neither side has), merge 3's `CONTRIBUTING.md` and `src/tui/worker.rs`
+  (by hand), `src/config.rs`, `src/tui/file_index.rs`, `tests/cli.rs`,
+  `tests/support/profiles.rs` and `scripts/check-env-reads.py` (the semantic
+  fixes; the last two one side's files), merge 4's `scripts/fxcap/roots.py`
+  and merge 5's `src/tui/approval_amendment.rs` (by hand), merge 5's and
+  merge 6's `docs/parity.md` (rows; merge 6's `--drop`). Every other file
+  both changed holds both sides' edits exactly, the ledger's among them once
+  numbers are masked; every file one side alone changed is that side's.
+- **Every function two sides of a merge changed** (`shared.py` over every
+  `.rs` file both sides changed: 36 (merge, file) pairs; `shared.txt`), read
+  from both ends: 15 functions both sides changed; **4 not kept both ways,
+  each a resolution named above** -- merge 1's
+  `a_live_theme_notification_repaints_the_band_without_losing_the_draft`
+  (`tests/tui.rs`, `blocks.py`'s `ours`: the profile line moved only a
+  number in a comment main rewrote, re-pointed after), merge 3's
+  `recording` (by hand: ours' line), merge 5's `Draft::apply` (by hand: a
+  function theirs changed and ours rewrote) and merge 5's `Shell::decide`
+  (the comment that moved, next).
+- **The functions the join checks read** (`functions.txt`, each one's
+  sha256 at every commit): the decoder at the head is META-PREFIX-DECODE's
+  byte for byte (`after_escape`, `flush`, `kitty_key`, `prefixed`, from
+  merge 6 on), so the meta prefix the join tests drive is the unit's, as
+  gated; `Shell::consume_inputs` is the base's at every merge and at the
+  head; `Shell::approval_action` changes once, at merge 5 (the comment,
+  next); `Draft::apply` is merge 5's by-hand text from there on;
+  `offer_to_mcp_args` merge 2's.
+- **Merge 5's comment that moved**: APPROVAL-PASTE-SPACES rewrote a comment
+  of the draft arm inside `Shell::decide`; train 15's RULE-CONFIRM-KEYS had
+  moved that arm into `Shell::approval_action`. git applied the unit's
+  edit to the moved text: its 3 lines out and 3 in are exactly the edits
+  that take `approval_action` from merge 4 to merge 5, and `decide` at merge
+  5 is merge 4's byte for byte (`moved_edits.py`, `moved-edits.txt`). That is
+  why `shared.py` reads `decide` "not kept both ways".
+- **Each unit's own tests on the head** (`unit-tests.sh`, `unit_tests.py`:
+  each unit's tests added or changed in its range, read in the gate's two
+  `cargo test` runs): **238 (unit, test) pairs, 233 ok in both runs, 0
+  gone, 0 lost**. The other 5 are TEST-ENV-ISOLATION's and have no `ok` in a
+  run by design, each read (`unit-tests-notes.txt`): three `#[ignore]` roles
+  a re-run binary plays (`sentinel_runner_*` twice, `a_case_marks_where_it_runs`),
+  whose runners passed in both runs; `xfx_counts`, ignored, run by
+  `scripts/drawn-wider/sweep.sh`; and
+  `quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log`,
+  in `tests/tui.rs`' `#[cfg(feature = "fault-injection")] mod faults`, ok in
+  the fault-injection run. (`unit_tests.py` read the step logs by `*-test.log`,
+  which this gate's `05-check-env-reads-self-test.log` also matched; it now
+  takes `<nn>-<step>.log` exactly.) The tests the head holds that a run has
+  no line for (`run_absent.py`, `run-absent.txt`): 39 in the plain run, 2 in
+  the fault-injection run, **each held by the base too** -- none of them this
+  train's.
+- The shared files the brief names: `src/tui/shell.rs` (merges 2, 3, 5 and
+  6), the settings (`src/config.rs`, merges 1 and 3), slash parsing
+  (`src/tui/mod.rs`, `src/interactive.rs`: merges 1, 2 and 3),
+  `docs/parity.md` and the ledger (merges 1, 2, 5 and 6, the token check),
+  each merged from both ends above and rechecked by its units' tests in the
+  gate.
+
+### 4. References (`refs*.py`, `content.sh`, `refs_content.py`, `repoint.py`, `repointed.py`)
+
+**Before any re-point**, at the join commit `622b2865` (`refs-*-pre.txt`,
+seven sides: the base `866747ff` and the six tips): `refs.py` 17 (side,
+reference) pairs MOVED; `refs_all.py` 55, `refs_short.py` 75,
+`refs_bare.py` 78 moved or changed on some side, of them 22, 5 and 7
+outside the historical plans (`docs/superpowers/plans/`); `refs_prd.py` 0.
+
+**The content check over every reference** (`content.sh`, train 14's; each
+reference read against the commit that wrote its numbers, the cited line and
+two either side):
+
+| at | WRONG | `content-*.txt` |
+|---|---|---|
+| the base `866747ff` | 2 | `content-866747ff.txt` |
+| the profile line `bacb1052` / the slash line `32eb858f` / TEST-ENV-ISOLATION `7c3f6c1e` / LOCAL-PATHS-WRAP `dd9f5f0a` / APPROVAL-PASTE-SPACES `ca496c10` / META-PREFIX-DECODE `6d94fbc0` | 32 / 38 / 63 / 35 / 36 / 36 | `content-<tip>.txt` |
+| the join commit `622b2865`, before the re-points | **44** | `content-622b2865.txt` |
+| the first re-point `c637ed4c` | 2 | `content-c637ed4c.txt` |
+| the code head `2b78aab6`, as it is | **2** | `content-head.txt` |
+| the same, blame ignoring the two re-points | 3: the same two, and docs/parity.md's `src/gateway/mod.rs:1009-1010`, read against the join commit, whose tree had it moved already (the blind spot `15c9744b` fixed by hand, below) | `content-head-ignoring.txt` |
+
+The tips read 32 to 63 WRONG because each was built on an older base -- #88
+`32afd307` (TEST-ENV-ISOLATION), train 12's CI rounds `3943d667` and
+`71d3e02b` (the profile line, LOCAL-PATHS-WRAP), train 13's head `afd891af`
+(the slash line), the decoder line `df45025c` (APPROVAL-PASTE-SPACES,
+META-PREFIX-DECODE): what decides is the head.
+
+**Where the 44 came from** (`repoint-plan.txt`, `repoint.py --derive` at
+`622b2865`; a ref is a side's when that side's content check reads it WRONG
+with the same citing file, frame and numbers): **36 moved by the merges, 6
+WRONG on TEST-ENV-ISOLATION's tip already** (its own moves of
+`src/tui/theme.rs`, five `scripts/smoke-tui.sh` refs, and of
+`src/mcp/transport.rs`), **2 WRONG at the base**, train 14's two. All 42
+`auto`: the frame's cited lines and two either side stand at one place of
+the head's file. Applied in `c637ed4c` (`repoint-plan-applied.txt`,
+`repoint-apply-1.txt`, as run): 36 lines out, 36 in, the same once numbers
+are masked, holding 42 references; each of the 44 plan lines checked at
+`c637ed4c`, 44 ok (`repointed.txt`).
+
+**One of the 42 was wrong to move** (found reading the re-points word by
+word, `parity-join.txt`): docs/parity.md's MCP client runtime row cites
+`58b463c8:src/mcp/transport.rs:1318-1320` -- that commit's file, whose
+1318-1320 are `is_answer`, as the sentence says. The content check reads the
+path against the head, where TEST-ENV-ISOLATION moved those lines, so it
+called the ref WRONG on the unit's tip. **`2b78aab6` puts it back**, and
+`repoint.py` now leaves it, with why (its LEAVE table; `repoint-plan.txt`
+derived again with today's tables reads 41 `auto`, 3 `left` and EXTRA's four).
+
+**At the first re-point, the scans read four more** the content check
+calls SAME (`refs-*-repoint1.txt`; outside the historical plans), each read
+by hand at the head and re-pointed in `15c9744b` (`repoint.py`'s EXTRA
+table, `repoint-plan-2-applied.txt` as run; numbers only, 4 lines out and 4
+in; `extra_check.py` at `15c9744b` and at the head, 4 of 4: the new number
+once in the citing text, the old nowhere, the cited lines the ones named,
+`extra-check.txt`, `repointed.txt`. The table's text for the fourth was
+corrected after: the frame's `:6418` and the head's `:6423` are both `let
+mut repaint = false;`, the number as applied):
+- `refs.py`: docs/parity.md's `src/gateway/mod.rs:1005-1006` -> `:1009-1010`
+  (`is_retryable_status`; merge 3 put four lines above it). The row's last
+  writer is the join commit, whose tree has it moved already, so the content
+  check's frame agrees with the head -- its blind spot.
+- `refs_bare.py`: two bare continuations of refs the first re-point moved,
+  `scripts/fxcap/capfile.py`'s `:15785-15787` -> `:15860-15862` (the full
+  transcript's `if self.owner != ScreenOwner::Primary`) and
+  `src/tui/shell.rs`' `:6418` -> `:6423`.
+- `refs_bare.py`: `src/tui/shell.rs`' "`turn_loop`'s `fetch_sub`, `:3535`"
+  -> `:3594`. Not moved by this train: wrong since train 11's `6ae87955`
+  wrote it, where `bridge::send_terminal(events, answer)` stood (that
+  frame's `:3561` was the `fetch_sub`). The content check, reading the
+  frame's text, calls it SAME; its frame text is at `:3568` now, which would
+  keep it wrong. Re-pointed to the line it names, `turn_loop`'s
+  `queue.outstanding.fetch_sub(1, Ordering::Release)`.
+
+**At the code head `2b78aab6`** (`refs-*-head.txt`, against the base and
+the six tips): `refs_prd.py` 0 MOVED; `refs_short.py` 0 outside the
+historical plans; and three readings left, each by name:
+- `refs.py` 6 pairs and `refs_all.py`'s first entry: **one reference, the
+  pinned `58b463c8:` one above**, which these scans also read against the
+  head; its pinned lines are right.
+- `refs_all.py`: `scripts/fxcap/test_sweep.py`'s `cells.py:100000`, a
+  test's number past any file's end (the content check's `UNREAD`), as in
+  trains 13 to 15; `src/process.rs`' `library/std/src/process.rs:1096-1098`,
+  the standard library's file, which the scan's path pattern reads as this
+  repository's.
+- `refs_bare.py`: `scripts/fxcap/parity-ledger.toml`'s `:116` after
+  `docs/parity.md`, a row reference: row 116 is `/sound`'s at the base and
+  at the head, its text changed by the slash line (the scan's `CHANGED`).
+
+**The content check at the head: 2 WRONG, the two left on purpose and
+named** (train 14's, `content-head.txt`): `src/tools/question.rs:303`'s
+`Cargo.toml:42` and `tests/session_compat.rs:57`'s
+`src/session/event.rs:98-192`, both TRAIN14-FOLLOWUPS'. **0 moved**: every
+other reference the merges moved is re-pointed. The same scans and the
+content check run again with the receipt in its final form
+(`gates-files.txt`, which names the commit it read).
+
+### 5. Network hermeticity (`jobs.sh net`, `net.py`, `jobs-net.txt`, `connect.log`)
+
+Train 15's method, and a second part this train needs. **The method's
+reach changed with TEST-ENV-ISOLATION**: every integration test binary now
+re-runs its cases in a copy whose environment is `PATH`, `TMPDIR`, an empty
+`HOME` and a few cargo names (`tests/support/isolated.rs`'s module doc; its
+cases in the gate), so no proxy variable reaches the tui and sessions runs'
+xfx -- the loopback logger is blind there by construction, and a 0 from it
+shows nothing. And the lib run, where trains 6 to 15 logged the known MCP
+probe's two `CONNECT w.example:443`, logged none here: the logger's one
+positive control is gone too (not traced which of the unit's changes took
+it; `src/mcp/command/tests.rs`' `https://w.example/mcp` cases ran and
+passed). So part 1 is kept for its method and its counts, and part 2 is the
+evidence.
+
+Part 1 (`net.py`, train 15's): a `git clone --no-local` at `2b78aab6`, one
+hold of the suite lock; FLAKE-CATALOG-EVENT's `connect_logger.py` (a
+loopback logger that answers 403 and forwards nothing) with the four proxy
+variables at it and `NO_PROXY`, `no_proxy`, `ALL_PROXY`, `all_proxy` unset:
+
+| run | result | CONNECTs logged during it |
+|---|---|---|
+| `cargo test --locked --lib --no-fail-fast` | 5118 passed, 0 failed, 7 ignored | 0 |
+| `cargo test --locked --test tui --no-fail-fast` | 192 passed, 0 failed | 0 |
+| `cargo test --locked --test sessions --no-fail-fast` | 67 passed, 0 failed | 0 |
+
+Part 2: **every test binary** -- `cargo test --locked --all-targets
+--no-fail-fast` -- under `sandbox-exec` with a profile that refuses every
+outbound connection but loopback (unix sockets untouched), so a test that
+needed a non-loopback connection would fail; and the profile's own
+controls: `curl` to `192.0.2.1` (TEST-NET-1, RFC 5737) refused at once under
+it, the same `curl` outside it timing out at 3 s.
+
+| run | result |
+|---|---|
+| control: `curl http://192.0.2.1/` under the profile | exit 7 at once ("Couldn't connect to server") |
+| control: the same outside it | exit 28 after 3.0 s (timed out) |
+| `cargo test --locked --all-targets --no-fail-fast` under the profile | exit 0; 15 binaries, **6060 passed, 0 failed** -- the gate's plain run's 6060 |
+
+So **no test of the head needs a connection off this machine**; a test that
+had needed one would have failed at once, as the control's `curl` did. The
+job ran in one hold of the suite lock (`jobs-net.txt`, its start at load
+17.3), beside the two sweeps.
+
+No unit of this train adds a network path: the profile line reads and
+refuses settings, the slash line completes arguments, TEST-ENV-ISOLATION
+isolates tests, LOCAL-PATHS-WRAP is the capture harness's, and
+APPROVAL-PASTE-SPACES and META-PREFIX-DECODE route keys.
+
+## Gate (`gates.sh`, `gates.txt`, `gate-counts.txt`, `gate-files.sh`, `ci-steps.sh`, `ci-steps.txt`)
+
+`gates.sh` is train 15's with TEST-ENV-ISOLATION's two CI steps added where
+`ci.yml` runs them, after the lints: `check-env-reads.py` and its
+`--self-test`. `ci-steps.txt` holds the step list it is held to: `ci.yml`'s
+gate job and `sweep.yml`, each step as `name | if | run`, at the base
+`866747ff` and at the head, and the lines that differ -- `ci.yml` 4 (the
+toolchain step renamed, its commands the same, and the two new steps),
+`sweep.yml` 0 -- then gates.sh's 25 steps. Every step, in a fresh `git
+clone --no-local` at **`2b78aab6`**, one after another, **the whole script
+inside one hold of the suite lock** (one normal slot), each step's exit
+taken from `$?` on the line right after its command, the tree clean before
+and after, TMPDIR the harness scratch root. **25 steps, 0 failed, none run
+again** (`gates.txt`), at a load of 7.7 to 38.3 at the steps' starts. With
+CATALOG-WAIT-CLOCK in the base, a catalog-wait failure would have been a
+finding: there was none.
+
+(A first gate at `3d1376b2` was stopped by me during its sixth step, its
+five before exit 0, when the pinned reference was found (join check 4);
+nothing of it is used here. Its scratch copy is not kept.)
+
+| step | at `2b78aab6` |
+|---|---|
+| `cargo fmt --check`; clippy; clippy `--features fault-injection` | ok; ok; ok |
+| `check-env-reads.py` / its `--self-test` | OK (40 `env_exception!` invocations in 27 files, 74 compile-time reads of 6 names, 52 test binaries started with a marker no parent makes) / 66 fixtures, 0 not as expected |
+| `cargo test --locked --no-fail-fast` | **6060 passed, 0 failed, 8 ignored** |
+| the same `--features fault-injection` | **6097 passed, 0 failed, 8 ignored** |
+| `check-xfx-identity` / `check-no-stubs` / `check-no-secrets` | ok / ok / ok |
+| `check-no-local-paths` / `test-check-no-local-paths` | ok (25566 tracked files; 8 marked fixture lines, 84 placeholder lines) / ok (31 cases) |
+| `check-preview-contract` / `check-tui-preflight-cost` | ok / ok (200x300 full replay 1.06 ms mean; budget 32) |
+| `check-at-search-cost` / `check-usage-clock` | ok (every keystroke, 1460 searches: p50 0.27 ms, p95 1.95 ms) / ok |
+| `test-check-no-secrets` / `test-gate-env` / `test-preview-contract` | ok (13 cases) / ok (66 cases) / ok (28 mutants) |
+| `fxcap/test-sweep.sh` / `fxcap/test-capture.sh` | 79 + 28 OK / 145 OK |
+| release build; `fault-injection` release build | ok; ok |
+| `smoke.sh` / `smoke-tui.sh` | 47 checks, 0 failures / 37 scenarios + the oracle, 1167 checks, 0 failures |
+
+The counts are `gate-counts.txt`'s (each binary's `test result` line and
+their sums). **Every side's tests are in** (`test-lists.txt`: every test
+each binary lists, `cargo test --all-targets -- --list`, at the base and the
+head; `test-counts.txt`: the `#[test]` lines and `tests_kept.py`): the head
+lists **6068, the base 5949: +119 -- 120 tests the head lists that the base
+does not, one the base lists that the head does not**
+(`process::tests::no_child_process_is_made_any_other_way`, which
+TEST-ENV-ISOLATION deleted); the same +119 with fault injection (6105 against
+5986), and the `#[test]` lines' 5855 -> 5974. The 120 are the units' and the
+join's (`tests_kept.py`: profile line 36, slash line 32, TEST-ENV-ISOLATION
+27, APPROVAL-PASTE-SPACES 9, META-PREFIX-DECODE 13, the join 3), and **0
+tests any side added are missing at the head**. The gate's 6060 passed and
+8 ignored are those 6068, binary by binary. Train 15's gate at `2c575f52`
+passed 5942 with 7 ignored, its one doc test among the passed
+(`../train-15/gate-counts.txt`), and its round 2 added one lib test: so the
+base runs 5943 passed and 7 ignored, its 5949 listed and the doc test. The
++117 passed since is the +119, less one newly ignored test
+(`a_case_marks_where_it_runs`) and the doc test, which TEST-ENV-ISOLATION's
+`doctest = false` no longer runs (`test-lists.txt`'s last lines).
+
+## Sweeps
+
+**Builds** (debug, as trains 4 to 15), each in its own `git clone
+--no-local`, each swept with its own tree's harness, scenarios and ledger
+(`sweep.sh`) -- the head `2b78aab6` and **the base `866747ff`**, train 15's
+head. fx: the v0.0.16 binary, sha256 `8e6cda2e...` before and after each
+sweep, `FX_AUTO_UPGRADE=0`; 40x120, `--jobs 2`; each sweep inside one hold
+of the suite lock, **the two side by side** (`sweep-runs.txt`: each sweep's
+lines, its `run.json`'s start, wall time, loads and the xfx it ran). **One
+selection, both sweeps** (`selection-sweep.txt`; `selections.sh`,
+`selections.txt`: made again here, the same names):
+- the main selection (`selection-all.txt`, `selection.py`): the brief's
+  twelve globs (`approval*`, `p5-approval*`, `composer*`, `p5-modified-*`,
+  `p5-cancel*`, `cancel*`, `slash*`, `p5-slash*`, `p5-mode-*`, `profile*`,
+  `p5-profile*`, `settings*`; `cancel*`, `profile*` and `p5-profile*` name no
+  scenario at either tree), every scenario named by a ledger entry the
+  merges or the join commit changed, every scenario a merge added, and the
+  scenarios the two re-points' entries name; `*` (`session-record`,
+  `stats-bytes`) left out;
+- the units' selection (`selection-units.txt`, `selection_units.py`): the
+  156 scenarios the units' seven committed head sweeps took that the first
+  does not, so every scenario a unit swept is swept here (PROFILE-REFUSE-
+  AT-LAUNCH's and PERMISSION-MODE-CASE's boards read by their `--only`
+  globs; PROFILE-REFUSE-TYPED-KEYS, PROFILE-JSON-LIMITS, TEST-ENV-ISOLATION
+  and LOCAL-PATHS-WRAP committed no sweep).
+
+At the base 210 scenarios of 432 are selected, at the head 223 of 445
+(`selections.txt`); all but two give pairs (221 at the head, 208 at the
+base: `p5-lifecycle-osc-hostile` and `-states` take no snap, their OSC
+reports read by their own check). The base sweep was rescored with
+the head's ledger (`rescore.sh`): the pass line the same before and after,
+and **pair by pair 0 verdicts moved** (`sweep-runs.txt`; the ledger's sha256
+`123720b4`, the head's). Every xfx snap that shows the banner names the
+build swept: `2b78aab` on all 1354 of the head's, `866747f` on all 1249 of
+the base's (`banners.py`). **Both sweeps started at load 8.96 and peaked at
+46.65** (each `run.json`), walls 74m48s (head) and 71m50s (base); they ran
+side by side, so each carried the other's load, and the network job
+(08:53-08:57Z) and the test lists (`test_lists.sh`) ran beside them.
+
+| sweep | scenarios | pairs | pass | failed | timeout |
+|---|---|---|---|---|---|
+| head `2b78aab6` (`sweep-head.md`) | 223 | 1514 | **971** (64.1%) | 0 | 0 |
+| base `866747ff` (`sweep-base.md`, rescored) | 210 | 1408 | 879 (62.4%) | 0 | 0 |
+
+The head's 13 scenarios more are the units' new ones, 106 pairs, 91 pass
+(`new-scenarios.txt`), so 880 + 91 = 971.
+
+**Rows no cause covers** (each scoreboard's list; `uncovered.py`,
+`uncovered.txt`): 164 pairs at the base, 165 at the head. The base's alone:
+`p5-panels-badsettings` `launch`, which passes at the head (below). The
+head's alone: `p5-slash-leading-ws` `vers-run` and `vers-recall`, a scenario
+new to this sweep -- the `* version:` row, its text the same once
+normalized, its cell 16 grey in fx and plain in xfx: **the base's own
+version-row difference**, the same cell in the base sweep's
+`p5-panels-sweep-a` `version` (uncovered there too). SLASH-LEADING-WS's own
+sweep, on train 13's xfx 0.1.0, passed both; #96's version line came after.
+Not the train's; named for its owner.
+
+### Against the base, pair by pair (`compare-base.txt`, `screen-moves-base.txt`, `screen-classes.txt`, `screen-partition.txt`, `gained-rows.txt`, `reruns.txt`)
+
+**1408 shared pairs: 879 -> 880; 1 up, 0 down, none moved within passing**
+(`compare-base.txt`: "verdicts moved: 1"; "passed on the reference, not on
+the train: 0"):
+- **1 up, the profile line's**: `p5-panels-badsettings` `launch`,
+  unresolved -> normalized-identical: a malformed settings file now refuses
+  the launch as fx's does (PROFILE-REFUSE-AT-LAUNCH), fx's pane dead and
+  xfx's too, where the base launched and said `* config: 1 configuration
+  issue`. **Rerun 3 times on each tree** (`reruns.txt`): normalized-identical
+  3 of 3 at the head, unresolved 3 of 3 at the base.
+- **Rows gained, 9 pairs** (`gained-rows.txt`): `p5-mcp-menu-new`
+  `approve-confirm` (approved on both), LOCAL-PATHS-WRAP's placeholder where
+  the base's row held a run's path; `p5-transcript-question` `full-60`, the
+  banner row's build id, as in train 15; and seven `p5-panels-sweep-b`
+  pairs, unresolved on both, whose `* stats:` row reads another
+  `ansi_bytes` -- fx's moved too (5035 at the base's sweep, 5100 at the
+  head's), a byte count of the run. **Rerun 3 times on each tree**
+  (`reruns.txt`): every pair's verdict the same in all six runs (4 of 11
+  pass each time, on both trees), and the row's `ansi_bytes` takes either
+  value on either tree -- xfx's 4267 or 4390 at the head and at the base,
+  fx's 5100 or 4993 -- a byte count the run decides, not the build.
+
+**The screens** (`screen-partition.txt` ties the counts together):
+compare.py finds fx's `.ansi` moved in 142 shared snaps and xfx's in 298;
+by class (`screen-classes.txt`), fx's 103 in clock-like or run-local text
+alone, 39 beyond it, 2 in colour or attributes alone; xfx's 99, 200 and 0
+(1 a `.txt` move whose `.ansi` did not). Of the moves beyond run-local
+text, `screen-moves-base.txt` lists 225 such lines (`screen-classes.txt`): 206 a saved session's id
+(`--resume` ids, `/status`'s Session row), and 19 others -- 17 the `*
+version:` line's build id (`...-0615-866747ff7feb` / `...-0759-2b78aab658dd`;
+`fulltranscript-notice`, `p5-panels-sweep-a`), the `p5-mcp-menu-new`
+placeholder and `p5-panels-badsettings` `launch`, above.
+
+### Against each unit's own sweep (`compare-units.txt`)
+
+Every unit's committed head sweep with a per-scenario table (six;
+PROFILE-REFUSE-AT-LAUNCH's summary has none, and its 83 scenarios are read
+against the base above) against the head's, scenario by scenario:
+
+| unit (its sweep) | shared scenarios | pass, unit -> head | lower at the head |
+|---|---|---|---|
+| PERMISSION-MODE-CASE | 3 | 5 -> 7 | 0 (`p5-mode-case-full` 0 -> 2, join check 1) |
+| SLASH-LEADING-WS | 8 | 44 -> 42 | **1**: `p5-slash-leading-ws` 10 -> 8 |
+| SLASH-ARG-SKILLS | 56 | 226 -> 224 | **1**: the same |
+| SLASH-MIXED-SKILLS | 12 | 94 -> 92 | **1**: the same |
+| APPROVAL-PASTE-SPACES | 22 | 107 -> 107 | 0 |
+| META-PREFIX-DECODE | 37 | 255 -> 272 | 0 |
+
+**`p5-slash-leading-ws`'s two** are `vers-run` and `vers-recall`, the base's
+version row above: the units' sweeps ran on train 13's head (xfx 0.1.0,
+before #96's version line). **Rerun 3 times at the head** (`reruns.txt`):
+the eight other pairs normalized-identical 3 of 3, `vers-run` and
+`vers-recall` unresolved 3 of 3, their version row as in the sweep.
+
+**So no pair that passes on the base fails at the head**, and against the
+units' own sweeps the one lower scenario is lower by the base's own row.
+
+## Decisions, for the user's veto
+
+Each with its revert.
+
+- **`XFX_BUILD_REVISION` leaves COMPILE_TIME_NAMES** (merge 3), beyond the
+  MUST's "gains `XFX_BUILD_ID`": build.rs no longer sets it (#96), so an
+  `env!` of it could not build and an `option_env!` of it would read the
+  person's environment at compile time. **Revert**: put the line back in
+  `scripts/check-env-reads.py` beside `XFX_BUILD_ID`.
+- **`XFX_AT_BENCH_TREE` is an allowed name, read through `env_exception!`**
+  (merge 3): the @ benchmark's tree, a test knob a person sets; through
+  `process_env!` the test would never see it. **Revert**: drop the
+  benchmark's tree option (the test then builds fx's inventory alone) and
+  the two lines in the check.
+- **`recording()` keeps main's `Runtime::with_environment`** (merge 3), not
+  TEST-ENV-ISOLATION's `a_runtime`: the same environment, and the `env`
+  above it is read. **Revert**: theirs' line and the `env` lines deleted.
+- **One `Draft::apply` without a history, with APPROVAL-PASTE-SPACES' edges
+  as a mapping** (merge 5). **Revert**: none that builds -- the history is
+  gone with train 15's APPROVAL-DRAFT-KEYS.
+- **The `/permissions full` scenario waits for the notice on both sides**
+  (`622b2865`): PERMISSION-MODE-CASE's xfx-only `wait 1` was written for a
+  composer with no menu. **Revert**: the scenario's two `fx:` prefixes and
+  `xfx: wait 1` back; its `full` pair is then unresolved again, on the
+  notice row alone.
+- **A meta-prefixed Ctrl+J at a permission prompt now answers it** -- `ESC
+  ESC [106;5u` grants `Apply once` at choice 1, where the base read the
+  Escape first, which cancels the turn there. It is fx v0.0.16's (the
+  report carries the prefix and the Ctrl+letter rule ignores it,
+  `escape_parser.zig:552-555`, `:686-691`, `:255-258@481104fd`), and it is
+  the same decision as train 15's stray C-j (its README's "A stray C-j at a
+  permission prompt now grants `Apply once`", before the user since
+  2026-11-10): a C-j answers a permission question as Enter does. **The same
+  one-line revert covers both**: in `Shell::approval_action`
+  (`src/tui/shell.rs`), drop `| Action::ControlJ` from
+  `Input::Action(Action::Submit | Action::ControlJ) => approval::Action::Submit`
+  -- the decoder hands both spellings over as `Action::ControlJ`.
+- **Three join tests** (`622b2865`), where no unit's tests reach the
+  meeting. **Revert**: drop them; the meetings then have no case.
+- **Every reference the merges moved re-pointed** (`c637ed4c`, `15c9744b`),
+  and one pre-existing wrong one with them (`:3535` -> `:3594`, read by
+  hand); the pinned one put back (`2b78aab6`). **Revert**: `git revert
+  2b78aab6 15c9744b c637ed4c`.
+- **`ci.yml`'s `script_tests` comment** names the env self-test and what it
+  exercises (`622b2865`, `3d1376b2`), comment only. **Revert**: `git revert
+  3d1376b2` and the comment hunk of `622b2865`.
+- **The unit receipts are left as their heads wrote them**: where this
+  train supersedes one (PERMISSION-MODE-CASE's section 8, QUESTION-CTRL-J's
+  `probe-meta-prefix.txt` reading), this receipt says so. **Revert**: none
+  needed.
+- **`check-merge.sh` without the suite lock**, as trains 13 to 15 (cargo
+  check, fmt and clippy are not the heavy jobs the lock is for); every test
+  run, the env checks, the mutants, the captures, the gate, the sweeps and
+  the jobs ran under it. **Revert**: run it under the lock.
+- **The two sweeps side by side**, in two slots of the lock, so their loads
+  match (train 15's base and head ran at very different loads). **Revert**:
+  run them one after the other.
+
+## Found on the way
+
+Changed here:
+- `src/tui/shell.rs`' "`turn_loop`'s `fetch_sub`, `:3535`" had never named
+  the `fetch_sub` (train 11's frame): `:3594` now (join check 4).
+- `scripts/check-env-reads.py`'s build-script comment named
+  `XFX_BUILD_REVISION` and `git_revision`, which #96 renamed: `XFX_BUILD_ID`
+  and `git_build_id` (merge 3).
+- `ci.yml`'s `script_tests` comment did not name the env self-test
+  TEST-ENV-ISOLATION put on those rows (`622b2865`, `3d1376b2`).
+- **train 7's `token_check.py --self-test` could not plant two of its cases
+  on this train's texts** (`token-self-test.txt`): at merge 1 its first
+  changed row is one both sides changed, so its "a token a side added,
+  dropped" mutated nothing and read MISSED; at merges 2, 5 and 6 the longest
+  run a side wrote in the full-screen TUI row is not found whole in the
+  merged row by `row.split(" ")`, and its `next(...)` stopped the
+  self-test there -- at merge 2 the slash line's 869-word run, which
+  PAGE-KEYS-SETTINGS-COLUMN's sentence follows at its 869th word (the token
+  check's difference 1), and at merges 5 and 6 ours' 939-word run, whose
+  two spaces before `/he` ("`  /he`") `split(" ")` reads as an empty word
+  that the run's own tokens do not hold (printed by a reading of the self-test's own
+  functions; not an edit). `token_check16.py` fixes the
+  two plants and nothing else (its check's output over the six merges is
+  `token_check.py`'s byte for byte); its self-test is the one counted.
+
+Not changed here:
+- **The two references train 14 left WRONG on purpose are WRONG still**
+  (`content-head.txt`): `src/tools/question.rs:303`'s `Cargo.toml:42` and
+  `tests/session_compat.rs:57`'s `src/session/event.rs:98-192`, both
+  TRAIN14-FOLLOWUPS'; and that queue's `src/tui/shell.rs` pair after the
+  too-small test (`shell.rs:6217`, `:6423` now, at `:28019-28020`), whose
+  numbers name no too-small assertion -- kept on their frame's text, as
+  train 15 kept them.
+- `refs_content.py` reads a commit-pinned reference
+  (`<commit>:path:N`) against the head: the one such ref it moved is put
+  back (join check 4), and `repoint.py` leaves it by name. A rule for the
+  prefix belongs in the check, not in a train.
+- The reference scans read `library/std/src/process.rs:1096-1098` (the
+  standard library's, in `src/process.rs`' comment) as this repository's
+  `src/process.rs`.
+- The `/permissions` row's sentence `622b2865` rewrote no longer says fx
+  saves the history line as `/permissions full-access`; what xfx saves
+  there is not checked here. A round-2 item.
+- QUESTION-CTRL-J's review SHOULD 2 (one table of the Ctrl+J spellings for
+  the two questions) is still a follow-up, as train 15 named it; the two
+  join tests here read `ctrl_j_matrix` and `CTRL_J` as they stand.
+
+## Commits partway along the branch (`prescan.txt`, `midbranch_scan.py`, `final-scan.sh`, `final-scan.txt`)
+
+The brief's check over **every commit of `866747ff..HEAD`**: the units'
+own (each stack's range since its merge base with this train's base, as
+`prescan.txt` read them before any merge) and this train's, each as `git
+show --format=` prints it (a merge as its combined diff), every hit
+classified by `midbranch_scan.py` (the account's name and uid read at run
+time, never written; no hit printed but its kind and file):
+
+- **No real user name or credential**: NAME 0 and CREDENTIAL 0 in every
+  commit and in the range; no commit message holds the account's name
+  (`prescan.txt` before the merges, `final-scan.txt` part 2 at the end). The
+  train went on.
+- **No hit at all**: the brief's count is 0 in every commit of the range --
+  the units' 189 and this train's -- and over the range itself
+  (`final-scan.txt` parts 1 and 2). There was nothing to classify as a
+  placeholder or a scratch root, and nothing to rewrite.
+- **The dispatcher's per-commit check** (`final-scan.txt` part 5): every
+  commit of `git rev-list --no-merges HEAD --not afeaea7c` (origin/main
+  locally; train 15's commits among them), its added lines and its
+  message, and every merge commit's own message: 0 hits.
+- Beyond the brief's terms, `shapes.py`'s run-name shape (a capture's
+  `fxcap.` and six) matches 8 added lines of the range, all
+  LOCAL-PATHS-WRAP's `scripts/fxcap/test_capture.py` (`final-scan.txt` part
+  1, by file): hand-written fixture names under placeholder roots
+  (`/tmp/fxt/...`, the test's own `d`), as the unit committed them.
+- "No code after the code head": `final-scan.txt` part 4 reads every commit
+  after the code head `2b78aab6` -- the receipt's -- and finds no file
+  touched outside this folder; the last commit stores `final-scan.txt`
+  alone (`git show --stat` of it).
+
+## Redaction
+
+The repository is public. Every file here taken from a gate log, a job, the
+logger, a sweep, a capture or a clone went through `redacted.py` (train
+15's, unchanged but for its first line): `scripts/fxcap/redact.py`'s
+`Redactor.write`, every path under a local root to `<local-path>` or a named
+root (`<scratch>`, `<repo>`, `<sweep-head>`, `<sweep-base>`, ...), a
+checkout's path cut short to `<checkout>/`, the account's name to `<user>`,
+and train 12's tail rule. The scripts take the oracle's path, the suite lock
+and the scratch directories as arguments or variables, and spell the
+brief's pattern with bracket classes; two example run names in
+`byhand.py` are spelt in two pieces, so no file here holds a run name's
+shape. **Every commit this train adds was gated on the brief's check**
+before it was made (`pathcheck.sh`, under `set -o pipefail` and an explicit
+`if`; its output for each merge and the join commit in `cm/`): a merge as
+the combined diff `git show` prints of it, read from a probe commit of the
+staged tree; any other commit as its staged lines; each commit's message
+too; and `shapes.py`'s three shapes over the staged lines and over every
+file of this folder. `final-scan.sh` reads every commit and the range at the
+end, and the file checks run with the receipt in its final form
+(`gates-files.sh`, `gates-files.txt`).
+
+## Files
+
+- Before the merges: `prescan.sh` / `prescan.txt` (the units' own commits),
+  `chains.sh` / `chains.txt` (each merge's units, from `git log`).
+- Merges: `rowsmerge.py`, `blocks.py`, `byhand.py` (this train's table),
+  `semantic.py` (merge 3), `reproduce.sh`, `resolutions.txt`,
+  `check-merge.sh` / `check-merges.txt` and its runs in `cm/` (each merge's
+  and the join commit's `check-merge.sh` output and `pathcheck.sh` output;
+  merge 3's and merge 6's whole `cargo test`, `m3-test.txt`,
+  `m6-test.txt`; merge 4's `RootsRewrite`, `m4-roots.txt`), `envreads.txt`,
+  `merge_ends.py` / `merge-ends.txt`, `remerge-1.txt` .. `remerge-6.txt`,
+  `overlap.py` / `overlap.txt`, `merge_keep.py` / `merge-keep.txt`;
+  `pathcheck.sh`, `shapes.py`, `carried.py` (the brief's check before every
+  commit).
+- `merge-checks.sh`: writes `check-merges.txt`, `resolutions.txt`,
+  `merge-ends.txt`, the token check and its controls, `merge-keep.txt`, the
+  remerge-diffs, the reference scans, the content checks, the two re-point
+  plans and their check, `shared.txt`, `functions.txt`, `moved-edits.txt`,
+  `overlap.txt`, `test-counts.txt`.
+- The token check: `token_check.py` (train 7's, byte for byte),
+  `token_check16.py` (its self-test's two plants fixed), `token_control.py`,
+  `word_control.py`, `token-check.txt`, `token-self-test.txt`; `owners.py` /
+  `owners.txt`; `parity-join.sh` / `parity-join.txt`.
+- References: `refs.py`, `refs_all.py`, `refs_short.py`, `refs_bare.py`,
+  `refs_prd.py`; `refs-*-pre.txt` (at `622b2865`), `refs-*-repoint1.txt` (at
+  `c637ed4c`), `refs-*-head.txt` (at the code head); `refs_content.py`,
+  `content.sh` and `content-*.txt`; `repoint.py`, `repoint-plan.txt` and
+  `repoint-plan-2.txt` (derived again with today's tables),
+  `repoint-plan-applied.txt`, `repoint-apply-1.txt` and
+  `repoint-plan-2-applied.txt` (as run before `c637ed4c` and `15c9744b`),
+  `repointed.py`, `repointed.txt`.
+- Join checks: `mode-case-full.txt` (join check 1); `mutants.sh` /
+  `mutants.txt` (join check 2); `shared.py` / `shared.txt`, `functions.py`
+  / `functions.txt`, `moved_edits.py` / `moved-edits.txt`, `unit_tests.py`,
+  `unit-tests.sh` / `unit-tests.txt`, `unit-tests-notes.txt`, `tests_kept.py`
+  and `test_counts.sh` (in `test-counts.txt`), `run_absent.py` /
+  `run-absent.txt` (join check 3); `scenarios.sh`, `scenarios.py` /
+  `scenarios.txt` (the join checks in the sweeps); `jobs.sh`, `net.py`,
+  `jobs-net.txt`, `connect.log` (join check 5).
+- Gate: `gates.sh`, `ci_steps.py`, `ci-steps.sh` / `ci-steps.txt`,
+  `gates_txt.py`, `gate-files.sh`, `gates.txt`, `gate_counts.sh`,
+  `gate-counts.txt`; `gates-files.sh`, `gates-files.txt` (the file checks and
+  the reference checks with the receipt in its final form).
+- Sweeps: `selection.py`, `selection_units.py`, `selections.sh`,
+  `selection-all.txt`, `selection-units.txt`, `selection-sweep.txt`,
+  `selections.txt`; `sweep.sh`, `rescore.sh`, `sweep-runs.sh` /
+  `sweep-runs.txt`, `sweep-*.md`; `sweep-compare.sh`, `compare.py`,
+  `screen_moves.py`, `screen_classes.py`, `screen_partition.py`,
+  `gained_rows.py`, `new_scenarios.py`, `banners.py`, `unit_compare.py`,
+  `compare-base.txt`, `screen-moves-base.txt`, `screen-classes.txt`,
+  `screen-partition.txt`, `gained-rows.txt`, `new-scenarios.txt`,
+  `compare-units.txt`, `uncovered.py` / `uncovered.txt`; `sweep-rerun.sh`, `reruns.sh`,
+  `rerun_verdicts.py`, `reruns_txt.sh`, `reruns.txt`.
+- `final-scan.sh`, `midbranch_scan.py`, `final-scan.txt`; `redacted.py`.

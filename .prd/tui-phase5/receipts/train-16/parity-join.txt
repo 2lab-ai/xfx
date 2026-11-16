@@ -1,0 +1,84 @@
+## 622b2865: train 16: the join MUSTs and the decoder's meetings, three join tests
+# lines changed: 3	3	docs/parity.md
+{+and+}
+[-its-]
+{+does xfx's since SLASH-ARG-SKILLS (the `full-screen TUI` row):+}
+{+takes the menu's marked `full-access`, submitted in place of what was typed, and+}
+[-and saves-]
+{+on both, where+}
+[-history line as `/permissions full-access`; xfx has no argument completion (the `full-screen TUI` row), so-]
+{+parse alone would answer+}
+[-is-]
+{+with+}
+[-here, as fx's parse alone answers it-]
+[-`p5-mode-case-full` captures: fx's menu under-]
+{+`p5-mode-case-full`, both pairs normalized-identical at+}
+[-typed word, xfx's none).-]
+{+join, `.prd/tui-phase5/receipts/train-16/`; SLASH-ARG-SKILLS' `permissions-full-enter`).+}
+[-One family of fx spellings is not copied: the-]
+{+The+}
+[-ones,-]
+{+ones are C-j too:+}
+[-too-]
+[-and which-]
+{+as+}
+[-decoder, having no meta prefix (`kitty_key`'s doc,-]
+{+decoder does since META-PREFIX-DECODE (`kitty_key`,+}
+[-reads as Escape and then C-j: at a choice the Escape cancels the batch and its turn, and the C-j is then a newline in the composer, where fx takes the marked choice; in-]
+{+every report of+}
+[-field with text-]
+{+matrix behind+}
+{+prefix (`every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte`, train 16's join); before it, xfx read+}
+[-arms the clear-]
+[-the-]
+{+then+}
+[-takes the text and moves on, as fx's does, with `esc again to clear` left on the hint row-]
+[-Owner: **META-PREFIX-DECODE** (queued), with the other meta-prefixed spellings below.-]
+[-`.prd/tui-phase5/receipts/approval-draft-keys/`), but for one difference, owned by a unit:-]
+{+`.prd/tui-phase5/receipts/approval-draft-keys/`). The four differences it found are gone:+}
+[-tabs kept (APPROVAL-PASTE-SPACES, above). The three others it found -- xfx's-]
+{+tabs, which a+}
+[-taking-]
+{+kept, are spaces, as fx's are, since APPROVAL-PASTE-SPACES (above); and+}
+[--Right-]
+{+-Right, which xfx's draft took+}
+[-reading-]
+[-End-]
+{+End, which it read+}
+[-nothing ---]
+{+nothing,+}
+[-gone, each move now fx's,-]
+{+fx's moves+}
+{+A meta-prefixed key in a draft is its Alt spelling, as in fx, since META-PREFIX-DECODE: Home and End the draft's edges, Left and Right the word moves, Up and Down nothing (`a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs`, train 16's join of it with APPROVAL-PASTE-SPACES).+}
+[-`:774-777`).-]
+{+`:774-777`), behind the meta prefix too (`ESC ESC [106;5u`, `:552-555`, `:686-691`), as xfx's decoder reads it since META-PREFIX-DECODE (`a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte`, train 16's join).+}
+[-The word has to start the draft: fx opens the menu for a draft whose first character past any leading spaces, tabs or line breaks is `/` (`inlinePickerTriggerKind`, `src/core/input/picker_state.zig:293-294@481104fd`; `slashCompletionPrefix`, `command_specs.zig:568-576`), where xfx's `Trigger::of` asks for the `/` as the first character (`src/tui/picker.rs:165-167`), so `  /he` or a slash word af
+# rows changed (first cell):
+   `/permissions` 
+   `ask_user_question` 
+   full-screen TUI 
+
+## c637ed4c: train 16: the 42 references the merges and TEST-ENV-ISOLATION moved, re-pointed
+# lines changed: 2	2	docs/parity.md
+[-(`58b463c8:src/mcp/transport.rs:1318-1320`);-]
+{+(`58b463c8:src/mcp/transport.rs:1321-1323`);+}
+[-(`worker.rs:3922`,-]
+{+(`worker.rs:3955`,+}
+[-`:3561`)-]
+{+`:3594`)+}
+# rows changed (first cell):
+   MCP client runtime 
+   terminal program status (OSC 7501) 
+
+## 15c9744b: train 16: four references the content check reads SAME, re-pointed by hand
+# lines changed: 1	1	docs/parity.md
+[-`src/gateway/mod.rs:1005-1006`;-]
+{+`src/gateway/mod.rs:1009-1010`;+}
+# rows changed (first cell):
+   full-screen TUI 
+
+## the join commit's sentences as they stand at 622b2865
+  File "<string>", line 11
+    print(f"- {text[i:i + 1100] if i >= 0 else NOT
+              ^
+SyntaxError: '{' was never closed

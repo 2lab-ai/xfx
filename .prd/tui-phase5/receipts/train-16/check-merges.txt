@@ -1,0 +1,57 @@
+# each merge tree's checks before its commit (check-merge.sh, no lock), as run: merges 1-6 (m1..m6; merge 3 twice, its first run before semantic.py's fixes: m3-first), the join commit 622b2865 (j1)
+## m1
+cargo check --locked --all-targets: exit 0, 26 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.26s
+cargo check --locked --all-targets --features fault-injection: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.05s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 17 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.28s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.66s
+# 0 failed
+## m2
+cargo check --locked --all-targets: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.10s
+cargo check --locked --all-targets --features fault-injection: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.96s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 12 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.34s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.11s
+# 0 failed
+## m3-first
+cargo check --locked --all-targets: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.90s
+cargo check --locked --all-targets --features fault-injection: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.91s
+cargo fmt --check: exit 1, 2 s;  #[cfg(unix)]
+cargo clippy --locked --all-targets -- -D warnings: exit 101, 16 s; error: could not compile `xfx` (lib test) due to 3 previous errors
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 101, 16 s; error: could not compile `xfx` (lib test) due to 3 previous errors
+# 3 failed
+## m3
+cargo check --locked --all-targets: exit 0, 3 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.69s
+cargo check --locked --all-targets --features fault-injection: exit 0, 4 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.53s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.90s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.96s
+# 0 failed
+## m4
+cargo check --locked --all-targets: exit 0, 4 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.50s
+cargo check --locked --all-targets --features fault-injection: exit 0, 3 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.38s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.58s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.57s
+# 0 failed
+## m5
+cargo check --locked --all-targets: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.97s
+cargo check --locked --all-targets --features fault-injection: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.84s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 7 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.39s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.34s
+# 0 failed
+## m6
+cargo check --locked --all-targets: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.46s
+cargo check --locked --all-targets --features fault-injection: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.93s
+cargo fmt --check: exit 0, 2 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 10 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.76s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 11 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.67s
+# 0 failed
+## j1
+cargo check --locked --all-targets: exit 0, 6 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.87s
+cargo check --locked --all-targets --features fault-injection: exit 0, 5 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.10s
+cargo fmt --check: exit 0, 1 s; 
+cargo clippy --locked --all-targets -- -D warnings: exit 0, 17 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.58s
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 0, 16 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.29s
+# 0 failed

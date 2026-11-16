@@ -1,0 +1,205 @@
+commit 849f5017820c48044010ddb143cc6f9ae36cd6a0
+Merge: e8b004a5 7c3f6c1e
+
+Merge TEST-ENV-ISOLATION into train 16 (fix/p5-test-env-isolation @ 7c3f6c1e)
+
+Merge 3 of 6. One unit, TEST-ENV-ISOLATION @ 7c3f6c1e (git log
+32afd307..7c3f6c1e, 51 commits, no merge), built on main #88.
+
+Conflicts, by hand (train-16/byhand.py 3): CONTRIBUTING.md, the script
+tests CI runs on one row per OS, four now; src/tui/worker.rs, `recording()`
+keeps main's `Runtime::with_environment` over the test's own home;
+tests/support/mod.rs, both modules, in rustfmt's order.
+
+Semantic fixes (train-16/semantic.py 3): the unit's clippy rules, its
+`mod support;` in every test binary and its env check, met by what is
+newer than its base -- tests/cli.rs takes `use support::profiles;` (the
+file was loaded twice); the profile line's three mkfifo children are made
+by `super::command` and `crate::process::command`; the @ benchmark's
+XFX_AT_BENCH_TREE is read through `env_exception!`, allowed and listed;
+join MUST 1, the env check's COMPILE_TIME_NAMES gains XFX_BUILD_ID (#96)
+and drops XFX_BUILD_REVISION, which build.rs no longer sets.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+remerge CONFLICT (content): Merge conflict in CONTRIBUTING.md
+index 5099d3b4..a7cd9315 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -59,20 +59,12 @@ paths by their shape and is not every path of a machine: a Windows path,
+ ## The gate
+ 
+ Everything below must pass before a change is ready. This is exactly what CI
+-<<<<<<< e8b004a5 (Merge the slash line into train 16 (fix/p5-slash-mixed-skills @ 32eb858f))
+-runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script tests
+-(`test-gate-env.sh`, `test-preview-contract.sh` and
+-`test-check-no-local-paths.sh`), which test the gate scripts
+-on the OS's own bash, grep and git rather than anything built for the target,
+-so CI runs them on one row per OS: aarch64 macOS and x86_64 Linux. Run them
+-locally all the same:
+-=======
+-runs, on Linux and macOS, on x86_64 and aarch64 -- except the three script
+-tests (`test-gate-env.sh`, `test-preview-contract.sh` and
+-`check-env-reads.py --self-test`), which test the gate scripts on the OS's own
+-tools rather than anything built for the target, so CI runs them on one row
+-per OS: aarch64 macOS and x86_64 Linux. Run them locally all the same:
+->>>>>>> 7c3f6c1e (docs(receipt): TEST-ENV-ISOLATION round 9 -- cfg_select! RED both ways, mutants 21/21, the gate)
++runs, on Linux and macOS, on x86_64 and aarch64 -- except the four script
++tests (`test-gate-env.sh`, `test-preview-contract.sh`,
++`test-check-no-local-paths.sh` and `check-env-reads.py --self-test`), which
++test the gate scripts on the OS's own tools rather than anything built for
++the target, so CI runs them on one row per OS: aarch64 macOS and x86_64
++Linux. Run them locally all the same:
+ 
+ ```bash
+ cargo fmt --check
+diff --git a/scripts/check-env-reads.py b/scripts/check-env-reads.py
+index b5906dc9..efb9d898 100755
+--- a/scripts/check-env-reads.py
++++ b/scripts/check-env-reads.py
+@@ -147,6 +147,7 @@ ALLOWED_NAMES = {
+     "RUST_TEST_THREADS": "libtest's own, handed to that copy",
+     "XFX_DRAWN_WIDER_LIST": "the drawn-wider sweep's own",
+     "XFX_DRAWN_WIDER_OUT": "the drawn-wider sweep's own",
++    "XFX_AT_BENCH_TREE": "the @ search benchmark's own: a tree a person names for it",
+ }
+ 
+ # `env_exception!(names())`: the names alone, never a value.
+@@ -159,7 +160,7 @@ COMPILE_TIME_NAMES = {
+     "CARGO_PKG_NAME": "Cargo.toml's name",
+     "CARGO_PKG_VERSION": "Cargo.toml's version",
+     "CARGO_BIN_EXE_xfx": "cargo's: the xfx binary an integration test starts",
+-    "XFX_BUILD_REVISION": "build.rs's: the revision the binary is built from",
++    "XFX_BUILD_ID": "build.rs's: the id the build is stamped with, its revision in it",
+     "XFX_BUILD_CHANNEL": "build.rs's: the channel the build claims",
+ }
+ 
+@@ -211,6 +212,10 @@ EXCEPTIONS = [
+     ("src/mcp/transport.rs", ("XFX_TEST_SENTINEL_RUNNER",)),
+     ("src/mcp/transport.rs", ("XFX_TEST_SENTINEL_RUNNER",)),
+     ("src/test_env/tests.rs", ("XFX_TEST_ENV_PROXY_COPY",)),
++    # A tree on disk a person names for the @ search's benchmark to walk in
++    # place of fx's inventory (AT-RANK-PERF's receipt), read by that one
++    # unit test.
++    ("src/tui/file_index.rs", ("XFX_AT_BENCH_TREE",)),
+     # Every integration test binary, before main: the one it was started as
+     # reads its marker and what it hands its copy; the copy confirms that it
+     # was given these names and no other, and the home the marker names.
+@@ -248,9 +253,9 @@ PLAIN = [
+     ("tests/support/isolated.rs", "std::os::unix::process::CommandExt::exec", 1),
+     # The build script: a process cargo runs before the crate exists, never a
+     # test and never the product. It reads what cargo and a publishing
+-    # workflow set (XFX_BUILD_REVISION, XFX_BUILD_CHANNEL, PROFILE), drops
++    # workflow set (XFX_BUILD_ID, XFX_BUILD_CHANNEL, PROFILE), drops
+     # every GIT_* name from the git it starts, and starts that git (two
+-    # calls: `git_path` and `git_revision`).
++    # calls: `git_path` and `git_build_id`).
+     ("build.rs", "std::env::var", 3),
+     ("build.rs", "std::env::vars_os", 1),
+     ("build.rs", "std::process::Command::new", 1),
+diff --git a/src/config.rs b/src/config.rs
+index 1e82661e..f4bf4d7e 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -5456,9 +5456,8 @@ mod tests {
+                 |dir, file| {
+                     fs::create_dir_all(dir).expect("dir");
+                     private(dir, 0o700);
+-                    let made =
+-                        crate::process::status(std::process::Command::new("mkfifo").arg(file))
+-                            .expect("run mkfifo");
++                    let made = crate::process::status(crate::process::command("mkfifo").arg(file))
++                        .expect("run mkfifo");
+                     assert!(made.success(), "a FIFO");
+                 },
+                 ProfileOpen::Unsafe,
+@@ -5548,7 +5547,7 @@ mod tests {
+         // A FIFO nobody writes to: an open that waited would wait forever, so
+         // it runs on a thread, freed by a writer opened without waiting.
+         let _ = fs::remove_file(&file);
+-        let made = crate::process::status(std::process::Command::new("mkfifo").arg(&file))
++        let made = crate::process::status(crate::process::command("mkfifo").arg(&file))
+             .expect("run mkfifo");
+         assert!(made.success(), "a FIFO");
+         let (sent, got) = std::sync::mpsc::channel();
+diff --git a/src/tui/file_index.rs b/src/tui/file_index.rs
+index 1515f955..f74855be 100644
+--- a/src/tui/file_index.rs
++++ b/src/tui/file_index.rs
+@@ -3876,7 +3876,7 @@ pub(crate) mod tests {
+         // the ordinary `cargo test` -- searches each whole query once and
+         // asserts nothing. `XFX_AT_BENCH_TREE` names a tree on disk to walk
+         // in place of the inventory (the AT-RANK receipt's `gen_tree.py`).
+-        let entries = match std::env::var_os("XFX_AT_BENCH_TREE") {
++        let entries = match env_exception!(var_os("XFX_AT_BENCH_TREE")) {
+             Some(tree) => {
+                 discover(Path::new(&tree), None, &AtomicBool::new(false)).expect("a walk")
+             }
+diff --git a/src/tui/worker.rs b/src/tui/worker.rs
+remerge CONFLICT (content): Merge conflict in src/tui/worker.rs
+index 085ef8f4..61fd71e1 100644
+--- a/src/tui/worker.rs
++++ b/src/tui/worker.rs
+@@ -10367,11 +10367,7 @@ mod tests {
+             &CancelToken::new(),
+         )
+         .expect("open a conversation");
+-<<<<<<< e8b004a5 (Merge the slash line into train 16 (fix/p5-slash-mixed-skills @ 32eb858f))
+         let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+-=======
+-        let mut state = a_runtime(config, store, a_prompter(), a_questioner());
+->>>>>>> 7c3f6c1e (docs(receipt): TEST-ENV-ISOLATION round 9 -- cfg_select! RED both ways, mutants 21/21, the gate)
+         state.conversation = Some(conversation);
+         (home, workspace, state)
+     }
+diff --git a/tests/cli.rs b/tests/cli.rs
+index 97377a45..97c101bf 100644
+--- a/tests/cli.rs
++++ b/tests/cli.rs
+@@ -21,8 +21,7 @@ use xfx::config::{
+ use xfx::provider::{resolve_credential_for, ProviderCredential, ProviderId};
+ 
+ #[cfg(unix)]
+-#[path = "support/profiles.rs"]
+-mod profiles;
++use support::profiles;
+ 
+ /// Upstream command names that xfx deliberately does not implement in v0.1.
+ ///
+diff --git a/tests/support/mod.rs b/tests/support/mod.rs
+remerge CONFLICT (content): Merge conflict in tests/support/mod.rs
+index ab106de1..9fca5e50 100644
+--- a/tests/support/mod.rs
++++ b/tests/support/mod.rs
+@@ -16,13 +16,10 @@
+ pub mod fake_clipboard;
+ pub mod fake_gateway;
+ pub mod fake_llmux;
+-<<<<<<< e8b004a5 (Merge the slash line into train 16 (fix/p5-slash-mixed-skills @ 32eb858f))
++pub mod isolated;
+ // Profiles fx refuses at launch; the links and modes they lay down are unix.
+ #[cfg(unix)]
+ pub mod profiles;
+-=======
+-pub mod isolated;
+->>>>>>> 7c3f6c1e (docs(receipt): TEST-ENV-ISOLATION round 9 -- cfg_select! RED both ways, mutants 21/21, the gate)
+ // The pty harness drives a real terminal, so it is unix-only; `tests/cli.rs`
+ // and its siblings pull this module in on every platform.
+ #[cfg(unix)]
+diff --git a/tests/support/profiles.rs b/tests/support/profiles.rs
+index c30c3a46..9cd8a36c 100644
+--- a/tests/support/profiles.rs
++++ b/tests/support/profiles.rs
+@@ -440,8 +440,8 @@ pub fn lay(home: &Path, workspace: &Path, profile: Profile) -> bool {
+         }
+         Profile::FileForDir => fs::write(&dir, "{}").expect("a file where the directory belongs"),
+         Profile::Fifo => {
+-            let made = xfx::process::status(std::process::Command::new("mkfifo").arg(&file))
+-                .expect("run mkfifo");
++            let made =
++                xfx::process::status(super::command("mkfifo").arg(&file)).expect("run mkfifo");
+             assert!(made.success(), "a FIFO");
+         }
+         Profile::UnlistableDir | Profile::UnlistableHome => {

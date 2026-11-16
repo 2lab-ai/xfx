@@ -1,0 +1,287 @@
+# test_lists.sh <repo> 866747ff 2b78aab6 <scratch> (one hold of the suite lock): every test each test binary lists (cargo test --all-targets -- --list), at the base and the head, plain and with fault-injection
+# base 866747ff plain: 5949 tests listed
+# base 866747ff fault: 5986 tests listed
+# head 2b78aab6 plain: 6068 tests listed
+# head 2b78aab6 fault: 6105 tests listed
+## plain: in the head's list and not the base's: 120; in the base's and not the head's: 1
+  gone: src/lib.rs process::tests::no_child_process_is_made_any_other_way
+## fault: in the head's list and not the base's: 120; in the base's and not the head's: 1
+  gone: src/lib.rs process::tests::no_child_process_is_made_any_other_way
+## plain: the tests per binary, base -> head
+  src/lib.rs: 5023 -> 5125 (+102)
+  tests/cli.rs: 82 -> 89 (+7)
+  tests/gateway.rs: 93 -> 93 (+0)
+  tests/interactive.rs: 79 -> 81 (+2)
+  tests/isolation.rs: 0 -> 5 (+5)
+  tests/ledger_compat.rs: 5 -> 5 (+0)
+  tests/llmux.rs: 103 -> 103 (+0)
+  tests/mcp.rs: 5 -> 5 (+0)
+  tests/parity.rs: 26 -> 26 (+0)
+  tests/permissions.rs: 159 -> 159 (+0)
+  tests/session_compat.rs: 9 -> 9 (+0)
+  tests/sessions.rs: 67 -> 67 (+0)
+  tests/tool_loop.rs: 109 -> 109 (+0)
+  tests/tui.rs: 189 -> 192 (+3)
+  all: 5949 -> 6068 (+119)
+## plain: the 120 the head lists and the base does not
+  + src/lib.rs config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
+  + src/lib.rs config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes
+  + src/lib.rs config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
+  + src/lib.rs config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+  + src/lib.rs config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer
+  + src/lib.rs config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other
+  + src/lib.rs config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses
+  + src/lib.rs config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one
+  + src/lib.rs config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it
+  + src/lib.rs config::tests::a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not
+  + src/lib.rs config::tests::a_project_file_fx_reads_is_applied
+  + src/lib.rs config::tests::a_project_file_is_looked_at_before_it_is_opened
+  + src/lib.rs config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer
+  + src/lib.rs config::tests::every_profile_key_xfx_reads_is_one_fxs_parse_checks
+  + src/lib.rs config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+  + src/lib.rs config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float
+  + src/lib.rs config::tests::the_open_checks_what_it_opened_not_what_was_looked_at
+  + src/lib.rs config::tests::the_profile_is_opened_in_fxs_order_before_what_it_holds_counts
+  + src/lib.rs config::tests::the_profile_layer_is_read_from_the_descriptor_that_was_checked
+  + src/lib.rs config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only
+  + src/lib.rs mcp::command::tests::a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server
+  + src/lib.rs mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them
+  + src/lib.rs mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+  + src/lib.rs permission::slash::tests::the_line_is_trimmed_before_the_modes_parse_which_trims_nothing
+  + src/lib.rs test_env::tests::a_carried_body_runs_in_the_process_of_the_thread_that_made_it
+  + src/lib.rs test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir
+  + src/lib.rs test_env::tests::a_child_inherits_the_fake_process_less_xfxs_own_credential
+  + src/lib.rs test_env::tests::a_fake_process_ends_with_its_body_however_the_body_ends
+  + src/lib.rs test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home
+  + src/lib.rs test_env::tests::a_git_plan_reads_the_git_configuration_of_the_fake_home
+  + src/lib.rs test_env::tests::a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is
+  + src/lib.rs test_env::tests::a_lookup_is_the_process_it_was_made_in_on_any_thread
+  + src/lib.rs test_env::tests::an_environment_laid_over_a_fake_process_wins_where_it_holds_and_no_further
+  + src/lib.rs test_env::tests::an_https_client_takes_no_proxy_from_the_process
+  + src/lib.rs test_env::tests::an_https_client_takes_the_fake_processs_proxy_and_its_exemptions
+  + src/lib.rs test_env::tests::an_mcp_runtime_made_outside_a_fake_process_refuses_its_lookup
+  + src/lib.rs test_env::tests::inside_a_fake_process_each_reader_takes_the_fake_and_only_its_own_names
+  + src/lib.rs test_env::tests::the_environment_xfx_loads_with_is_refused
+  + src/lib.rs test_env::tests::the_gateway_endpoint_is_refused
+  + src/lib.rs test_env::tests::the_link_bases_are_refused
+  + src/lib.rs test_env::tests::the_usage_clock_file_is_refused
+  + src/lib.rs test_env::tests::the_variables_that_choose_gits_configuration_are_refused
+  + src/lib.rs test_env::tests::what_is_only_handed_to_a_child_is_the_fakes_or_nothing
+  + src/lib.rs test_env::tests::whether_the_tui_runs_is_refused
+  + src/lib.rs tui::approval_amendment::tests::a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces
+  + src/lib.rs tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs
+  + src/lib.rs tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized
+  + src/lib.rs tui::approval_amendment::tests::a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text
+  + src/lib.rs tui::approval_amendment::tests::c1_controls_in_a_paste_are_kept_in_the_draft_as_fxs
+  + src/lib.rs tui::approval_amendment::tests::home_and_end_in_a_draft_are_its_edges_as_fxs_cursor_home
+  + src/lib.rs tui::approval_amendment::tests::the_capture_holds_eight_mebibytes_as_fxs_and_refuses_the_next_byte
+  + src/lib.rs tui::arg_lists::tests::allowlist_walks_its_words_and_hangs_under_the_one_being_typed
+  + src/lib.rs tui::arg_lists::tests::each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case
+  + src/lib.rs tui::arg_lists::tests::tab_follows_a_line_with_more_to_come_by_a_space
+  + src/lib.rs tui::entity::tests::a_snapshot_moves_with_the_bytes_left_out_before_it
+  + src/lib.rs tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending
+  + src/lib.rs tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits
+  + src/lib.rs tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it
+  + src/lib.rs tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key
+  + src/lib.rs tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one
+  + src/lib.rs tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50
+  + src/lib.rs tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc
+  + src/lib.rs tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst
+  + src/lib.rs tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+  + src/lib.rs tui::picker::tests::a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query
+  + src/lib.rs tui::picker::tests::enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name
+  + src/lib.rs tui::picker::tests::past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument
+  + src/lib.rs tui::picker::tests::the_budget_leaves_a_taller_composer_its_rows
+  + src/lib.rs tui::router::tests::a_command_led_by_a_no_break_space_runs_with_an_argument_and_is_refused_without
+  + src/lib.rs tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row
+  + src/lib.rs tui::shell::tests::a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row
+  + src/lib.rs tui::shell::tests::a_caret_move_keeps_a_tables_mark_and_an_edit_puts_it_back_on_the_first_row
+  + src/lib.rs tui::shell::tests::a_column_line_opens_no_slash_menu_whatever_skill_its_line_would_find
+  + src/lib.rs tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash
+  + src/lib.rs tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash
+  + src/lib.rs tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs
+  + src/lib.rs tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own
+  + src/lib.rs tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs
+  + src/lib.rs tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape
+  + src/lib.rs tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it
+  + src/lib.rs tui::shell::tests::a_slash_word_past_leading_blanks_opens_the_menu
+  + src/lib.rs tui::shell::tests::allowlist_walks_its_words_under_the_one_being_typed
+  + src/lib.rs tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line
+  + src/lib.rs tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte
+  + src/lib.rs tui::shell::tests::on_a_slash_word_alone_tab_takes_the_marked_row_for_no_ghost_is_there
+  + src/lib.rs tui::shell::tests::one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line
+  + src/lib.rs tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move
+  + src/lib.rs tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds
+  + src/lib.rs tui::shell::tests::permissions_lists_its_six_forms_and_tab_writes_the_marked_one
+  + src/lib.rs tui::shell::tests::sound_lists_fxs_levels_and_enter_runs_the_marked_one
+  + src/lib.rs tui::shell::tests::statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+  + src/lib.rs tui::shell::tests::tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+  + src/lib.rs tui::shell::tests::tab_and_enter_over_leading_blanks_put_the_bare_name_in_the_composer
+  + src/lib.rs tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank
+  + src/lib.rs tui::shell::tests::the_menu_leaves_a_taller_composer_its_rows
+  + src/lib.rs tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are
+  + src/lib.rs tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do
+  + src/lib.rs tui::shell::tests::under_the_full_transcript_tab_and_enter_take_the_lists_marked_row_as_fxs_do
+  + src/lib.rs tui::shell::tests::workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+  + src/lib.rs tui::signals::tests::a_thread_started_unsignalled_is_in_the_process_of_the_case_that_started_it
+  + src/lib.rs tui::worker::tests::a_launched_worker_reads_the_whole_fake_process_it_was_launched_in
+  + tests/cli.rs a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs
+  + tests/cli.rs ask_goes_on_with_a_profile_fx_starts_with
+  + tests/cli.rs ask_refuses_a_profile_fx_refuses
+  + tests/cli.rs ask_takes_fxs_two_spellings_of_full_access_exactly
+  + tests/cli.rs full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word
+  + tests/cli.rs status_stops_where_fxs_load_fails_and_the_rest_still_answer
+  + tests/cli.rs the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses
+  + tests/interactive.rs the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything
+  + tests/interactive.rs the_shell_starts_with_a_profile_only_ask_refuses
+  + tests/isolation.rs a_case_marks_where_it_runs
+  + tests/isolation.rs a_copy_handed_a_home_under_a_relative_tmpdir_runs_no_case
+  + tests/isolation.rs a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment
+  + tests/isolation.rs a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given
+  + tests/isolation.rs a_parent_under_a_relative_tmpdir_makes_no_home_and_runs_no_case
+  + tests/tui.rs a_profile_fx_refuses_is_refused_before_the_terminal_is_taken
+  + tests/tui.rs a_profile_only_ask_refuses_starts_the_tui
+  + tests/tui.rs a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal
+## fault: the tests per binary, base -> head
+  src/lib.rs: 5046 -> 5148 (+102)
+  tests/cli.rs: 82 -> 89 (+7)
+  tests/gateway.rs: 93 -> 93 (+0)
+  tests/interactive.rs: 79 -> 81 (+2)
+  tests/isolation.rs: 0 -> 5 (+5)
+  tests/ledger_compat.rs: 5 -> 5 (+0)
+  tests/llmux.rs: 103 -> 103 (+0)
+  tests/mcp.rs: 5 -> 5 (+0)
+  tests/parity.rs: 26 -> 26 (+0)
+  tests/permissions.rs: 159 -> 159 (+0)
+  tests/session_compat.rs: 9 -> 9 (+0)
+  tests/sessions.rs: 67 -> 67 (+0)
+  tests/tool_loop.rs: 109 -> 109 (+0)
+  tests/tui.rs: 203 -> 206 (+3)
+  all: 5986 -> 6105 (+119)
+## fault: the 120 the head lists and the base does not
+  + src/lib.rs config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
+  + src/lib.rs config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes
+  + src/lib.rs config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
+  + src/lib.rs config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+  + src/lib.rs config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer
+  + src/lib.rs config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other
+  + src/lib.rs config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses
+  + src/lib.rs config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one
+  + src/lib.rs config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it
+  + src/lib.rs config::tests::a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not
+  + src/lib.rs config::tests::a_project_file_fx_reads_is_applied
+  + src/lib.rs config::tests::a_project_file_is_looked_at_before_it_is_opened
+  + src/lib.rs config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer
+  + src/lib.rs config::tests::every_profile_key_xfx_reads_is_one_fxs_parse_checks
+  + src/lib.rs config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+  + src/lib.rs config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float
+  + src/lib.rs config::tests::the_open_checks_what_it_opened_not_what_was_looked_at
+  + src/lib.rs config::tests::the_profile_is_opened_in_fxs_order_before_what_it_holds_counts
+  + src/lib.rs config::tests::the_profile_layer_is_read_from_the_descriptor_that_was_checked
+  + src/lib.rs config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only
+  + src/lib.rs mcp::command::tests::a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server
+  + src/lib.rs mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them
+  + src/lib.rs mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+  + src/lib.rs permission::slash::tests::the_line_is_trimmed_before_the_modes_parse_which_trims_nothing
+  + src/lib.rs test_env::tests::a_carried_body_runs_in_the_process_of_the_thread_that_made_it
+  + src/lib.rs test_env::tests::a_child_inherits_nothing_of_the_process_but_path_and_tmpdir
+  + src/lib.rs test_env::tests::a_child_inherits_the_fake_process_less_xfxs_own_credential
+  + src/lib.rs test_env::tests::a_fake_process_ends_with_its_body_however_the_body_ends
+  + src/lib.rs test_env::tests::a_git_plan_reads_no_git_configuration_under_the_process_home
+  + src/lib.rs test_env::tests::a_git_plan_reads_the_git_configuration_of_the_fake_home
+  + src/lib.rs test_env::tests::a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is
+  + src/lib.rs test_env::tests::a_lookup_is_the_process_it_was_made_in_on_any_thread
+  + src/lib.rs test_env::tests::an_environment_laid_over_a_fake_process_wins_where_it_holds_and_no_further
+  + src/lib.rs test_env::tests::an_https_client_takes_no_proxy_from_the_process
+  + src/lib.rs test_env::tests::an_https_client_takes_the_fake_processs_proxy_and_its_exemptions
+  + src/lib.rs test_env::tests::an_mcp_runtime_made_outside_a_fake_process_refuses_its_lookup
+  + src/lib.rs test_env::tests::inside_a_fake_process_each_reader_takes_the_fake_and_only_its_own_names
+  + src/lib.rs test_env::tests::the_environment_xfx_loads_with_is_refused
+  + src/lib.rs test_env::tests::the_gateway_endpoint_is_refused
+  + src/lib.rs test_env::tests::the_link_bases_are_refused
+  + src/lib.rs test_env::tests::the_usage_clock_file_is_refused
+  + src/lib.rs test_env::tests::the_variables_that_choose_gits_configuration_are_refused
+  + src/lib.rs test_env::tests::what_is_only_handed_to_a_child_is_the_fakes_or_nothing
+  + src/lib.rs test_env::tests::whether_the_tui_runs_is_refused
+  + src/lib.rs tui::approval_amendment::tests::a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces
+  + src/lib.rs tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs
+  + src/lib.rs tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized
+  + src/lib.rs tui::approval_amendment::tests::a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text
+  + src/lib.rs tui::approval_amendment::tests::c1_controls_in_a_paste_are_kept_in_the_draft_as_fxs
+  + src/lib.rs tui::approval_amendment::tests::home_and_end_in_a_draft_are_its_edges_as_fxs_cursor_home
+  + src/lib.rs tui::approval_amendment::tests::the_capture_holds_eight_mebibytes_as_fxs_and_refuses_the_next_byte
+  + src/lib.rs tui::arg_lists::tests::allowlist_walks_its_words_and_hangs_under_the_one_being_typed
+  + src/lib.rs tui::arg_lists::tests::each_table_is_fxs_matched_by_the_start_of_its_word_ignoring_case
+  + src/lib.rs tui::arg_lists::tests::tab_follows_a_line_with_more_to_come_by_a_space
+  + src/lib.rs tui::entity::tests::a_snapshot_moves_with_the_bytes_left_out_before_it
+  + src/lib.rs tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending
+  + src/lib.rs tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits
+  + src/lib.rs tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it
+  + src/lib.rs tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key
+  + src/lib.rs tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one
+  + src/lib.rs tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50
+  + src/lib.rs tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc
+  + src/lib.rs tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst
+  + src/lib.rs tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it
+  + src/lib.rs tui::picker::tests::a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query
+  + src/lib.rs tui::picker::tests::enter_on_a_skill_row_binds_it_unless_the_line_is_a_commands_name
+  + src/lib.rs tui::picker::tests::past_a_blank_the_query_goes_on_for_a_name_nobody_has_or_one_with_an_argument
+  + src/lib.rs tui::picker::tests::the_budget_leaves_a_taller_composer_its_rows
+  + src/lib.rs tui::router::tests::a_command_led_by_a_no_break_space_runs_with_an_argument_and_is_refused_without
+  + src/lib.rs tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row
+  + src/lib.rs tui::shell::tests::a_c1_control_in_an_amendment_paste_reaches_the_draft_and_no_painted_row
+  + src/lib.rs tui::shell::tests::a_caret_move_keeps_a_tables_mark_and_an_edit_puts_it_back_on_the_first_row
+  + src/lib.rs tui::shell::tests::a_column_line_opens_no_slash_menu_whatever_skill_its_line_would_find
+  + src/lib.rs tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash
+  + src/lib.rs tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash
+  + src/lib.rs tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs
+  + src/lib.rs tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own
+  + src/lib.rs tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs
+  + src/lib.rs tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape
+  + src/lib.rs tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it
+  + src/lib.rs tui::shell::tests::a_slash_word_past_leading_blanks_opens_the_menu
+  + src/lib.rs tui::shell::tests::allowlist_walks_its_words_under_the_one_being_typed
+  + src/lib.rs tui::shell::tests::escape_over_the_skills_past_a_blank_lasts_while_the_line_is_a_slash_line
+  + src/lib.rs tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte
+  + src/lib.rs tui::shell::tests::on_a_slash_word_alone_tab_takes_the_marked_row_for_no_ghost_is_there
+  + src/lib.rs tui::shell::tests::one_dismissal_closes_the_slash_menu_and_every_argument_list_for_the_line
+  + src/lib.rs tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move
+  + src/lib.rs tui::shell::tests::past_the_blank_of_a_name_nobody_has_the_menu_lists_the_skills_the_line_finds
+  + src/lib.rs tui::shell::tests::permissions_lists_its_six_forms_and_tab_writes_the_marked_one
+  + src/lib.rs tui::shell::tests::sound_lists_fxs_levels_and_enter_runs_the_marked_one
+  + src/lib.rs tui::shell::tests::statusline_lists_its_items_under_the_argument_and_enter_runs_the_marked_one
+  + src/lib.rs tui::shell::tests::tab_and_enter_bind_the_skill_over_the_whole_line_but_a_names_blank_submits_it
+  + src/lib.rs tui::shell::tests::tab_and_enter_over_leading_blanks_put_the_bare_name_in_the_composer
+  + src/lib.rs tui::shell::tests::tab_takes_a_slash_words_ghost_before_the_skills_listed_past_the_blank
+  + src/lib.rs tui::shell::tests::the_menu_leaves_a_taller_composer_its_rows
+  + src/lib.rs tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are
+  + src/lib.rs tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do
+  + src/lib.rs tui::shell::tests::under_the_full_transcript_tab_and_enter_take_the_lists_marked_row_as_fxs_do
+  + src/lib.rs tui::shell::tests::workspace_lists_its_verbs_and_tab_leaves_room_for_a_path
+  + src/lib.rs tui::signals::tests::a_thread_started_unsignalled_is_in_the_process_of_the_case_that_started_it
+  + src/lib.rs tui::worker::tests::a_launched_worker_reads_the_whole_fake_process_it_was_launched_in
+  + tests/cli.rs a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs
+  + tests/cli.rs ask_goes_on_with_a_profile_fx_starts_with
+  + tests/cli.rs ask_refuses_a_profile_fx_refuses
+  + tests/cli.rs ask_takes_fxs_two_spellings_of_full_access_exactly
+  + tests/cli.rs full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word
+  + tests/cli.rs status_stops_where_fxs_load_fails_and_the_rest_still_answer
+  + tests/cli.rs the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses
+  + tests/interactive.rs the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything
+  + tests/interactive.rs the_shell_starts_with_a_profile_only_ask_refuses
+  + tests/isolation.rs a_case_marks_where_it_runs
+  + tests/isolation.rs a_copy_handed_a_home_under_a_relative_tmpdir_runs_no_case
+  + tests/isolation.rs a_copy_that_cannot_be_made_says_so_without_a_value_of_the_environment
+  + tests/isolation.rs a_marker_set_before_the_copy_runs_no_case_under_a_home_it_was_not_given
+  + tests/isolation.rs a_parent_under_a_relative_tmpdir_makes_no_home_and_runs_no_case
+  + tests/tui.rs a_profile_fx_refuses_is_refused_before_the_terminal_is_taken
+  + tests/tui.rs a_profile_only_ask_refuses_starts_the_tui
+  + tests/tui.rs a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal
+## the doc test: one at both (cargo test --doc -- --list), `src/agent/types.rs - agent::types::TurnJournal (line 70)`; TEST-ENV-ISOLATION's Cargo.toml sets `doctest = false` (and `test = false` on the binary), so the head's gate runs it no more: train 15's gate at 2c575f52 had its `1 passed` (../train-15/gate-counts.txt), this train's gate none (gate-counts.txt)
+## Cargo.toml at 2b78aab6, the two lines
+21:test = false
+26:doctest = false

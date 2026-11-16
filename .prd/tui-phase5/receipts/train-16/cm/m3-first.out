@@ -1,0 +1,6 @@
+cargo check --locked --all-targets: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.90s
+cargo check --locked --all-targets --features fault-injection: exit 0, 15 s;     Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.91s
+cargo fmt --check: exit 1, 2 s;  #[cfg(unix)]
+cargo clippy --locked --all-targets -- -D warnings: exit 101, 16 s; error: could not compile `xfx` (lib test) due to 3 previous errors
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings: exit 101, 16 s; error: could not compile `xfx` (lib test) due to 3 previous errors
+# 3 failed
