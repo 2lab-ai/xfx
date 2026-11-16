@@ -1,0 +1,5 @@
+clone of e0ad88a9, src at f74d2fd5, two config tests copied in
+cli::ask_goes_on_with_a_profile_fx_starts_with exit=101 thread 'ask_goes_on_with_a_profile_fx_starts_with' (529129469) panicked at tests/cli.rs:2139:9: a number past f64: xfx: InvalidProfileConfiguration  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace 
+cli::ask_refuses_a_profile_fx_refuses exit=0 every test passed
+lib::config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it exit=101 thread 'config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it' (529166871) panicked at src/config.rs:5132:17: assertion `left == right` failed: {"zzz": 1e400}   left: Some(Rejected)  right: None 
+lib::config::tests::a_project_file_fx_reads_is_applied exit=101 thread 'config::tests::a_project_file_fx_reads_is_applied' (529166926) panicked at src/config.rs:5188:13: assertion `left == right` failed: 1e400   left: (None, [(MalformedSettings, None)])  right: (Some(3), []) 

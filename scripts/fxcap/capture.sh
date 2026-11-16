@@ -293,7 +293,7 @@
 # after each `relaunch`: the run waits for the binary's first frame -- anything
 # but blanks on the pane's screen -- looking every 0.05 s for 30 s of elapsed
 # time, and fails the run (exit 1) if none comes. Both binaries make the
-# terminal raw before they draw anything (xfx src/tui/mod.rs:213, fx
+# terminal raw before they draw anything (xfx src/tui/mod.rs:220, fx
 # src/core/app/app_lifecycle.zig:880@481104fd), and raw takes ISIG away, so a
 # key after the first frame reaches the binary as a key; a Ctrl-C before it is
 # SIGINT and ends it (a freshly copied binary's first frame came 2.13 s after

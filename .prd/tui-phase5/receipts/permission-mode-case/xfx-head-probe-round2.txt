@@ -1,0 +1,154 @@
+== probe.sh xfx <xfx at 83ed41a0, round 2's head (src 5891efea)> <run> (every fixture)
+binary sha256 before: e4389e568153
+== key-upper-ask
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== key-cap-auto
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== key-upper-full-access
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== key-full-access-space
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== key-upper-yolo
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== key-lower-yolo
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== key-invalid
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx: InvalidProfileConfiguration
+== key-padded
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx: InvalidProfileConfiguration
+== key-full
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx: InvalidProfileConfiguration
+== entry-upper-ask
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== entry-cap-auto
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== entry-upper-full-access
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== entry-full-access-space
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== entry-upper-yolo
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== entry-lower-yolo
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== entry-invalid
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx: InvalidProfileConfiguration
+== entry-padded
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx: InvalidProfileConfiguration
+== entry-full
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx: InvalidProfileConfiguration
+== env-upper-ask
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== env-cap-auto
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== env-upper-full-access
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== env-full-access-space
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== env-upper-yolo
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== env-lower-yolo
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== env-invalid
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx ask: config process: invalid_value; key=XFX_PERMISSION_MODE
+== env-padded
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=xfx ask: config process: invalid_value; key=XFX_PERMISSION_MODE
+== env-full
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=xfx ask: config process: invalid_value; key=XFX_PERMISSION_MODE
+== flag-full-access
+  ask --full-access exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== flag-yolo
+  ask --yolo     exit=1 | stderr=xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.
+== flag-upper-full-access
+  ask --FULL-ACCESS exit=1 | stderr=error: unexpected argument '--FULL-ACCESS' found
+== flag-cap-yolo
+  ask --Yolo     exit=1 | stderr=error: unexpected argument '--Yolo' found
+== flag-auto
+  ask --auto     exit=1 | stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== flag-upper-auto
+  ask --AUTO     exit=1 | stderr=error: unexpected argument '--AUTO' found
+== flag-full-access-then-yolo
+  ask --full-access --yolo exit=1 | stderr=error: the argument '--full-access' cannot be used with '--yolo'
+== flag-full-access-then-auto
+  ask --full-access --auto exit=1 | stderr=error: the argument '--full-access' cannot be used with '--auto'
+binary sha256 after: e4389e568153

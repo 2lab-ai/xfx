@@ -181,7 +181,7 @@ points here for the target.
   `block_on(app::run(...))` (`src/main.rs:17-25`). The comment states the reason: xfx drives one turn
   at a time and never spawns work that outlives the command.
 - One extra **detached OS thread**, `xfx-interrupt`, with its own current-thread runtime, for SIGINT
-  only (`src/app.rs:539-580`). It exists precisely because the main runtime is single-threaded and is
+  only (`src/app.rs:556-597`). It exists precisely because the main runtime is single-threaded and is
   *blocked* for the duration of a `terminal` command and for as long as a user takes to type a line.
   Its start is a handshake, not a hope: a `sync_channel(1)` releases the caller only once the signal
   future has been polled once (that poll is the registration), bounded by a 2 s timeout, and a signal
@@ -978,7 +978,7 @@ exact boundary.
     by -- `Partial` or an exhausted `Rejected`/`ZeroProgress`, as `event_loop::disposed` marks it,
     or `Partial` as `event_loop::recover_tear` marks a recoverable repaint whose recovery failed or
     was never tried (`src/tui/event_loop.rs`) -- is written, after the restoration attempt in `session`
-    (`src/tui/mod.rs:189-226`; `term::shutdown` can itself return `Err`), to
+    (`src/tui/mod.rs:196-233`; `term::shutdown` can itself return `Err`), to
     `<profile_dir>/last-tui-error.json`: a fixed four-key, ≤1 KiB record (`schema`, `reason`,
     `error_kind`, `errno`) that never carries the original error's own text, so a `Partial`
     wrapping a private `Prefix` (`src/tui/deliver.rs`) cannot leak a prompt or an amendment sentence

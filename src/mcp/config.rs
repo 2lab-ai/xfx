@@ -2816,13 +2816,57 @@ pub fn choices_in(document: &Map<String, Value>, root: &Path) -> Choices {
     Choices { approved, rejected }
 }
 
-/// The choices in the settings file at `settings`, or none when it cannot
-/// be read.
-pub fn load_choices(settings: Option<&Path>, root: &Path) -> Choices {
-    settings
-        .and_then(|path| crate::provider::profile::read_existing(path).ok())
-        .map(|document| choices_in(&document, root))
-        .unwrap_or_default()
+/// The choices for `root` in the settings file at `settings`, loaded as fx's
+/// `loadProjectMcpChoicesFromHome` loads them
+/// (`config_runtime.zig:384-414@481104fd`): the file read by the profile's
+/// own parse ([`crate::config::read_profile_object`], `std.json`'s, `:399`),
+/// none when there is no file, no `workspaces` or no entry for `root`.
+///
+/// `None` where fx's load fails: the file does not read; it, `workspaces`
+/// or the entry is not an object (`:401-403`); or `parseChoices` refuses a
+/// choice ([`fx_takes_choices`]). fx's callers then load none of the
+/// workspace's servers (`src/builtins/mcp.zig:58-63`, `:240-248`,
+/// `src/acp/sessions.zig:1035-1046`), and nor does the runtime.
+pub fn load_choices(settings: Option<&Path>, root: &Path) -> Option<Choices> {
+    let Some(path) = settings else {
+        return Some(Choices::default());
+    };
+    let document = match crate::config::read_profile_object(path) {
+        Ok(Some(document)) => document,
+        Ok(None) => return Some(Choices::default()),
+        Err(_) => return None,
+    };
+    fx_takes_choices(&document, root).then(|| choices_in(&document, root))
+}
+
+/// Whether fx's load takes the choices for `root` in `document`: a
+/// `workspaces` that is an object, the entry for `root` in it an object
+/// (`config_runtime.zig:402-403`; `parseChoices`, `project_config.zig:842@481104fd`),
+/// each list an array of non-empty strings (`parseUniqueStringArray`,
+/// `:1339-1366`), and the switch a bool (`:856-859`). xfx's own `enabledMcpjsonServerDigests` is fx's to ignore.
+fn fx_takes_choices(document: &Map<String, Value>, root: &Path) -> bool {
+    let entry = match document.get(crate::workspace::access::WORKSPACES_KEY) {
+        None => return true,
+        Some(Value::Object(workspaces)) => root.to_str().and_then(|key| workspaces.get(key)),
+        Some(_) => return false,
+    };
+    let entry = match entry {
+        None => return true,
+        Some(Value::Object(entry)) => entry,
+        Some(_) => return false,
+    };
+    let names = |key: &str| {
+        entry.get(key).is_none_or(|list| {
+            list.as_array().is_some_and(|names| {
+                names
+                    .iter()
+                    .all(|name| name.as_str().is_some_and(|name| !name.is_empty()))
+            })
+        })
+    };
+    names(ENABLED_KEY)
+        && names(DISABLED_KEY)
+        && entry.get(ENABLE_ALL_KEY).is_none_or(Value::is_boolean)
 }
 
 /// What the runtime last read, for an approval by name to bind: each entry
@@ -3207,6 +3251,72 @@ mod tests {
             digest.starts_with("sha256:") && digest.len() == 7 + 64,
             "{digest}"
         );
+    }
+
+    /// The choices load as fx's `loadProjectMcpChoicesFromHome` loads them
+    /// (`config_runtime.zig:384-414@481104fd`): none to read -- no settings
+    /// file, no `workspaces`, no entry for the workspace -- is no choice; a
+    /// file its parse reads is read whatever else it holds, past `f64` and
+    /// 128 deep included; and each way fx's load fails is `None`: the file
+    /// does not read (not JSON, a key twice, not an object, not UTF-8),
+    /// `workspaces` or the entry is not an object, or `parseChoices` refuses
+    /// a choice (`project_config.zig:842`, `:856-859`, `:1339-1366`): a list
+    /// that is not an array of non-empty strings, or a switch that is not a
+    /// bool.
+    #[test]
+    fn the_saved_choices_load_where_fxs_load_does() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let settings = dir.path().join("settings.json");
+        let root = Path::new("/w");
+        let load = |bytes: &[u8]| {
+            fs::write(&settings, bytes).expect("the settings");
+            load_choices(Some(&settings), root)
+        };
+        let approval =
+            r#""enabledMcpjsonServers": ["s"], "enabledMcpjsonServerDigests": {"s": "sha256:d"}"#;
+        let approved = |beside: &str| {
+            load(format!(r#"{{{beside}"workspaces": {{"/w": {{{approval}}}}}}}"#).as_bytes())
+                .map(|choices| choices.admission("s", "sha256:d"))
+        };
+        let deep = format!("{}{}", "[".repeat(127), "]".repeat(127));
+        for beside in [
+            "",
+            r#""zzz": 1e400, "#,
+            r#""zzz": -1e400, "#,
+            &format!(r#""zzz": {deep}, "#),
+        ] {
+            assert_eq!(approved(beside), Some(Admission::Approved), "{beside}");
+        }
+        assert_eq!(load_choices(None, root), Some(Choices::default()));
+        assert_eq!(
+            load_choices(Some(&dir.path().join("none.json")), root),
+            Some(Choices::default())
+        );
+        for text in [
+            "{}",
+            r#"{"workspaces": {}}"#,
+            r#"{"workspaces": {"/other": 5}}"#,
+            r#"{"workspaces": {"/w": {}}}"#,
+            r#"{"workspaces": {"/w": {"enabledMcpjsonServers": ["s", "s"], "enableAllProjectMcpServers": false}}}"#,
+        ] {
+            assert!(load(text.as_bytes()).is_some(), "{text}");
+        }
+        for text in [
+            r#"{"workspaces": "#,
+            r#"{"a": 1, "a": 2}"#,
+            "[]",
+            r#"{"workspaces": []}"#,
+            r#"{"workspaces": {"/w": 5}}"#,
+            r#"{"workspaces": {"/w": {"enabledMcpjsonServers": "s"}}}"#,
+            r#"{"workspaces": {"/w": {"enabledMcpjsonServers": [5]}}}"#,
+            r#"{"workspaces": {"/w": {"enabledMcpjsonServers": [""]}}}"#,
+            r#"{"workspaces": {"/w": {"disabledMcpjsonServers": {}}}}"#,
+            r#"{"workspaces": {"/w": {"disabledMcpjsonServers": [null]}}}"#,
+            r#"{"workspaces": {"/w": {"enableAllProjectMcpServers": "yes"}}}"#,
+        ] {
+            assert_eq!(load(text.as_bytes()), None, "{text}");
+        }
+        assert_eq!(load(b"{\"zzz\": \"\xff\"}"), None, "not UTF-8");
     }
 
     #[test]

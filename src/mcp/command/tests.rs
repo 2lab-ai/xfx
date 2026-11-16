@@ -958,6 +958,168 @@ fn shows_next_login_line_says_a_name_only_as_far_as_its_equals_sign() {
     runtime.shutdown();
 }
 
+/// The saved choices are read as fx reads them: the profile's own parse,
+/// `std.json`'s (`loadProjectMcpChoicesFromHome`,
+/// `config_runtime.zig:384-414@481104fd`), so an approval beside a number
+/// past `f64` or a value 128 deep admits its server and starts it, as one
+/// beside neither does. Where that load fails -- a choice list that is not
+/// one (`parseChoices`, `project_config.zig:1339-1366`), a profile that does
+/// not read -- fx's callers load none of the workspace's servers
+/// (`mcp.zig:58-63`, `:240-248`, `acp/sessions.zig:1035-1046`): the entry
+/// is not even read. An entry with no choices in it is the control: read,
+/// and pending (no view: its `${...}` type is expanded only once approved).
+#[test]
+fn saved_choices_are_read_as_fxs_parse_reads_them() {
+    #[derive(Debug, PartialEq)]
+    enum Seen {
+        Approved,
+        Pending,
+        NotRead,
+    }
+    let scratch = Scratch::new();
+    scratch.write_profile("{}");
+    std::fs::write(scratch.project(), late_entry("A")).unwrap();
+    let digest = {
+        let runtime = scratch.runtime();
+        let digest = runtime.loaded_digest("late").expect("read");
+        runtime.shutdown();
+        digest
+    };
+    let key = serde_json::to_string(scratch.root.join("work").to_str().unwrap()).unwrap();
+    let approval = format!(
+        r#""enabledMcpjsonServers": ["late"], "enabledMcpjsonServerDigests": {{"late": "{digest}"}}"#
+    );
+    let deep = format!("{}{}", "[".repeat(127), "]".repeat(127));
+    let seen = |settings: String| {
+        std::fs::write(scratch.settings(), settings).unwrap();
+        let runtime = scratch.runtime();
+        let admission = runtime
+            .views()
+            .into_iter()
+            .find(|view| view.name == "late")
+            .and_then(|view| view.admission);
+        let seen = match (runtime.loaded_digest("late"), admission) {
+            (None, _) => Seen::NotRead,
+            (Some(_), Some(Admission::Approved)) => {
+                ready(&runtime, "late");
+                Seen::Approved
+            }
+            (Some(_), _) => Seen::Pending,
+        };
+        runtime.shutdown();
+        seen
+    };
+    for beside in ["", r#""zzz": 1e400, "#, &format!(r#""zzz": {deep}, "#)] {
+        let settings = format!(r#"{{{beside}"workspaces": {{{key}: {{{approval}}}}}}}"#);
+        assert_eq!(seen(settings), Seen::Approved, "{beside}");
+    }
+    assert_eq!(
+        seen(format!(r#"{{"workspaces": {{{key}: {{}}}}}}"#)),
+        Seen::Pending
+    );
+    for choices in [
+        r#""enabledMcpjsonServers": "late""#.to_string(),
+        format!(r#"{approval}, "enableAllProjectMcpServers": "yes""#),
+    ] {
+        let settings = format!(r#"{{"workspaces": {{{key}: {{{choices}}}}}}}"#);
+        assert_eq!(seen(settings), Seen::NotRead, "{choices}");
+    }
+    let twice = format!(r#"{{"zzz": 1, "zzz": 2, "workspaces": {{{key}: {{{approval}}}}}}}"#);
+    assert_eq!(seen(twice), Seen::NotRead);
+}
+
+/// A live session whose saved choices stop loading, then load again (gpt6
+/// r2): each reload reads them as fx does ([`config::load_choices`]). A
+/// profile server `p` and a workspace server `s`, approved in the saved
+/// choices, both run. A `1e400` beside the choices is read, so the reload
+/// keeps both as they are. `"workspaces": 5` is a load fx refuses
+/// (`config_runtime.zig:402-403@481104fd`), so the reload loads none of the
+/// workspace's servers (`src/builtins/mcp.zig:58-63`): `s` is retired and
+/// its process stopped, and `p` is kept -- the same server, the same
+/// process. The choices restored, `s` starts again, a new process. `/mcp
+/// list` says so at each step.
+#[test]
+fn a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server() {
+    let scratch = Scratch::new();
+    let (p_log, s_log) = (scratch.root.join("p.pid"), scratch.root.join("s.pid"));
+    // A stdio server that writes its process id to `log`, then is the fixture.
+    let logged = |log: &Path| {
+        let script = r#"echo $$ > "$1"; exec /bin/sh "$2""#;
+        serde_json::json!({
+            "command": "/bin/sh",
+            "args": ["-c", script, "logged", log.to_str().unwrap(), fixture()],
+        })
+        .to_string()
+    };
+    let pid_in = |log: &Path| -> i32 {
+        std::fs::read_to_string(log)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    };
+    let running = |pid: i32| {
+        rustix::process::test_kill_process(rustix::process::Pid::from_raw(pid).expect("pid"))
+            .is_ok()
+    };
+    scratch.write_profile(&format!(r#"{{"mcpServers":{{"p":{}}}}}"#, logged(&p_log)));
+    std::fs::write(
+        scratch.project(),
+        format!(r#"{{"mcpServers":{{"s":{}}}}}"#, logged(&s_log)),
+    )
+    .unwrap();
+    let runtime = scratch.runtime();
+    ready(&runtime, "p");
+    let digest = runtime.loaded_digest("s").expect("read");
+    let key = serde_json::to_string(scratch.root.join("work").to_str().unwrap()).unwrap();
+    let choices = |beside: &str| {
+        format!(
+            r#"{{{beside}"workspaces": {{{key}: {{"enabledMcpjsonServers": ["s"], "enabledMcpjsonServerDigests": {{"s": "{digest}"}}}}}}}}"#
+        )
+    };
+    let header = "* NAME  SOURCE           TRANSPORT  STATUS";
+    let p_row = "p     ~/.xfx/mcp.json  stdio      ready, 1 tool";
+    let s_row = "s     .mcp.json        stdio      ready, 1 tool";
+    let both = [format!("{header}\n{p_row}\n{s_row}")];
+
+    // Approved: both run.
+    std::fs::write(scratch.settings(), choices("")).unwrap();
+    runtime.reload(Origin::Transcript);
+    ready(&runtime, "s");
+    assert_eq!(said(&runtime, "list"), both);
+    let (p, p_pid) = (runtime.server("p").expect("p"), pid_in(&p_log));
+    let (s, s_pid) = (runtime.server("s").expect("s"), pid_in(&s_log));
+
+    // A number past `f64` beside the choices: read, so both are kept.
+    std::fs::write(scratch.settings(), choices(r#""zzz": 1e400, "#)).unwrap();
+    runtime.reload(Origin::Transcript);
+    assert!(Arc::ptr_eq(&runtime.server("p").expect("p"), &p));
+    assert!(Arc::ptr_eq(&runtime.server("s").expect("s"), &s));
+    assert!(running(p_pid) && running(s_pid));
+    assert_eq!(said(&runtime, "list"), both);
+
+    // Choices fx's load refuses: `s` retired and stopped, `p` as it was.
+    std::fs::write(scratch.settings(), r#"{"workspaces": 5}"#).unwrap();
+    runtime.reload(Origin::Transcript);
+    assert!(runtime.server("s").is_none(), "s is still loaded");
+    assert!(!running(s_pid), "the retired server's process still runs");
+    assert!(Arc::ptr_eq(&runtime.server("p").expect("p"), &p));
+    assert!(running(p_pid));
+    assert_eq!(pid_in(&p_log), p_pid);
+    assert_eq!(said(&runtime, "list"), [format!("{header}\n{p_row}")]);
+
+    // The choices restored: `s` starts again, a new process; `p` as it was.
+    std::fs::write(scratch.settings(), choices("")).unwrap();
+    runtime.reload(Origin::Transcript);
+    ready(&runtime, "s");
+    assert!(!Arc::ptr_eq(&runtime.server("s").expect("s"), &s));
+    assert_ne!(pid_in(&s_log), s_pid);
+    assert!(Arc::ptr_eq(&runtime.server("p").expect("p"), &p));
+    assert_eq!(pid_in(&p_log), p_pid);
+    assert_eq!(said(&runtime, "list"), both);
+    runtime.shutdown();
+}
+
 #[test]
 fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
     // The producer's half of an approval's binding: what a reload admits is
@@ -991,7 +1153,8 @@ fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
         runtime.loaded_digest("late").as_deref(),
         Some(approved.as_str())
     );
-    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"));
+    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"))
+        .expect("the choices load");
     assert_eq!(choices.admission("late", &approved), Admission::Approved);
     let view = runtime
         .views()
@@ -1009,7 +1172,8 @@ fn an_entry_rewritten_after_its_approval_was_saved_stays_pending() {
     runtime.reload(Origin::Transcript);
     let now = runtime.loaded_digest("late").expect("read again");
     assert_ne!(now, approved, "the rewrite has the approved digest");
-    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"));
+    let choices = config::load_choices(Some(&scratch.settings()), &scratch.root.join("work"))
+        .expect("the choices load");
     assert_eq!(choices.admission("late", &now), Admission::Pending);
     let view = runtime
         .views()

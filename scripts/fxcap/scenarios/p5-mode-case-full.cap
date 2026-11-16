@@ -1,0 +1,16 @@
+# PERMISSION-MODE-CASE: `/permissions full`, a word fx's parse refuses
+# (`config_runtime.zig:3158@481104fd`). fx's composer completes it from the
+# argument menu before Enter (to `full-access`); xfx has no argument
+# completion (docs/parity.md, the `full-screen TUI` row), so its answer is
+# the usage. Recorded, not GREEN.
+fx: env FX_AUTO_UPGRADE=0
+wait 2
+type /permissions full
+wait 0.5
+snap typed
+key Enter
+fx: until shown Full access
+fx: until gone Full access
+xfx: wait 1
+snap full
+home end

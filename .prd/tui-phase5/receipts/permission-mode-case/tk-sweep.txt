@@ -1,0 +1,16 @@
+== bash tk_same.sh tk-base.txt tk-head.txt (PROFILE-REFUSE-TYPED-KEYS's probe over its 20 fixtures that write permission_mode, xfx at 9c64ddd3 against 9b37d774; the 4 lines are mode-upper's ask and line shell, whose invalid_value line is gone)
+<   ask                    exit=1 stdout=NB stderr=xfx ask: config user: invalid_value; key=permission_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+>   ask                    exit=1 stdout=NB stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+<   line shell             still running after 6 s exit= tty=NB stderr=xfx: config user: invalid_value; key=permission_mode|<closed> | touched: ./.xfx ./.xfx/sessions 
+>   line shell             still running after 6 s exit= tty=NB stderr=<closed> | touched: ./.xfx ./.xfx/sessions 
+== 4 line(s) differ over 20 fixtures
+
+== python3 -I <TYPED-KEYS>/outcomes.py fx-fixtures-round2.txt,fx-fixtures-round3.txt tk-base.txt (its fx probes)
+link-profile: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dir-group-writable-torn: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+== 20 fixtures: 20 match on refusal at every entry, 18 on how every entry ended
+
+== the same, tk-head.txt
+link-profile: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dir-group-writable-torn: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+== 20 fixtures: 20 match on refusal at every entry, 18 on how every entry ended

@@ -27,6 +27,7 @@ use serde_json::{json, Value};
 use support::fake_clipboard::FakeClipboard;
 use support::fake_gateway::{content_only, sent, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
+use support::profiles;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
 use support::sandbox::{
     edit_then_finish, edit_then_finish_called, with_notes, Sandbox, TEST_KEY, UNREADABLE_PROVIDER,
@@ -168,6 +169,79 @@ fn a_shell_with_nowhere_to_record_says_so_instead_of_forgetting_the_conversation
     }
 }
 
+/// The line shell is xfx's interactive launch where the TUI is not, so it
+/// refuses what fx's interactive launch refuses
+/// (`app_lifecycle.zig:689-703@481104fd`), with fx's text and status, after
+/// the terminal check fx makes first (`ensureInteractive`, `:852`) and before
+/// the session store is opened: the home and the workspace are as they were.
+#[test]
+fn the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything() {
+    let no_terminal = Sandbox::new();
+    assert!(profiles::lay(
+        &no_terminal.home,
+        &no_terminal.workspace,
+        profiles::REJECTED[0].1
+    ));
+    let output =
+        xfx::process::output(no_terminal.command().stdin(Stdio::null())).expect("spawn xfx");
+    let stderr = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(stderr.contains("interactive terminal"), "{stderr}");
+
+    for (name, profile, error) in profiles::every_launch_refuses() {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
+            eprintln!("skipped {name}: the mode bits do not stop this reader");
+            continue;
+        }
+        let before = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        let pty = Pty::open();
+        let mut session = Session::spawn(&pty, sandbox.command());
+        assert_eq!(session.wait_exit().code(), Some(1), "{name}");
+        assert_eq!(
+            session.settled_text(),
+            format!("xfx: {error}\r\n"),
+            "{name}"
+        );
+        let after = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        assert_eq!(after, before, "{name}: the refusal wrote");
+        profiles::unlock(&sandbox.home);
+    }
+}
+
+/// What only `ask` refuses (fx's `durable_path_unsafe`, which its interactive
+/// launch, with the stored credential mode, goes on with) starts the shell.
+#[test]
+fn the_shell_starts_with_a_profile_only_ask_refuses() {
+    // A linked `~/.xfx`, or a file in its place, is not here: the session
+    // store refuses one in its own words before anything is asked
+    // (`src/profile_home.rs`, whose rule `docs/parity.md` keeps), which
+    // this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE.iter().filter(|(_, profile)| {
+        !matches!(
+            profile,
+            profiles::Profile::LinkedDir | profiles::Profile::FileForDir
+        )
+    }) {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            continue;
+        }
+        let pty = Pty::open();
+        let mut session = start(&sandbox, &pty, sandbox.command());
+        assert!(
+            !session.text().contains("InvalidProfileConfiguration"),
+            "{name}"
+        );
+        assert_eq!(session.quit().code(), Some(0), "{name}");
+    }
+}
+
 #[test]
 fn the_shell_opens_saying_what_the_configuration_could_not_use_and_what_it_means() {
     // `xfx ask`'s lines with the shell's prefix, and a table that did not read
@@ -176,13 +250,16 @@ fn the_shell_opens_saying_what_the_configuration_could_not_use_and_what_it_means
     let reason = "a permission table did not read (user config diagnostic: invalid_value \
                   key=permission `sure` is not a permission action; use allow, ask or deny); \
                   fix it, then /allowlist reads it again";
+    // fx v0.0.16 starts with these: its parse stops first at
+    // `skill_symlink_authorities`, a cause no launch refuses
+    // (`config_runtime.zig:1025-1037@481104fd`); without it the launch refuses.
     for (profile, said) in [
         (
-            r#"{"permission":{"bash":"sure"}}"#,
+            r#"{"skill_symlink_authorities":5,"permission":{"bash":"sure"}}"#,
             format!("xfx: permissions: every tool is refused: {reason}"),
         ),
         (
-            r#"{"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
+            r#"{"skill_symlink_authorities":5,"permission_mode":"yolo","permission":{"bash":"sure"}}"#,
             format!(
                 "xfx: permissions: full access consults no table, so it is not applied; \
                  every other mode refuses every tool: {reason}"
@@ -572,7 +649,7 @@ fn slash_credits_with_an_unreadable_provider_asks_nobody_and_says_why() {
     assert!(asked.is_empty(), "the Gateway was asked: {asked:?}");
     assert!(
         text.contains(
-            "[credits] error: provider=rejected: the `provider` setting is `not-a-provider`, \
+            "[credits] error: provider=rejected: the `provider` setting is `codex`, \
              which xfx cannot read; set it to `gateway` or `llmux`."
         ),
         "{text}"

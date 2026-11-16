@@ -1,0 +1,15 @@
+== GREEN, round 3: the unit's tests in the gate's cargo test at 395ac4b0 (code 395ac4b0), from its log
+test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... ok
+test ask_goes_on_with_a_profile_fx_starts_with ... ok
+test ask_refuses_a_profile_fx_refuses ... ok
+test ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused ... ok
+test ask_with_a_permission_table_that_does_not_read_runs_no_tool ... ok
+test config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer ... ok
+test config::tests::a_launch_refuses_the_models_fx_refuses_and_no_other ... ok
+test config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses ... ok
+test config::tests::every_profile_key_xfx_reads_is_one_fxs_parse_checks ... ok
+test config::tests::the_open_checks_what_it_opened_not_what_was_looked_at ... ok
+test config::tests::the_refusal_is_read_from_the_profile_and_this_workspaces_entry_only ... ok
+test status_stops_where_fxs_load_fails_and_the_rest_still_answer ... ok
+test the_commands_fx_answers_without_a_launch_answer_with_a_profile_it_refuses ... ok
+test the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything ... ok

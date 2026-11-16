@@ -1,0 +1,8 @@
+== round 2: red.sh <repo> <clone>: the final tests (83ed41a0, src 5891efea) over 9c64ddd3's src; the last two are the controls
+clone of 83ed41a0, src at 9c64ddd3
+cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs exit=101 thread 'a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs' (524488312) panicked at tests/cli.rs:851:9: assertion `left == right` failed: "ASK"   left: "auto"  right: "ask" 
+cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word exit=101 thread 'full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word' (524489367) panicked at tests/cli.rs:889:5: [status] model=zai/glm-5.2 [status] provider=gateway [status] build_channel=debug 
+cli::ask_takes_fxs_two_spellings_of_full_access_exactly exit=101 thread 'ask_takes_fxs_two_spellings_of_full_access_exactly' (524491465) panicked at tests/cli.rs:922:9: --full-access must run in full access: error: unexpected argument '--full-access' found    tip: to pass '--full-access' as a value, use '-- --full-access' 
+gateway::ask_help_advertises_only_the_implemented_flags exit=101 thread 'ask_help_advertises_only_the_implemented_flags' (524496268) panicked at tests/gateway.rs:2340:9: ask help must list --full-access note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace  
+cli::status_applies_model_and_permission_mode_overrides exit=0 every test passed
+cli::an_invalid_permission_mode_override_is_a_diagnostic_not_a_crash exit=0 every test passed

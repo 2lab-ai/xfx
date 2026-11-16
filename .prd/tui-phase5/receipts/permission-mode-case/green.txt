@@ -1,0 +1,12 @@
+== GREEN: the unit's tests in the gate's cargo test at 052fd2c9 (code 9b37d774), from its log
+test cli::tests::the_permission_flags_select_a_mode_and_cannot_be_combined ... ok
+test config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one ... ok
+test config::tests::a_typed_mode_reads_upstreams_words_in_any_case ... ok
+test config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses ... ok
+test permission::slash::tests::an_argument_is_read_in_upstreams_order_and_case ... ok
+test an_invalid_permission_mode_override_is_a_diagnostic_not_a_crash ... ok
+test ask_takes_fxs_two_spellings_of_full_access_exactly ... ok
+test full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word ... ok
+test status_applies_model_and_permission_mode_overrides ... ok
+test a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs ... ok
+test ask_help_advertises_only_the_implemented_flags ... ok

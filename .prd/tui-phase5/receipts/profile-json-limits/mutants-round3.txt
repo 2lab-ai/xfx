@@ -1,0 +1,3 @@
+clone of 27d57d69
+KILLED a reload keeps the old workspace servers: --lib mcp::command::tests::a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server: mcp::command::tests::a_reload_over_choices_that_stop_loading_retires_only_the_workspace_server
+== 1/1 killed

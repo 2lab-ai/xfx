@@ -19,6 +19,7 @@ use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
 use serde_json::Value;
 use support::fake_gateway::{sent, FakeGateway};
+use support::profiles;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::{Sandbox, UNREADABLE_PROVIDER};
 use unicode_segmentation::UnicodeSegmentation;
@@ -1058,6 +1059,126 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
     assert_no_mode_bytes(&text);
     assert_eq!(before, modes(&pty), "a refused resume touched the terminal");
     assert_eq!(sandbox.session_ids(), Vec::<String>::new());
+}
+
+/// A profile fx v0.0.16 refuses stops the TUI before the terminal is
+/// taken: fx loads the startup state after its terminal check and before raw
+/// mode (`bootstrapInteractiveApp`, `app_lifecycle.zig:851-883@481104fd`),
+/// refuses (`:689-703`) and exits 1 with `fx: InvalidProfileConfiguration`
+/// (`app_entry_runtime.zig:537-539`, `main.zig:3316`). So: that one line, no
+/// mode byte, the terminal's modes as they were, and the home and the
+/// workspace untouched -- a resume too, which fx refuses before it looks for
+/// the session.
+#[test]
+fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
+    let cases = profiles::every_launch_refuses()
+        .map(|(name, profile, error)| (name, profile, error, None))
+        .chain([(
+            "not JSON, on a resume",
+            profiles::REJECTED[0].1,
+            "InvalidProfileConfiguration",
+            Some("no-such-session"),
+        )]);
+    for (name, profile, error, resume) in cases {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
+            eprintln!("skipped {name}: the mode bits do not stop this reader");
+            continue;
+        }
+        let tree_before = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut command = tui(&sandbox);
+        if let Some(id) = resume {
+            command.arg("--resume").arg(id);
+        }
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        assert_eq!(session.wait_exit().code(), Some(1), "{name}");
+        let text = session.settled_text();
+        assert_eq!(text, format!("xfx: {error}\r\n"), "{name}");
+        assert_no_mode_bytes(&text);
+        assert_eq!(
+            before,
+            modes(&pty),
+            "{name}: the refusal touched the terminal"
+        );
+        let tree_after = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        assert_eq!(tree_after, tree_before, "{name}: the refusal wrote");
+        profiles::unlock(&sandbox.home);
+    }
+}
+
+/// What only `ask` refuses (fx's `durable_path_unsafe`) starts the TUI, as
+/// fx's interactive launch, with the stored credential mode, goes on
+/// (`app_lifecycle.zig:693-696`, `:501-515`).
+#[test]
+fn a_profile_only_ask_refuses_starts_the_tui() {
+    // A linked `~/.xfx`, or a file in its place, is not here: the session
+    // store refuses one in its own words before anything is asked
+    // (`src/profile_home.rs`, whose rule `docs/parity.md` keeps), which
+    // this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE.iter().filter(|(_, profile)| {
+        !matches!(
+            profile,
+            profiles::Profile::LinkedDir | profiles::Profile::FileForDir
+        )
+    }) {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            continue;
+        }
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+        session.wait_for(READY);
+        assert!(
+            !session.text().contains("InvalidProfileConfiguration"),
+            "{name}"
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0), "{name}");
+    }
+}
+
+/// A profile that goes bad after the launch is no refusal: the session goes
+/// on and the `/status` panel says the settings could not be read where Auth
+/// would stand (`openStatusSnapshot`, `session_commands.zig:280-296@481104fd`;
+/// `p5-panels-status-badsettings`).
+#[test]
+fn a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal() {
+    let sandbox = Sandbox::new();
+    assert!(profiles::lay(
+        &sandbox.home,
+        &sandbox.workspace,
+        profiles::Profile::Text(r#"{"permission_mode": "auto"}"#)
+    ));
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    std::fs::write(
+        sandbox.settings_path(),
+        r#"{"permission_mode": "auto", "sandbox": "#,
+    )
+    .expect("the profile goes bad");
+    session.type_bytes(b"/status\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["couldn't be read: InvalidSettingsFormat"],
+        &["InvalidProfileConfiguration"],
+    );
+    session.type_bytes(b"\x1b");
+    on_screen(&session, (40, 120), &[], &["couldn't be read"]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
@@ -6418,7 +6539,7 @@ fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
     on_screen(
         &session,
         (40, 120),
-        &["\u{2717} credits: provider=rejected: the `provider` setting is `not-a-provider`"],
+        &["\u{2717} credits: provider=rejected: the `provider` setting is `codex`"],
         &["MARKER-TITLE", "balance=42.17"],
     );
 

@@ -1,0 +1,135 @@
+== probe.sh xfx <xfx at a57ba760, round 1> <run> (round 1's fixtures; its toolarge was 65,547 bytes)
+binary sha256 before: fd5c74e84b26
+== truncated
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== toolarge
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-space
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-nonstring
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-inner-space
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=model|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=290B stderr=xfx: config user: invalid_value; key=model|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-long
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=model|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx: config user: invalid_value; key=model|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== ws-nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-model
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-key
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=282B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== provider
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=provider|provider=rejected: the `provider` setting is `not-a-provider`, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the prompt to an endpoint you did not choose| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=281B stderr=xfx: config user: invalid_value; key=provider|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== models-bad
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=395B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=284B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== dir-settings
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=285B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== link-settings
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=286B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== link-profile
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/link-profile/home/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/link-profile/home/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives| | touched: 
+== unreadable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== project-malformed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config project: malformed_settings|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=290B stderr=xfx: config project: malformed_settings|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== retired-then-model
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=395B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=292B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== group-writable
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=287B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== valid
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+binary sha256 after: fd5c74e84b26
+
+== probe.sh xfx <xfx at a57ba760's code = 98d3513b's, round 1> <run> (round 2's new fixtures)
+binary sha256 before: fd5c74e84b26
+== toolarge
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== at-ceiling
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== group-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== group-writable-model
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== other-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dir-group-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== write-only
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dir-unlistable
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx 
+  line shell             still running after 6 s exit= tty=287B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx 
+== hardlink
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=281B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== profile-file
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/profile-file/home/.xfx cannot hold session state: it is not a directory| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/profile-file/home/.xfx cannot hold session state: it is not a directory| | touched: 
+== fifo
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+binary sha256 after: fd5c74e84b26

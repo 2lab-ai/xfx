@@ -1,0 +1,18 @@
+== suite-lock.sh python3 -I mutants.py <worktree> <clone> (TMPDIR <tmp>; the clone's src is 10c45b17's, its head the receipt commit c2fb8b89; held the lock's fourth slot, which the dispatcher opened for it)
+clone of c2fb8b89
+TMPDIR is the caller's; each test run bounded at 900 s
+M1 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:2999:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M2 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:3023:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:872:9:)
+M3 KILLED: --lib::config::tests::a_mode_is_read_with_fxs_parse_wherever_a_person_writes_one (101; src/config.rs:3024:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:872:9:)
+M4 KILLED: --lib::config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (101; src/config.rs:4961:13:)
+M5 KILLED: --lib::cli::tests::the_permission_flags_select_a_mode_and_cannot_be_combined (101; src/cli.rs:705:22:); cli::ask_takes_fxs_two_spellings_of_full_access_exactly (101; tests/cli.rs:920:9:); gateway::ask_help_advertises_only_the_implemented_flags (101; tests/gateway.rs:2340:9:)
+M6 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:889:5:)
+M7 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:906:9:)
+M8 KILLED: cli::full_access_is_said_in_fxs_word_and_recorded_in_the_wire_word (101; tests/cli.rs:906:9:)
+M9 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2868:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M10 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2868:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M11 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2868:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M12 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2868:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M13 KILLED: --lib::config::tests::a_typed_mode_reads_upstreams_words_in_any_case (101; src/config.rs:2885:13:); cli::a_mode_in_any_of_fxs_spellings_is_the_mode_that_runs (101; tests/cli.rs:851:9:)
+M14 KILLED: --lib::permission::slash::tests::an_argument_is_read_in_upstreams_order_and_case (101; src/permission/slash.rs:505:9:)
+== 14 mutants, 14 KILLED

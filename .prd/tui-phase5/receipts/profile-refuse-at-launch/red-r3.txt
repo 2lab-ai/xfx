@@ -1,0 +1,20 @@
+== RED, round 3: round 3's tests (02c32c3f) over b209c786's src in a no-local clone, cargo test --no-fail-fast, bounded (alarm 900 s, ulimit -v). The descriptor tests call functions round 2 does not have; the mutants stand for them (M19-M22).
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test ask_refuses_a_profile_fx_refuses ... FAILED
+thread 'ask_refuses_a_profile_fx_refuses' (484389897) panicked at tests/cli.rs:1973:17:
+assertion `left == right` failed: a HOME nobody may list
+  left: "cannot reach the Gateway: error sending request for url (http://127.0.0.1:9/v1/chat/completions)\n"
+ right: "xfx: InvalidProfileConfiguration\n"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 84 filtered out; finished in 6.30s
+     Running tests/interactive.rs (target/debug/deps/interactive-f70d73351542cf43)
+test the_shell_starts_with_a_profile_only_ask_refuses ... ok
+test the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything ... FAILED
+thread 'the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything' (484394410) panicked at tests/support/pty.rs:430:21:
+xfx did not exit; terminal so far:
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 79 filtered out; finished in 21.13s
+     Running tests/tui.rs (target/debug/deps/tui-9905dcb580b5dadb)
+test a_profile_only_ask_refuses_starts_the_tui ... ok
+test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... FAILED
+thread 'a_profile_fx_refuses_is_refused_before_the_terminal_is_taken' (484415666) panicked at tests/support/pty.rs:430:21:
+xfx did not exit; terminal so far:
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 189 filtered out; finished in 20.76s

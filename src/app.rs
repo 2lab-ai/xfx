@@ -233,6 +233,11 @@ async fn run_streams(
         }
         Command::Status { json } => {
             let config = load_config()?;
+            // fx's `status` fails with its load (`cli_surface.zig:1336-1357`).
+            if let Some(refusal) = config.launch_refusal(crate::config::Launch::Status) {
+                writeln!(stderr, "xfx: {refusal}")?;
+                return Ok(ExitCode::from(REJECTED_EXIT_CODE));
+            }
             let snapshot =
                 StatusSnapshot::new(&config, crate::build_info(), session_facts(&config));
             write!(
@@ -333,6 +338,18 @@ async fn ask(
     stdout_is_terminal: bool,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
+    // A profile fx refuses, before anything else is said or read: fx's `ask`
+    // loads it first and fails with the error's name, on stderr, or under
+    // `--json` as the result's error on stdout (`cli_ask.zig:1306-1327`,
+    // `:1434-1458@481104fd`), and exits 1.
+    if let Some(refusal) = config.launch_refusal(crate::config::Launch::Ask) {
+        if request.json {
+            let mut sink = JsonlSink::new(stdout).on_terminal(stdout_is_terminal);
+            return fail_turn(&mut sink, refusal.to_string());
+        }
+        writeln!(stderr, "xfx: {refusal}")?;
+        return Ok(ExitCode::from(REJECTED_EXIT_CODE));
+    }
     // The permission mode is deliberately *not* restored from a session. It is
     // the most dangerous setting xfx has, and a `--yolo` turn recorded last week
     // must not become the default of a turn run today without the word being
@@ -1047,17 +1064,28 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     checks.push(permissions_check(config.permission_mode));
     checks.push(sessions_check(config));
 
+    // fx's words: `full access`, not the wire `yolo` (`doctor_runtime.zig:237-240`,
+    // `:529-535@481104fd`).
     checks.push(DoctorCheck::new(
         "startup",
         CheckStatus::Ok,
         format!(
             "resolved model={}, permission_mode={}, agent_step_limit={}",
             config.model,
-            config.permission_mode.label(),
+            config.permission_mode.display_label(),
             config.max_agent_steps
         ),
     ));
-
+    // A load fx's fails says so in place of the config and startup checks
+    // (`doctor_runtime.zig:92-104@481104fd`, `formatConfigLoadFailure`).
+    if let Some(error) = config.launch_refusal(crate::config::Launch::Status) {
+        let fail = |name: &str, what: &str| {
+            DoctorCheck::new(name, CheckStatus::Fail, format!("{what}: {error}"))
+        };
+        checks.retain(|check| check.name != "config" && check.name != "startup");
+        checks.insert(1, fail("config", "failed to load config"));
+        checks.push(fail("startup", "failed to resolve startup settings"));
+    }
     checks
 }
 
@@ -1172,7 +1200,8 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
         PermissionMode::Yolo => DoctorCheck::new(
             "permissions",
             CheckStatus::Warn,
-            format!("mode=yolo: no permission check runs at all; sandbox={sandbox}"),
+            // xfx's own check (fx's doctor has none); its word is the lines' beside it.
+            format!("mode=full access: no permission check runs at all; sandbox={sandbox}"),
         ),
     }
 }

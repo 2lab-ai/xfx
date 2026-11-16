@@ -1164,11 +1164,16 @@ impl McpRuntime {
             None => config::Profile::default(),
         };
         let choices = config::load_choices(self.paths.settings.as_deref(), &self.paths.workspace);
-        let workspace = if self.paths.profile.is_some() || self.paths.settings.is_some() {
-            config::load_workspace(&self.paths.workspace, &choices, &*self.environment)
-        } else {
-            config::WorkspaceServers::default()
+        // Choices that do not load are no workspace at all: fx's callers load
+        // none of its servers then (`loadNativeConfigs`,
+        // `src/builtins/mcp.zig:58-63@481104fd`).
+        let workspace = match &choices {
+            Some(choices) if self.paths.profile.is_some() || self.paths.settings.is_some() => {
+                config::load_workspace(&self.paths.workspace, choices, &*self.environment)
+            }
+            _ => config::WorkspaceServers::default(),
         };
+        let choices = choices.unwrap_or_default();
         // A workspace server named like a profile one is the profile's.
         for server in workspace.servers {
             if !servers.iter().any(|existing| existing.name == server.name) {

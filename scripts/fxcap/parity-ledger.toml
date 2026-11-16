@@ -542,15 +542,12 @@ source = ["src/tui/frame.rs:2765", "docs/parity.md:237"]
 
 # (b) units in flight, the specific rows first.
 
-[[cause]]
-id = "profile-refuse-at-launch"
-kind = "unit"
-owner = "PROFILE-REFUSE-AT-LAUNCH (a new queue unit): xfx refuses a malformed user profile at launch, as fx does"
-scenarios = ["p5-panels-badsettings"]
-snaps = ["launch"]
-whole_snap = true
-xfx = ["src/config.rs:850-851", "src/tui/shell.rs:3828-3845"]
-why = "fx v0.0.16 refuses a profile whose user layer is malformed, too large or names an invalid model id, under the default local auth mode (`src/core/auth/credentials.zig:29@481104fd`): `return error.InvalidProfileConfiguration` (`src/core/app/app_lifecycle.zig:690-701@481104fd`), so it exits 1 with `fx: InvalidProfileConfiguration` before a first frame, and the scenario's `keep` holds the dead pane as the snap. xfx never refuses (`ConfigError`: malformed content is never fatal, src/config.rs:850-851): it starts and announces `config: 1 configuration issue (ctrl+o to view)` (src/tui/shell.rs:3828-3845). Every row of the snap differs, so the cause is the whole snap (.prd/tui-phase5/receipts/train-12/ci-timeout/README.md)."
+# (The launch with a profile fx v0.0.16 refuses was the cause
+# `profile-refuse-at-launch`, the whole `launch` snap of p5-panels-badsettings,
+# until PROFILE-REFUSE-AT-LAUNCH copied the refusal: xfx's TUI, line shell and
+# `ask` now exit 1 with `xfx: InvalidProfileConfiguration` before the
+# terminal is taken, and the pair is normalized-identical under
+# `tmux-dead-pane`; .prd/tui-phase5/receipts/profile-refuse-at-launch/README.md.)
 
 [[cause]]
 id = "preview-frame-before-the-turn-start"
@@ -1174,7 +1171,7 @@ owner = "user decision launch refusals before or after the terminal"
 scenarios = ["p5-lifecycle-relhome-resume"]
 snaps = ["r00-resume.full"]
 rows = ["2-3", 41]
-why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:127-133). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match. Row 41 is the same shift at the other end: aligned, xfx's capture keeps one blank row more under its refusal (rows added at train 2, whose sweep found it; L-U3's own harness classifies the pair the same way)."
+why = "fx takes the terminal before it opens the session `--resume` names and refuses after its restore, which ends `ESC[1;1H ESC[J ... \\r\\n` and leaves a blank row above `fx: HomeNotSet` (the wire, .prd/tui-phase5/receipts/tui-unsaved/README.md); xfx opens the session before the terminal is touched and refuses on the shell row it was given (src/tui/mod.rs:134-140). The same row for any refused resume, a missing id on an ordinary HOME too, so not this unit's: the words match. Row 41 is the same shift at the other end: aligned, xfx's capture keeps one blank row more under its refusal (rows added at train 2, whose sweep found it; L-U3's own harness classifies the pair the same way)."
 
 # LAUNCH-SETTLE r2: the differences its conversions wait out, kept on snaps of
 # their own (receipts/launch-settle/README.md, "Differences kept").

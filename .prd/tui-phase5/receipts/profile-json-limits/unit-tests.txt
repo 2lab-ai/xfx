@@ -1,0 +1,28 @@
+== cargo test --locked --lib config::layer_json -- --nocapture  (at 78c0d164)
+test config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth ... ok
+test config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes ... ok
+test config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion ... ok
+outcomes: {"a key twice": 18707, "past f64": 5288, "refused alike": 157810, "same": 35181}
+test config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4753 filtered out; finished in 0.81s
+== cargo test --locked --lib config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+test config::tests::no_key_xfx_reads_looks_past_the_depth_kept ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4756 filtered out; finished in 0.02s
+== cargo test --locked --lib config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float
+test config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4756 filtered out; finished in 0.00s
+== cargo test --locked --lib config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it
+test config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4756 filtered out; finished in 0.03s
+== cargo test --locked --lib config::tests::a_project_file_fx_reads_is_applied
+test config::tests::a_project_file_fx_reads_is_applied ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4756 filtered out; finished in 0.00s
+== cargo test --locked --lib config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer
+test config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4756 filtered out; finished in 0.00s
+== cargo test --locked --test cli ask_
+test ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused ... ok
+test ask_takes_fxs_two_spellings_of_full_access_exactly ... ok
+test ask_goes_on_with_a_profile_fx_starts_with ... ok
+test ask_refuses_a_profile_fx_refuses ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 1.81s
