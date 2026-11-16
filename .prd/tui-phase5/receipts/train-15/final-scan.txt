@@ -1,4 +1,4 @@
-## 1. each commit this train adds, first-parent 753b0a72..2e0eaab1: the brief's count; a merge also as everything it brings
+## 1. each commit this train adds, first-parent 753b0a72..c4359778: the brief's count; a merge also as everything it brings
 2ff302c5 0; as everything it brings (git diff ^1): 0  Merge P5 train 15, 1 of 5: CATALOG-WAIT-CLOCK (fix/p5-catalog-wait-clo
 ed92e515 0; as everything it brings (git diff ^1): 0  Merge P5 train 15, 2 of 5: the decoder line (fix/p5-composer-super-arr
 b10ca771 0; as everything it brings (git diff ^1): 0  Merge P5 train 15, 3 of 5: FULLTRANSCRIPT-RESPONSE-HEADER (fix/p5-full
@@ -11,27 +11,33 @@ a14df710 0; as everything it brings (git diff ^1): 0  Merge main e2fc7e94 into t
 2c575f52 0  train 15: the three UPSTREAM.md references #96 moved, re-pointed (join
 7f3bccd3 0  docs(receipt): P5 train 15 -- the receipt at the code head 2c575f52
 2e0eaab1 0  docs(receipt): train 15 -- the file and reference checks at 7f3bccd3 (
+5107ff53 0  docs(receipt): train 15 -- the final scan through 2e0eaab1 (final-scan
+44e07aba 0  train 15 round 2: the rule confirmation and /mcp's menu never up toget
+7f4b68cf 0  train 15 round 2: the seven ledger references 44e07aba's tests moved, 
+12f99f36 0  docs(parity): train 15 round 2 -- the approval C-j's revert names the 
+ac03e8a0 0  docs(receipt): train 15 round 2 -- the reviews' fixes read, at the cod
+c4359778 0  docs(receipt): train 15 round 2 -- the file and reference checks at ac
 # the brief's count, summed over this train's commits: 0
-# the brief's count over the range, git diff 753b0a72..2e0eaab1: 0
+# the brief's count over the range, git diff 753b0a72..c4359778: 0
 # shapes.py over the range's added lines (not gating; the brief's count is the first): brief 0; run-name 14; uid-tail 0
 #   the run-name lines by file: .prd/tui-phase5/receipts/approval-ctrl-j/fx/fx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/fx/fx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j.txt 1; .prd/tui-phase5/receipts/approval-ctrl-j/fx/fx-p5-approval-ctrl-j-panel-40x120-end.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/fx/fx-p5-approval-ctrl-j-panel-40x120-end.txt 1; .prd/tui-phase5/receipts/approval-ctrl-j/fx/fx-p5-approval-ctrl-j-panel-40x120-open-before-approval.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/fx/fx-p5-approval-ctrl-j-panel-40x120-open-before-approval.txt 1; .prd/tui-phase5/receipts/approval-ctrl-j/red/xfx-p5-approval-ctrl-j-panel-40x120-open-before-approval.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/red/xfx-p5-approval-ctrl-j-panel-40x120-open-before-approval.txt 1; .prd/tui-phase5/receipts/approval-ctrl-j/xfx/xfx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/xfx/xfx-p5-approval-ctrl-j-panel-40x120-approval-ctrl-j.txt 1; .prd/tui-phase5/receipts/approval-ctrl-j/xfx/xfx-p5-approval-ctrl-j-panel-40x120-end.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/xfx/xfx-p5-approval-ctrl-j-panel-40x120-end.txt 1; .prd/tui-phase5/receipts/approval-ctrl-j/xfx/xfx-p5-approval-ctrl-j-panel-40x120-open-before-approval.ansi 1; .prd/tui-phase5/receipts/approval-ctrl-j/xfx/xfx-p5-approval-ctrl-j-panel-40x120-open-before-approval.txt 1
 
 ## 2. every commit of the range, and the range (midbranch_scan.py)
-# commits per unit since its base: 753b0a72..72fc9672 17; 753b0a72..df45025c 56; 753b0a72..fffb3cfe 46; 753b0a72..7c9dfb2e 32; 753b0a72..b5cb6f46 17; 753b0a72..e2fc7e94 3; the range 753b0a72..2e0eaab1 150
-# the check's documented homes at 2e0eaab1: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
-# 150 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+# commits per unit since its base: 753b0a72..72fc9672 17; 753b0a72..df45025c 56; 753b0a72..fffb3cfe 46; 753b0a72..7c9dfb2e 32; 753b0a72..b5cb6f46 17; 753b0a72..e2fc7e94 3; the range 753b0a72..c4359778 156
+# the check's documented homes at c4359778: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 156 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
 
-## the range, git diff 753b0a72..2e0eaab1
+## the range, git diff 753b0a72..c4359778
 # the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
 # midbranch_scan.py exit 0
 
 ## 3. files of this directory holding the pattern: 0
-shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 136 files)
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 142 files)
 
-## 4. each commit after the code head 2c575f52, and the files it touches outside this directory
-7f3bccd3 outside: 0; inside: 135 file(s)
-2e0eaab1 outside: 0; inside: 1 file(s)
+## 4. each commit after the code head 12f99f36, and the files it touches outside this directory
+ac03e8a0 outside: 0; inside: 6 file(s)
+c4359778 outside: 0; inside: 1 file(s)
 # files outside this directory touched after the code head: 0
 
-## 5. the dispatcher's per-commit check: every commit of `git rev-list --no-merges 2e0eaab1 --not afeaea7c` (the units' own included), its added lines and its message; then every merge commit's own message
-# 141 non-merge commits: 0 hits (lines and messages); 6 merge commits' messages: 0 hits
+## 5. the dispatcher's per-commit check: every commit of `git rev-list --no-merges c4359778 --not afeaea7c` (the units' own included), its added lines and its message; then every merge commit's own message
+# 147 non-merge commits: 0 hits (lines and messages); 6 merge commits' messages: 0 hits
