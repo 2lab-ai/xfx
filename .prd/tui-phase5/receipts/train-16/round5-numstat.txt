@@ -1,0 +1,20 @@
+# round2_numstat.py over round 5's code, 8be4693b..3ed1c082 (outside .prd)
+# git diff --numstat 8be4693b 3ed1c082 -- . ':!.prd'
+35	8	scripts/check-env-reads.py
+4	1	src/config.rs
+25	0	tests/support/isolated.rs
+# by class (lines out, lines in):
+  comment: -0 +3
+  gate scripts and CI (scripts/, .github/workflows/): -8 +35
+  product code: -1 +1
+  test file (tests/): -0 +9
+  test file (tests/), a comment: -0 +16
+
+
+# the one product line, before and after (src/config.rs, open_to_others)
++/// The mask takes `st_mode`'s own type -- `mode_t`, a `u16` on macOS and a
++/// `u32` on Linux -- so neither OS converts, and neither OS's clippy reads
++/// a conversion to the same type.
+-    u32::from(stat.st_mode) & 0o022 != 0
++    stat.st_mode & 0o022 != 0
+# every u16 st_mode (65536 values): u32::from(m) & 0o022 != 0 against m & 0o022 != 0 -- 0 differ (on Linux mode_t is u32 and u32::from(m) is m itself)

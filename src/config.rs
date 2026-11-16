@@ -2634,9 +2634,12 @@ fn is_kind(stat: &rustix::fs::Stat, kind: rustix::fs::FileType) -> bool {
 }
 
 /// Group or other may write to it (`mode & 0o022`, `settings_store.zig:763-765`).
+/// The mask takes `st_mode`'s own type -- `mode_t`, a `u16` on macOS and a
+/// `u32` on Linux -- so neither OS converts, and neither OS's clippy reads
+/// a conversion to the same type.
 #[cfg(unix)]
 fn open_to_others(stat: &rustix::fs::Stat) -> bool {
-    u32::from(stat.st_mode) & 0o022 != 0
+    stat.st_mode & 0o022 != 0
 }
 
 /// Without descriptors to hold, the file is opened by its path and its

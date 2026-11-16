@@ -12,6 +12,28 @@
 //! `CARGO_PKG_NAME`, `RUST_BACKTRACE` and `RUST_TEST_THREADS` where they are
 //! set, and [`MARKER`], which names that `HOME`.
 //!
+//! `PATH` gains one directory in front: the one holding the cargo that built
+//! this binary (`env!("CARGO")`), so a case that starts `cargo` or `rustc`
+//! runs that toolchain's own binary. Where rustup installed Rust (CI's
+//! runners), `cargo` on `PATH` is rustup's proxy, which finds its toolchains
+//! and its default under `HOME`; under the copy's empty `HOME` it finds
+//! neither ("rustup could not choose a version of cargo to run"), or, where
+//! rustup carries a fallback default (Homebrew's), downloads that toolchain
+//! into the empty `HOME`. Handing the copy rustup's own `RUSTUP_HOME` would
+//! not reach such a case: a command xfx runs gets an environment built from
+//! `HOME` and `PATH` alone (`permission::authority`'s
+//! `minimal_environment`). A directory of program files is no person's
+//! configuration, proxy or credential.
+//!
+//! A parent started with no `PATH` gives the copy none: there is nothing to
+//! put the toolchain in front of, and [`toolchain_first`] returns nothing.
+//! A command xfx runs then gets `minimal_environment`'s system default
+//! (`/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`), which holds no rustup
+//! toolchain, so a case that starts `cargo` fails there as it would for a
+//! person with no `PATH`. A `PATH` of the toolchain's directory alone would
+//! be worse: that function would take it as given, and every other program
+//! a case starts would be missing.
+//!
 //! The copy does not trust the marker. Before any case runs it confirms its
 //! environment holds those names and no other, and that `HOME` is, byte for
 //! byte, the path its parent made for that marker -- `TMPDIR` (else `/tmp`)
@@ -123,6 +145,9 @@ fn become_the_copy() -> String {
     }
     let mut copy = super::command(exe);
     super::sandbox::clear_env(&mut copy);
+    if let Some(path) = toolchain_first(xfx::env_exception!(var_os("PATH"))) {
+        copy.env("PATH", path);
+    }
     copy.args(args)
         .env("HOME", &home)
         .env("CARGO_PKG_NAME", env!("CARGO_PKG_NAME"))
@@ -140,6 +165,15 @@ fn become_the_copy() -> String {
     let err = copy.exec();
     let _ = std::fs::remove_dir(&home);
     format!("cannot start the copy: {}", err.kind())
+}
+
+/// `path` with the directory of the cargo that built this binary in front
+/// (the module's doc), or `None` if there is no such directory or no
+/// `PATH` to put it in front of.
+fn toolchain_first(path: Option<OsString>) -> Option<OsString> {
+    let toolchain = std::path::Path::new(env!("CARGO")).parent()?.to_path_buf();
+    let rest = path?;
+    std::env::join_paths(std::iter::once(toolchain).chain(std::env::split_paths(&rest))).ok()
 }
 
 /// The copy's own invariants, before any case runs.

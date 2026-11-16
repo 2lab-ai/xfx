@@ -1,0 +1,25 @@
+# Round 5's first gate as before (gates-first.txt), step 09: one lib case failed, at load 63.8 (two gates and other workers' jobs on the machine; loads to 101 that hour)
+test session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing ... FAILED
+---- session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing stdout ----
+thread 'session::store::tests::a_prompt_images_copy_gone_or_not_a_file_refuses_the_resume_in_upstreams_words_and_changes_nothing' (657775217) panicked at src/session/store.rs:5795:33:
+assertion `left == right` failed: removed, waiting: false
+  left: "session `1794842980443-749b299bcababc2c` is already open for writing by another xfx process; finish or stop that turn first, or start a new session"
+ right: "saved session is unreadable."
+test result: FAILED. 5119 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 63.76s
+
+# what it rests on (src/session/store.rs at 3ed1c082): the writer's lock is flock(LOCK_EX | LOCK_NB) on the log's open file description, and its doc names this race
+/// What it does **not** do is tell the two kinds of holder apart. Nothing here
+/// can: `flock` says a lock is held, never by whom or why. A forked child that
+/// is descheduled long enough will still produce a `Busy` about a session
+/// nobody is writing, and this only makes that rarer. The grace period is a
+/// reduction in a race's blast radius, not a classifier.
+  ...
+        LOCK_ATTEMPTS.with(|attempts| attempts.set(attempts.get() + 1));
+        match flock(file, FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => AttemptOutcome::Acquired,
+            // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
+3981:        Wait::None => acquire_within(Duration::ZERO, attempt, std::thread::sleep, Instant::now),
+# the likely mechanism, read from the code and not observed directly: the case resumes twice in a row, waiting (the grace period) and then not waiting (Wait::None, no grace); a child another test thread of the same lib-test process forked while the case held the log open inherits the file description, and so the lock, until it execs; descheduled under load, it is still there for the second resume, which reports Busy. Not this round's: no file round 5 changed is in the lib's session store or its tests.
+
+# the case alone, 30 runs, in a clone holding 3ed1c082's tree (rustup's multiplexer first): alone, 30 runs: 30 passed, 0 failed
+# the same step 09 in the rustup gate, run beside it at the same loads (gates-rustup.txt): exit 0, 6062 passed
