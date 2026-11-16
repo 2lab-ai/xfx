@@ -62545,4 +62545,20 @@ mod tests {
             "a second message: the draft was sent as well as the cancel"
         );
     }
+
+    impl Shell {
+        /// [`Shell::route_read`] with the read's instant given rather than
+        /// read off the clock, for a case outside this module that drives the
+        /// loop's own turn (`super::super::event_loop`'s `loop_turn`) and
+        /// needs the decoder's stages on its own clock: a pair stamped ahead
+        /// of the clock is pending however long the thread is held before
+        /// the turn settles it.
+        pub(crate) fn route_read_at(&mut self, bytes: &[u8], now: Instant) {
+            let mut events = Vec::new();
+            for byte in bytes {
+                self.decoder.feed(*byte, now, &mut events);
+            }
+            self.consume(events, now);
+        }
+    }
 }

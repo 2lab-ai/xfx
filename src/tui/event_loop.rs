@@ -20734,19 +20734,10 @@ mod tests {
         // a draft do with nothing running (`Gestures::escape`) -- and either
         // way the start ends the drain, so `working` follows the frame that
         // shows its `Thinking`. Settled after the drain instead, the same two
-        // would be an Escape pair at a running turn: its interrupt.
-        let turn = |shell: &mut Fixture, events: &mpsc::Sender<UiEvent>| {
-            for event in [
-                shell.turn_starts(),
-                UiEvent::Delta("THE-ANSWER".to_string()),
-                UiEvent::TurnEnded { failure: None },
-            ] {
-                events.try_send(event).expect("room on the channel");
-            }
-            shell.handle.give_back();
-        };
-        let shows = |tick: &[u8]| String::from_utf8_lossy(tick).into_owned();
-
+        // would be an Escape pair at a running turn: its interrupt. This case
+        // is the pair settled in that tick; the next two, the pair still
+        // pending there, by hand and through the loop's turns.
+        //
         // Settled in that tick, through the loop's own turn: the reads are
         // over at least `ESC_TIMEOUT` before the turn settles them, however
         // the clock falls.
@@ -20769,7 +20760,7 @@ mod tests {
                     none,
                 );
             }
-            turn(&mut shell, &events);
+            whole_turn(&mut shell, &events);
             let before = out.vectors.len();
             keyed_turn(
                 &mut shell,
@@ -20818,9 +20809,16 @@ mod tests {
                 "the pair stopped the turn"
             );
         }
+    }
 
-        // Still pending in that tick: the turn settles the reads at the
-        // clock they were read at, which no timeout has passed.
+    #[test]
+    fn an_escape_pair_still_pending_in_the_tick_that_reads_a_held_prompts_start_is_no_key_and_the_start_ends_the_drain(
+    ) {
+        // The join with META-PREFIX-DECODE, the pair still pending in the tick
+        // that reads a held prompt's start, by hand: the turn's steps called
+        // in `loop_turn`'s order, settling the reads at the clock they were
+        // read at, which no timeout has passed. The next case drives the same
+        // through the loop's own turns.
         let mut shell = shell();
         let mut band = Band::new();
         let mut out = StatusScreen::default();
@@ -20831,7 +20829,7 @@ mod tests {
         take_ui_events(&mut shell, &mut receiver);
         shell.settle_band(Instant::now());
         status_tick(&mut shell, &mut band, &mut out);
-        turn(&mut shell, &events);
+        whole_turn(&mut shell, &events);
         let before = out.vectors.len();
         let read_at = Instant::now();
         shell.route_read(b"ab\x1b\x1b");
@@ -20858,5 +20856,134 @@ mod tests {
             "no working after a frame showing Thinking: {:?}",
             shows(&tick)
         );
+    }
+
+    #[test]
+    fn an_escape_pair_pending_through_one_loop_turn_settles_in_the_next_ahead_of_the_start_it_reads(
+    ) {
+        // The pending pair through the loop's own turns (`loop_turn`), not by
+        // hand (join review, SHOULD 2). The turn that reads the pair settles
+        // it at a clock no deadline has passed, so it is no key there. The
+        // next turn reads nothing, and the clock it settles at has passed both
+        // deadlines; the held prompt's start, its answer and its end are on
+        // the channel by then. In the production order that turn delivers the
+        // pair's two Escapes first, at a prompt the runtime has not started:
+        // the draft is cleared and no stop is sent. Then the drain stops
+        // behind the start, and the frame showing its `Thinking` goes ahead
+        // of `working`. Settled after the drain instead, the two would be an
+        // Escape pair at a running turn: its interrupt, with the draft kept.
+        //
+        // The clock is the case's on the decoder's side. The pair is read
+        // stamped `LEAD` ahead of the clock ([`Shell::route_read_at`]). So the
+        // reading turn's settle, at the clock inside the turn, finds no
+        // deadline passed however long the thread is held in between (under
+        // `LEAD`). The next turn's read then waits until both deadlines past
+        // the stamp have passed, before that turn settles.
+        const LEAD: Duration = Duration::from_millis(250);
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        let none = Duration::ZERO;
+        launch_title(&mut shell, &mut band);
+        for keys in [&b""[..], b"go\r"] {
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                keys,
+                none,
+            );
+        }
+        let read_at = Instant::now() + LEAD;
+        loop_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            |shell| {
+                shell.route_read_at(b"ab\x1b\x1b", read_at);
+                Ok(())
+            },
+            |_, _| Ok(Reconciled),
+        )
+        .expect("the turn that reads the pair");
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} ab"),
+            "the pair was a key in the turn that read it"
+        );
+        whole_turn(&mut shell, &events);
+        let settled = read_at + crate::tui::input::Decoder::ESC_TIMEOUT + Duration::from_millis(20);
+        let before = out.vectors.len();
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            settled.saturating_duration_since(Instant::now()),
+        );
+        let tick = out.vectors[before..].concat();
+        assert_eq!(
+            receiver.len(),
+            2,
+            "the settling turn read past the start: {:?}",
+            shows(&tick)
+        );
+        assert_eq!(
+            composer(&shell),
+            COMPOSER_MARKER,
+            "the pair was not two Escapes ahead of the start"
+        );
+        let thinking = find(&tick, b"Thinking");
+        let working = find(&tick, WORKING.as_bytes());
+        assert!(
+            thinking.is_some() && working.is_some() && thinking < working,
+            "no working after a frame showing Thinking: {:?}",
+            shows(&tick)
+        );
+        for _ in 0..3 {
+            shell.flush_paced();
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                b"",
+                none,
+            );
+        }
+        assert!(receiver.is_empty(), "the turn was never read");
+        assert_eq!(states(&out), ["idle", "working", "done"]);
+        assert!(
+            shell._control.try_recv().is_err(),
+            "the pair stopped the turn"
+        );
+    }
+
+    /// A held prompt's turn run whole while the UI thread was not looking:
+    /// its start, its answer and its end on the channel, and its place given
+    /// back.
+    fn whole_turn(shell: &mut Fixture, events: &mpsc::Sender<UiEvent>) {
+        for event in [
+            shell.turn_starts(),
+            UiEvent::Delta("THE-ANSWER".to_string()),
+            UiEvent::TurnEnded { failure: None },
+        ] {
+            events.try_send(event).expect("room on the channel");
+        }
+        shell.handle.give_back();
+    }
+
+    /// A tick's bytes as text, for a failure's message.
+    fn shows(tick: &[u8]) -> String {
+        String::from_utf8_lossy(tick).into_owned()
     }
 }
