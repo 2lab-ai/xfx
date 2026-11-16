@@ -25095,6 +25095,69 @@ mod tests {
     }
 
     #[test]
+    fn a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape() {
+        // `ESC ESC` and an arrow is fx's meta-prefixed arrow
+        // (`escape_parser.zig:552-555`, `:561-568`, `:637-644@481104fd`), a
+        // composer move under Alt's arm (`:83-89`) and no Escape: at a
+        // choice it reaches the switch's `else => {}`
+        // (`input_approval_runtime.zig:128`) and the turn goes on, and at a
+        // question's choice Left's move is not `.word_left`, which alone goes
+        // back a question (`input_question_runtime.zig:190-195`).
+        let mut panel = shell(24, 80);
+        asking(&mut panel);
+        let on =
+            |fixture: &Fixture, choice: &str| fixture.marked().contains(&format!("❯ {choice}  "));
+        for key in [
+            &b"\x1b\x1b[A"[..],
+            b"\x1b\x1b[B",
+            b"\x1b\x1b[D",
+            b"\x1b\x1b[C",
+            b"\x1b\x1bOB",
+            b"\x1b\x1b[1;5D",
+        ] {
+            panel.route_bytes(key);
+            panel.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+            assert_eq!(panel.controlled(), None, "{key:?} cancelled the turn");
+            assert!(
+                on(&panel, "1"),
+                "{key:?} moved the choice: {:?}",
+                panel.marked()
+            );
+        }
+
+        let mut fixture = shell(24, 120);
+        asking_question(&mut fixture, a_batch());
+        let on = |fixture: &Fixture, text: &str| {
+            fixture.band_rows().iter().any(|row| row.contains(text))
+        };
+        fixture.route_bytes(b"\t");
+        assert!(on(&fixture, "Ship it?"), "Tab reached the second question");
+        // The caret marks the choice (`marked`): the first, `Yes`, and it
+        // stays there.
+        let mark = fixture.marked();
+        assert!(mark.contains("1) Yes"), "{mark:?}");
+        for key in [
+            &b"\x1b\x1b[D"[..],
+            b"\x1b\x1b[A",
+            b"\x1b\x1b[B",
+            b"\x1b\x1bOD",
+        ] {
+            fixture.route_bytes(key);
+            fixture.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+            assert_eq!(fixture.controlled(), None, "{key:?} cancelled the batch");
+            assert!(
+                on(&fixture, "Ship it?"),
+                "{key:?} moved off the question: {:?}",
+                fixture.band_rows()
+            );
+            assert_eq!(fixture.marked(), mark, "{key:?} moved the choice");
+        }
+        // And the plain Down still moves it: the marker is read, not assumed.
+        fixture.route_bytes(b"\x1b[B");
+        assert!(fixture.marked().contains("2) No"), "{:?}", fixture.marked());
+    }
+
+    #[test]
     fn a_draft_left_behind_is_not_painted_and_still_travels_with_its_choice() {
         // fx paints a draft only on the choice whose amendment is open
         // (`appendFileApprovalChoiceLabel`, `approval_ui.zig:1181-1193@481104fd`;
@@ -29612,6 +29675,83 @@ mod tests {
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.editor.is_empty(), "the second Escape did not clear");
+    }
+
+    #[test]
+    fn two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are() {
+        // fx delivers two ESC bytes in one burst as two Escapes: its theme
+        // monitor holds the first and hands the second to the key decoder at
+        // once (`theme_monitor.zig:82-93`, `:150-164`;
+        // `app_bootstrap_runtime.zig:481-483@481104fd`). At an idle draft the
+        // second of two clears it (`app_input_runtime.zig:2788-2799`), the
+        // burst's as a person's (`fx-p5-cancel-double-escape-40x120-*`). Not a
+        // RED: the base reads the burst as two as well, and this pins it.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a draft worth keeping");
+        shell.route_bytes(&[0x1b, 0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(
+            shell.editor.is_empty(),
+            "the burst's two Escapes did not clear"
+        );
+        assert_eq!(shell.hint(), IDLE_HINT, "a clear left the gesture armed");
+
+        shell.route_bytes(b"another draft");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.editor.text(), "another draft", "one press cleared");
+        assert_eq!(shell.hint(), armed_hint(80), "one press armed nothing");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(
+            shell.editor.is_empty(),
+            "the person's second press did not clear"
+        );
+    }
+
+    #[test]
+    fn two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do() {
+        // A menu's Escape closes it and disarms the clear
+        // (`app_input_runtime.zig:2775-2779@481104fd`); the second of the
+        // burst's two, at the draft, arms it (`:2788-2799`), and a press after
+        // that clears (`fx-p5-cancel-double-escape-40x120-d-*`). Not a RED: a
+        // pin of the base's reading.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        assert!(shell.geometry.panel > 0, "there is no menu to dismiss");
+        shell.route_bytes(&[0x1b, 0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.geometry.panel, 0, "the menu is still taking rows");
+        assert_eq!(shell.editor.text(), "/he");
+        assert_eq!(shell.hint(), armed_hint(80), "the burst was one press");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(
+            shell.editor.is_empty(),
+            "the press after the burst did not clear"
+        );
+    }
+
+    #[test]
+    fn over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move() {
+        // `ESC ESC [ A` is no Escape at all but the paragraph move
+        // (`escape_parser.zig:561-568`, `:83-89@481104fd`), which in an empty
+        // composer moves nothing and recalls nothing, and the turn goes on. Two
+        // ESC bytes in one burst are two Escapes (the monitor's,
+        // `theme_monitor.zig:82-93`): the first arms the interrupt and the
+        // second stops the turn (`app_input_runtime.zig:2740-2758`), as a
+        // person's two do (`fx-p5-cancel-double-escape-turn-40x120-*`).
+        let mut shell = running("stream lines");
+        shell.route_bytes(b"\x1b\x1b[A");
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.controlled(), None, "a prefixed Up stopped the turn");
+        assert!(!shell.interrupt_armed, "a prefixed Up armed the interrupt");
+        assert_eq!(shell.editor.text(), "", "a prefixed Up recalled a prompt");
+
+        shell.route_bytes(&[0x1b, 0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
     }
 
     #[test]

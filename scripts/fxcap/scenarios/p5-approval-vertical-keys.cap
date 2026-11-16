@@ -10,8 +10,9 @@
 # to the draft's start and end, and the other ten leave it where it is. Then
 # Down and Up to choice 1 with no amendment open, and each key again: the
 # choice stays on 1. Enter last answers it, with the draft it holds.
-# Not here: `ESC ESC [ A` (fx's meta prefix), which xfx reads as Escape and
-# Up; the Escape cancels the turn (owner META-PREFIX-DECODE).
+# Not here: `ESC ESC [ A` (fx's meta prefix), which META-PREFIX-DECODE's
+# decoder reads as fx does (src/tui/shell.rs's
+# a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape).
 # The turns, the workspace and the settings are approvals.cap's.
 fx: gateway approvals-fx.json
 xfx: gateway approvals-xfx.json
