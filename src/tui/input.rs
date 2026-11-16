@@ -76,7 +76,7 @@
 //! stage then resolves after 30 ms (`main.zig:187`) at the next loop turn,
 //! every 8 ms or less (`main.zig:174`, `:1115-1123`). Here one quiet of
 //! [`Decoder::ESC_TIMEOUT`], 50 ms, does for both. With `t` the time since the
-//! first byte (pinned in `the_quiet_is_one_50_ms_window_not_fxs_two_stages`):
+//! first byte (pinned in `the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50`):
 //!
 //! | schedule | fx | xfx |
 //! |---|---|---|
@@ -4520,15 +4520,19 @@ mod tests {
     }
 
     #[test]
-    fn the_quiet_is_one_50_ms_window_not_fxs_two_stages() {
-        // What xfx reads at four schedules where fx's two stages -- its
-        // monitor holding a lone ESC 75 ms (`theme_monitor.zig:7`, `:85-93`
-        // @481104fd), its decoder resolving a stage after 30 ms
-        // (`main.zig:187`) -- read another key. Pinned as they are so that
-        // ESC-MONITOR-TIMING flips each one on purpose. fx's results, in the
-        // comments: the second and third from the monitor's source, the first
-        // and fourth also assuming fx's loop turned between 30 and 40 ms
-        // (`main.zig:174`, `:1115-1123`), inferred.
+    fn the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50() {
+        // fx times two stages: its monitor holds a lone ESC 75 ms
+        // (`theme_monitor.zig:7`, `:85-93@481104fd`) and hands a second one to
+        // its decoder at once, whose stage resolves after 30 ms
+        // (`main.zig:187`). The pair's stage is copied here (the decoder's
+        // `PAIR_TIMEOUT`): 30 ms after `ESC ESC` with nothing
+        // behind it, one Escape, and one lone ESC still pending. A lone ESC's
+        // hold is not: one quiet of [`Decoder::ESC_TIMEOUT`], 50 ms, where fx
+        // holds it 75 ms; that is ESC-MONITOR-TIMING's, and rows 2 and 3 below
+        // are pinned as xfx reads them for it to flip. fx's results, in the
+        // comments: rows 2 and 3 from the monitor's source, rows 1 and 4 also
+        // assuming fx's loop turned between 30 and 40 ms (`main.zig:174`,
+        // `:1115-1123`), inferred.
         let ms = Duration::from_millis;
         assert!(ms(40) < Decoder::ESC_TIMEOUT && ms(60) > Decoder::ESC_TIMEOUT);
         let start = Instant::now();
@@ -4547,35 +4551,103 @@ mod tests {
             decoder.flush(start + ms(1000), &mut out);
             out
         };
-        // `ESC ESC`, then `[ A` 40 ms later. fx: Escape (its decoder's
-        // stage, resolved at 30 ms), then Up (the monitor's held ESC with
-        // `[ A`). xfx: one prefixed Up.
-        assert_eq!(
+        let escape = || Input::Action(Action::Escape);
+        // The four rows, compared at once so that a failure shows every
+        // row's reading:
+        // - row 1, `ESC ESC` then `[ A` 40 ms later. fx: Escape (its
+        //   decoder's stage, resolved at 30 ms), then Up (the monitor's held
+        //   ESC with `[ A`). xfx the same: the pair's stage resolves one
+        //   Escape at 30 ms and keeps one ESC, which `[ A` follows;
+        // - row 2, Escape then `ESC [ A` 60 ms later. fx: `paragraph_up` --
+        //   the monitor still holds the first ESC and puts it in front of
+        //   `[ A`, behind the second. xfx: Escape, then Up (a lone ESC's
+        //   50 ms);
+        // - row 3, Escape then CR 60 ms later. fx: Alt-Enter, the held ESC
+        //   with CR (`insert_newline`, `escape_parser.zig:515-520`). xfx:
+        //   Escape, then Submit;
+        // - row 4, `ESC ESC` then Ctrl-C 40 ms later. fx: Escape (the
+        //   decoder's stage at 30 ms), then the held ESC with Ctrl-C, a bare
+        //   ESC and a control: Escape and Cancel
+        //   (`terminal_action_decoder.zig:92-101`). xfx the same, through the
+        //   kept ESC and its replay.
+        let rows: Vec<Vec<Input>> = vec![
             run(&[(0, b"\x1b\x1b"), (40, b"[A")]),
+            run(&[(0, b"\x1b"), (60, b"\x1b[A")]),
+            run(&[(0, b"\x1b"), (60, b"\r")]),
+            run(&[(0, b"\x1b\x1b"), (40, &[0x03])]),
+        ];
+        assert_eq!(
+            rows,
+            vec![
+                vec![escape(), Input::Action(Action::Up)],
+                vec![escape(), Input::Action(Action::Up)],
+                vec![escape(), Input::Action(Action::Submit)],
+                vec![escape(), escape(), Input::Action(Action::Cancel)],
+            ]
+        );
+    }
+
+    #[test]
+    fn the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc() {
+        // The pair's stage, copied from fx's decoder (`main.zig:187`;
+        // `terminal_action_decoder.zig:84-88`, `:174-183@481104fd`): its
+        // edges, its clock, and what it leaves pending.
+        let ms = Duration::from_millis;
+        let start = Instant::now();
+        let run = |schedule: &[(u64, &[u8])]| {
+            let mut decoder = Decoder::new();
+            let mut out = Vec::new();
+            for (offset, bytes) in schedule {
+                let now = start + ms(*offset);
+                decoder.flush(now, &mut out);
+                for byte in *bytes {
+                    decoder.feed(*byte, now, &mut out);
+                }
+            }
+            decoder.flush(start + ms(1000), &mut out);
+            out
+        };
+        let escape = || Input::Action(Action::Escape);
+        // Inside the pair's 30 ms the pair is still a prefix: `[ A` at 29 ms
+        // is one prefixed Up, Ctrl-C one Ignore; at 30 ms the stage has
+        // resolved and they are row 1's and row 4's.
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (29, b"[A")]),
             vec![Input::Action(Action::ParagraphUp)]
         );
-        // Escape, then `ESC [ A` 60 ms later. fx: `paragraph_up` -- the
-        // monitor still holds the first ESC and puts it in front of
-        // `[ A`, behind the second. xfx: Escape, then Up.
         assert_eq!(
-            run(&[(0, b"\x1b"), (60, b"\x1b[A")]),
-            vec![Input::Action(Action::Escape), Input::Action(Action::Up)]
-        );
-        // Escape, then CR 60 ms later. fx: Alt-Enter, the held ESC with CR
-        // (`insert_newline`, `escape_parser.zig:515-520`). xfx: Escape, then
-        // Submit.
-        assert_eq!(
-            run(&[(0, b"\x1b"), (60, b"\r")]),
-            vec![Input::Action(Action::Escape), Input::Action(Action::Submit)]
-        );
-        // `ESC ESC`, then Ctrl-C 40 ms later. fx: Escape (the decoder's
-        // stage at 30 ms), then the held ESC with Ctrl-C, a bare ESC and a
-        // control: Escape and Cancel (`terminal_action_decoder.zig:92-101`).
-        // xfx: one Ignore, the Ctrl-C with it.
-        assert_eq!(
-            run(&[(0, b"\x1b\x1b"), (40, &[0x03])]),
+            run(&[(0, b"\x1b\x1b"), (29, &[0x03])]),
             vec![Input::Action(Action::Ignore)]
         );
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (30, b"[A")]),
+            vec![escape(), Input::Action(Action::Up)]
+        );
+        // The pair's clock is the second ESC's, as fx's decoder's stage
+        // starts there (`terminal_action_decoder.zig:84-88`): `ESC`, `ESC`
+        // 20 ms later, `[ A` 20 ms after that is still one prefixed Up.
+        assert_eq!(
+            run(&[(0, b"\x1b"), (20, b"\x1b"), (40, b"[A")]),
+            vec![Input::Action(Action::ParagraphUp)]
+        );
+        // And the pair with nothing behind it: one Escape at 30 ms, the
+        // other at the kept ESC's 50 ms -- its clock, too, from the second
+        // ESC, where fx's monitor restarts its hold (`theme_monitor.zig:85-88`).
+        // Two in all, the count fx gives.
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start, &mut out);
+        decoder.flush(start + ms(29), &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        decoder.flush(start + ms(30), &mut out);
+        assert_eq!(out, vec![escape()], "the pair's stage at 30 ms");
+        decoder.flush(start + ms(49), &mut out);
+        assert_eq!(out, vec![escape()], "the kept ESC before its quiet");
+        decoder.flush(start + ms(50), &mut out);
+        assert_eq!(out, vec![escape(), escape()], "the kept ESC at its quiet");
+        decoder.flush(start + ms(1000), &mut out);
+        assert_eq!(out, vec![escape(), escape()], "a third Escape");
     }
 
     #[test]
