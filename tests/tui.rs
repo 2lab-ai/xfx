@@ -3706,6 +3706,7 @@ fn paste_with_pauses(
 ) -> Result<(), Rejected> {
     let mut previous = None;
     let mut longest = std::time::Duration::ZERO;
+    let mut longest_fell = String::new();
     let parts = bytes.len().div_ceil(4096);
     for (at, part) in bytes.chunks(4096).enumerate() {
         let mut planned = None;
@@ -3716,7 +3717,10 @@ fn paste_with_pauses(
         }
         let written = session.write_raw_traced(part, &mut previous);
         let gap = written.longest;
-        longest = longest.max(gap);
+        if gap > longest {
+            longest = gap;
+            longest_fell = where_it_fell(at, parts, &written, planned, pause);
+        }
         if gap >= PASTE_QUIET {
             let fell = where_it_fell(at, parts, &written, planned, pause);
             std::thread::sleep(std::time::Duration::from_secs(1));
@@ -3741,7 +3745,7 @@ fn paste_with_pauses(
         }
     }
     say(&format!(
-        "the paste's longest pause: {longest:?} (pauses of {pause:?})\n"
+        "the paste's longest pause: {longest:?} (pauses of {pause:?}), {longest_fell};\n"
     ));
     std::thread::sleep(std::time::Duration::from_secs(1));
     Ok(())
