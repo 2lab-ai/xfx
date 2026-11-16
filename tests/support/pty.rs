@@ -358,10 +358,45 @@ impl Session {
     /// quarantine. Bounded as `type_bytes` is: [`WAIT`] for the terminal to
     /// take each part of it.
     pub fn write_raw(&self, bytes: &[u8]) {
+        self.write_raw_measured(bytes, &mut None);
+    }
+
+    /// [`Self::write_raw`], and the longest the terminal can have gone
+    /// without a byte from this writer: from the start of one write attempt
+    /// to the return of the next, `previous` carrying the last attempt's start
+    /// from one call to the next. Every attempt finds the input queue holding
+    /// something -- one that took bytes has just put them there, one that
+    /// would block found it full -- so it was empty, if ever, only between two
+    /// attempts, and never for longer than this.
+    pub fn write_raw_measured(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Duration {
+        self.write_raw_traced(bytes, previous).longest
+    }
+
+    /// [`Self::write_raw_measured`], and where its longest gap fell: at this
+    /// call's first attempt -- a gap that spans the end of the last call, and
+    /// whatever its caller did between the two -- or at a later one, behind
+    /// a full queue's [`IDLE_POLL`] sleep, with how long that sleep took.
+    pub fn write_raw_traced(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Written {
         let deadline = Instant::now() + WAIT;
+        let mut longest = Duration::ZERO;
+        let mut traced = Written::default();
+        let mut slept = Duration::ZERO;
         let mut rest = bytes;
         while !rest.is_empty() {
-            match (&*self.master).write(rest) {
+            let started = Instant::now();
+            let wrote = (&*self.master).write(rest);
+            let returned = started.elapsed();
+            traced.attempts += 1;
+            if let Some(before) = previous.replace(started) {
+                let gap = before.elapsed();
+                if gap > longest {
+                    traced.at = traced.attempts;
+                    traced.slept = slept;
+                    traced.wrote = returned;
+                }
+                longest = longest.max(gap);
+            }
+            match wrote {
                 Ok(0) => panic!("the terminal accepted nothing"),
                 Ok(written) => rest = &rest[written..],
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
@@ -370,11 +405,15 @@ impl Session {
                         "the terminal never accepted input; terminal so far:\n{}",
                         self.text()
                     );
+                    let polled = Instant::now();
                     thread::sleep(IDLE_POLL);
+                    slept = polled.elapsed();
                 }
                 Err(err) => panic!("write to the terminal: {err}"),
             }
         }
+        traced.longest = longest;
+        traced
     }
 
     /// Types a line and presses Return. Return is a carriage return on a
@@ -844,4 +883,22 @@ impl Pty {
         let slave = self.slave.as_ref().expect("the harness retains a slave");
         rustix::termios::tcsetwinsize(slave.as_fd(), size).expect("set the pty size");
     }
+}
+
+/// What one [`Session::write_raw_traced`] call came to: the longest the
+/// terminal can have gone without a byte from this writer (as
+/// [`Session::write_raw_measured`] says it), the attempt it fell at (1 is
+/// the call's first: the gap since the last call; 0, no gap measured), the
+/// [`IDLE_POLL`] sleep right before that attempt, if a full queue made one,
+/// how long that attempt's own `write` took to return, and how many attempts
+/// the call made. What the gap holds besides the sleep and that write is the
+/// attempt before it -- its `write` -- and whatever held this thread off a
+/// CPU in between.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Written {
+    pub longest: Duration,
+    pub at: usize,
+    pub slept: Duration,
+    pub wrote: Duration,
+    pub attempts: usize,
 }

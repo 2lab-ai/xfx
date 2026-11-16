@@ -1,0 +1,5 @@
+# python3 -I .prd/tui-phase5/receipts/slash-mixed-skills/count.py b9b11596 fb014b08
+src/tui/arg_lists.rs: tests from line 194
+src/tui/picker.rs: tests from line 995
+src/tui/shell.rs: tests from line 17152
+non-test +106 -42 (of the added, 61 comment lines); test +308 -4

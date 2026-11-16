@@ -1,0 +1,282 @@
+# content.sh at 622b2865 (pre=622b2865)
+## UPSTREAM.md
+# UPSTREAM.md at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 42; unread 0; refs 42
+# exit 0
+## docs/architecture.md
+# docs/architecture.md at 622b2865; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## docs/parity.md
+# docs/parity.md at 622b2865; blame ignoring nothing
+WRONG docs/parity.md:221 src/mcp/transport.rs:1318-1320 (path; written by 8ea201e9 as :1318-1320): the head's line holds 'self.0.fetch_sub(1, Ordering::AcqRel);'; '' -- its text is at :1321-1323
+WRONG docs/parity.md:241 worker.rs:3922 (short; written by 6ae87955 as :3922): the head's line holds '// quiet without hanging up never lets the body fi'; 'bridge::send_terminal(events, UiEvent::TurnEnded {' -- its text is at :3955
+WRONG docs/parity.md:241 :3561 (bare; written by 6ae87955 as :3561): the head's line holds 'TurnWork::Fork { before_turn } => {'; 'queue.outstanding.fetch_sub(1, Ordering::Release);' -- its text is at :3594
+# SAME 21; SAME-ROW 0; SAME-LINES 0; WRONG 3; other product 136; unread 0; refs 160
+# exit 1
+## scripts/check-no-local-paths.sh
+# scripts/check-no-local-paths.sh at 622b2865; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## scripts/fxcap/capfile.py
+# scripts/fxcap/capfile.py at 622b2865; blame ignoring nothing
+WRONG scripts/fxcap/capfile.py:183 src/tui/shell.rs:15767-15792 (path; written by da8e4c1a as :15767-15792): the head's line holds 'let announcement = notice::Notice::neutral(crate::'; "fn warning_shown(&self) -> Option<&'static str> {" -- its text is at :15842-15867
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 1; unread 0; refs 7
+# exit 1
+## scripts/fxcap/capture.sh
+# scripts/fxcap/capture.sh at 622b2865; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 5
+# exit 0
+## scripts/fxcap/fakegw.ts
+# scripts/fxcap/fakegw.ts at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 12
+# exit 0
+## scripts/fxcap/parity-ledger.toml
+# scripts/fxcap/parity-ledger.toml at 622b2865; blame ignoring nothing
+SAME-LINES scripts/fxcap/parity-ledger.toml:419 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
+WRONG scripts/fxcap/parity-ledger.toml:506 src/tui/shell.rs:14529 (path; written by da8e4c1a as :14529): the head's line holds 'return None;'; 'let event = full_transcript::shown_event(event);' -- its text is at :14604
+WRONG scripts/fxcap/parity-ledger.toml:691 src/tui/shell.rs:17565 (path; written by da8e4c1a as :17565): the head's line holds '.as_ref()'; 'pub(crate) fn resize(&mut self, rows: u16, cols: u' -- its text is at :17644
+WRONG scripts/fxcap/parity-ledger.toml:808 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:820 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:831 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:843 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:854 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:865 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:877 src/tui/shell.rs:11069 (path; written by da8e4c1a as :11069): the head's line holds '/// whole and wrapped as if no notice had come. Th'; 'fn trailer_rows(&self) -> Vec<String> {' -- its text is at :11127
+WRONG scripts/fxcap/parity-ledger.toml:879 src/tui/shell.rs:11069 (path; written by da8e4c1a as :11069): the head's line holds '/// whole and wrapped as if no notice had come. Th'; 'fn trailer_rows(&self) -> Vec<String> {' -- its text is at :11127
+WRONG scripts/fxcap/parity-ledger.toml:879 :1937 (bare; written by da8e4c1a as :1937): the head's line holds '/// card with no image badges.'; 'fn queue_card(transcript: &mut Transcript, text: &' -- its text is at :1938
+WRONG scripts/fxcap/parity-ledger.toml:890 src/tui/shell.rs:1937 (path; written by da8e4c1a as :1937): the head's line holds '/// card with no image badges.'; 'fn queue_card(transcript: &mut Transcript, text: &' -- its text is at :1938
+WRONG scripts/fxcap/parity-ledger.toml:892 src/tui/shell.rs:1937 (path; written by da8e4c1a as :1937): the head's line holds '/// card with no image badges.'; 'fn queue_card(transcript: &mut Transcript, text: &' -- its text is at :1938
+WRONG scripts/fxcap/parity-ledger.toml:902 src/tui/approval_amendment.rs:84 (path; written by 80d4b9fe as :84): the head's line holds '/// amendment, an error under `input` (`input_limi'; 'pub(crate) const MAX_DRAFT_ROWS: usize = 3;' -- its text is at :81
+WRONG scripts/fxcap/parity-ledger.toml:902 src/tui/approval_amendment.rs:217 (path; written by 80d4b9fe as :217): the head's line holds '///'; 'fn viewport(&self, cols: u16) -> (Vec<String>, (us' -- its text is at :166
+WRONG scripts/fxcap/parity-ledger.toml:904 src/tui/approval_amendment.rs:84 (path; written by 80d4b9fe as :84): the head's line holds '/// amendment, an error under `input` (`input_limi'; 'pub(crate) const MAX_DRAFT_ROWS: usize = 3;' -- its text is at :81
+WRONG scripts/fxcap/parity-ledger.toml:904 src/tui/approval_amendment.rs:217 (path; written by 80d4b9fe as :217): the head's line holds '///'; 'fn viewport(&self, cols: u16) -> (Vec<String>, (us' -- its text is at :166
+WRONG scripts/fxcap/parity-ledger.toml:914 src/tui/approval_amendment.rs:84 (path; written by 80d4b9fe as :84): the head's line holds '/// amendment, an error under `input` (`input_limi'; 'pub(crate) const MAX_DRAFT_ROWS: usize = 3;' -- its text is at :81
+WRONG scripts/fxcap/parity-ledger.toml:914 src/tui/approval_amendment.rs:217 (path; written by 80d4b9fe as :217): the head's line holds '///'; 'fn viewport(&self, cols: u16) -> (Vec<String>, (us' -- its text is at :166
+WRONG scripts/fxcap/parity-ledger.toml:970 src/tui/shell.rs:49895 (path; written by 7f4b68cf as :49895): the head's line holds 'shell.end_delivery_at(at);'; '"  tools: {} advertised ({},",' -- its text is at :50939
+WRONG scripts/fxcap/parity-ledger.toml:1006 src/tui/shell.rs:1862 (path; written by da8e4c1a as :1862): the head's line holds 'format!('; '"ansi_bytes={}, redraws={}, debounced_resizes={}, ' -- its text is at :1863
+WRONG scripts/fxcap/parity-ledger.toml:1040 src/tui/shell.rs:17565 (path; written by da8e4c1a as :17565): the head's line holds '.as_ref()'; 'pub(crate) fn resize(&mut self, rows: u16, cols: u' -- its text is at :17644
+WRONG scripts/fxcap/parity-ledger.toml:1128 src/mcp/runtime.rs:1336 (path; written by 0dbfaf39 as :1336): the head's line holds '/// Connects `server`: tried until it is up, it is'; 'server.live().connection = Connection::Connecting;' -- its text is at :1347
+WRONG scripts/fxcap/parity-ledger.toml:1128 :1350 (bare; written by 0dbfaf39 as :1350): the head's line holds 'Err(_) if server.stopped.load(Ordering::Acquire) ='; 'live.connection = Connection::Retrying;' -- its text is at :1361
+WRONG scripts/fxcap/parity-ledger.toml:1158 src/tui/shell.rs:4565 (path; written by da8e4c1a as :4565): the head's line holds '{'; 'self.tally.begin(Instant::now(), estimate);' -- its text is at :4570
+# SAME 99; SAME-ROW 42; SAME-LINES 1; WRONG 25; other product 5; unread 0; refs 172
+# exit 1
+## scripts/fxcap/scenarios/p5-esc-clear.cap
+# scripts/fxcap/scenarios/p5-esc-clear.cap at 622b2865; blame ignoring nothing
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 4
+# exit 0
+## scripts/fxcap/scenarios/p5-mcp-fail-held.cap
+# scripts/fxcap/scenarios/p5-mcp-fail-held.cap at 622b2865; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-mcp-fail.cap
+# scripts/fxcap/scenarios/p5-mcp-fail.cap at 622b2865; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
+# exit 0
+## scripts/fxcap/scenarios/p5-usage-mkcache.py
+# scripts/fxcap/scenarios/p5-usage-mkcache.py at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 2
+# exit 0
+## scripts/fxcap/test_sweep.py
+# scripts/fxcap/test_sweep.py at 622b2865; blame ignoring nothing
+UNREAD scripts/fxcap/test_sweep.py:512 scripts/fxcap/cells.py:100000 (path): out of range at 9344eb85 or the head
+# SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 1; refs 8
+# exit 0
+## scripts/smoke-tui.sh
+# scripts/smoke-tui.sh at 622b2865; blame ignoring nothing
+WRONG scripts/smoke-tui.sh:251 ,65 (list; written by 3dd16a11 as :65): the head's line holds '/// It opens by **clearing** the window title -- u'; '"\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004l\\x1b[?2031l' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.60)
+WRONG scripts/smoke-tui.sh:260 src/tui/theme.rs:67 (path; written by 16101f19 as :67): the head's line holds '/// the window, a `10` reporting the foreground --'; '/// `theme_monitor.zig:181-183`); here the cursor ' -- its text is at :55
+WRONG scripts/smoke-tui.sh:293 src/tui/theme.rs:105 (path; written by 16101f19 as :105): the head's line holds '/// sends, so reading them as a theme change would'; '/// does not implement 2031 answers neither this n' -- its text is at :93
+WRONG scripts/smoke-tui.sh:1137 src/tui/theme.rs:67 (path; written by 16101f19 as :67): the head's line holds '/// the window, a `10` reporting the foreground --'; '/// `theme_monitor.zig:181-183`); here the cursor ' -- its text is at :55
+WRONG scripts/smoke-tui.sh:1568 ,65 (list; written by 3dd16a11 as :65): the head's line holds '/// It opens by **clearing** the window title -- u'; '"\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004l\\x1b[?2031l' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.60)
+WRONG scripts/smoke-tui.sh:1568 src/tui/theme.rs:105 (path; written by 16101f19 as :105): the head's line holds '/// sends, so reading them as a theme change would'; '/// does not implement 2031 answers neither this n' -- its text is at :93
+SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
+SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
+WRONG scripts/smoke-tui.sh:11212 shell.rs:13184 (short; written by da8e4c1a as :13184): the head's line holds '/// On the review plane it is given up whole when '; 'if let Some(delta) = self.editor.insert(&text) {' -- its text is at :13242
+WRONG scripts/smoke-tui.sh:11213 input.rs:1431 (short; written by da8e4c1a as :1431): the head's line holds '//'; '0x1f => Action::Undo,' -- its text is at :1576
+WRONG scripts/smoke-tui.sh:11600 src/tui/theme.rs:109-127 (path; written by 16101f19 as :109-127): the head's line holds '/// Two values and no third: `1` is dark and `2` i'; "/// What a `CSI ? 997 ; N n` says the terminal's b" -- its text is at :97-115
+# SAME 13; SAME-ROW 0; SAME-LINES 2; WRONG 9; other product 4; unread 0; refs 28
+# exit 1
+## scripts/test-check-no-local-paths.sh
+# scripts/test-check-no-local-paths.sh at 622b2865; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 3
+# exit 0
+## src/app.rs
+# src/app.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 5; unread 0; refs 5
+# exit 0
+## src/build_meta.rs
+# src/build_meta.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/cli.rs
+# src/cli.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/clipboard.rs
+# src/clipboard.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/gateway/mod.rs
+# src/gateway/mod.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 15; unread 0; refs 15
+# exit 0
+## src/image.rs
+# src/image.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## src/llmux/protocol.rs
+# src/llmux/protocol.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 14
+# exit 0
+## src/llmux/setup.rs
+# src/llmux/setup.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/llmux/sse.rs
+# src/llmux/sse.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/output.rs
+# src/output.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/permission/authority.rs
+# src/permission/authority.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 10; unread 0; refs 10
+# exit 0
+## src/permission/policy.rs
+# src/permission/policy.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## src/provider/model.rs
+# src/provider/model.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 26; unread 0; refs 26
+# exit 0
+## src/session/store/fork.rs
+# src/session/store/fork.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## src/tools/mutate.rs
+# src/tools/mutate.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 7; unread 0; refs 7
+# exit 0
+## src/tools/question.rs
+# src/tools/question.rs at 622b2865; blame ignoring nothing
+WRONG src/tools/question.rs:303 Cargo.toml:42 (path; written by 866de4f4 as :42): the head's line holds '# built for `ignore`, `globset` and `serde_json`.'; 'serde_json = "1.0"' -- its text is at 0 places; the head's line most like its first is :47 (ratio 0.44)
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 4; unread 0; refs 8
+# exit 1
+## src/tools/undo.rs
+# src/tools/undo.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/tui/approval.rs
+# src/tui/approval.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## src/tui/bridge.rs
+# src/tui/bridge.rs at 622b2865; blame ignoring nothing
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 8
+# exit 0
+## src/tui/edit_history.rs
+# src/tui/edit_history.rs at 622b2865; blame ignoring nothing
+# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 4
+# exit 0
+## src/tui/event_loop.rs
+# src/tui/event_loop.rs at 622b2865; blame ignoring nothing
+WRONG src/tui/event_loop.rs:8409 ,1156 (list; written by d3f61f5e as :1156): the head's line holds 'let released = self.top(geometry);'; 'place(&mut self.buffer, line, row, geometry);' -- its text is at :1682
+WRONG src/tui/event_loop.rs:8409 ,1626 (list; written by d3f61f5e as :1626): the head's line holds 'cup(&mut self.buffer, line, 1);'; 'buffer.extend_from_slice(row_text(row, geometry.co' -- its text is at 0 places; the head's line most like its first is :2768 (ratio 0.79)
+WRONG src/tui/event_loop.rs:8409 ,1696 (list; written by d3f61f5e as :1696): the head's line holds 'let bottom = geometry.band_top().saturating_sub(1)'; 'pub(crate) fn row_text(row: &str, cols: u16) -> Co' -- its text is at :2874
+WRONG src/tui/event_loop.rs:8409 ,1758 (list; written by d3f61f5e as :1758): the head's line holds '/// [`Self::frame_landed`]: the stop handler. A `S'; 'pub(crate) fn clip(row: &str, cols: u16) -> &str {' -- its text is at :2970
+# SAME 12; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 12; unread 0; refs 28
+# exit 1
+## src/tui/file_index.rs
+# src/tui/file_index.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## src/tui/file_picker.rs
+# src/tui/file_picker.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
+# exit 0
+## src/tui/frame.rs
+# src/tui/frame.rs at 622b2865; blame ignoring nothing
+# SAME 10; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 10
+# exit 0
+## src/tui/input.rs
+# src/tui/input.rs at 622b2865; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 13
+# exit 0
+## src/tui/probe.rs
+# src/tui/probe.rs at 622b2865; blame ignoring nothing
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 5
+# exit 0
+## src/tui/program_status.rs
+# src/tui/program_status.rs at 622b2865; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
+# exit 0
+## src/tui/shell.rs
+# src/tui/shell.rs at 622b2865; blame ignoring nothing
+WRONG src/tui/shell.rs:11451 worker.rs:3922 (short; written by 6ae87955 as :3922): the head's line holds '// quiet without hanging up never lets the body fi'; 'bridge::send_terminal(events, UiEvent::TurnEnded {' -- its text is at :3955
+WRONG src/tui/shell.rs:28019 shell.rs:6212 (short; written by da8e4c1a as :6212): the head's line holds '} else {'; 'true' -- its text is at :6217
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 2; other product 91; unread 0; refs 93
+# exit 1
+## src/tui/toolgroup.rs
+# src/tui/toolgroup.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 1; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 15
+# exit 0
+## src/tui/worker.rs
+# src/tui/worker.rs at 622b2865; blame ignoring nothing
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 27; unread 0; refs 29
+# exit 0
+## src/tui/wrap.rs
+# src/tui/wrap.rs at 622b2865; blame ignoring nothing
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 5
+# exit 0
+## src/usage/clock.rs
+# src/usage/clock.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
+# exit 0
+## tests/permissions.rs
+# tests/permissions.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
+# exit 0
+## tests/session_compat.rs
+# tests/session_compat.rs at 622b2865; blame ignoring nothing
+WRONG tests/session_compat.rs:57 src/session/event.rs:98-192 (path; written by 9956e7a8 as :98-192): the head's line holds ''; '' -- its text is at 0 places; the head's line most like its first is :25 (ratio 1.00)
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 3; unread 0; refs 5
+# exit 1
+## tests/sessions.rs
+# tests/sessions.rs at 622b2865; blame ignoring nothing
+WRONG tests/sessions.rs:3526 src/app.rs:280 (path; written by 2e388ca8 as :280): the head's line holds 'Err(err) => return fail_command(stderr, &err.to_st'; 'SessionDetailSnapshot::new(&detail).render(OutputF' -- its text is at :285
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 2; unread 0; refs 3
+# exit 1
+## tests/support/fake_gateway.rs
+# tests/support/fake_gateway.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 6
+# exit 0
+## tests/support/fake_llmux.rs
+# tests/support/fake_llmux.rs at 622b2865; blame ignoring nothing
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
+# exit 0
+## tests/tool_loop.rs
+# tests/tool_loop.rs at 622b2865; blame ignoring nothing
+# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 7
+# exit 0
+## tests/tui.rs
+# tests/tui.rs at 622b2865; blame ignoring nothing
+WRONG tests/tui.rs:592 src/tui/mod.rs:759-760 (path; written by 04e4491d as :759-760): the head's line holds '/// closed (`app_lifecycle.zig:609-620,646-656`). '; 'term::enter_raw(stdin.as_fd(), &current)?;' -- its text is at :772-773
+WRONG tests/tui.rs:2721 tests/tui.rs:1809 (path; written by 04e4491d as :1809): the head's line holds 'Ok(())'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :1930
+WRONG tests/tui.rs:2721 ,2191 (list; written by 04e4491d as :2191): the head's line holds 'let pty = Pty::open();'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :2312
+WRONG tests/tui.rs:2721 ,2766 (list; written by 04e4491d as :2766): the head's line holds 'let end = text.find(FRAME_END).expect("the start-u'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at 3 places
+WRONG tests/tui.rs:2721 ,3113 (list; written by 04e4491d as :3113): the head's line holds 'let sandbox = Sandbox::new();'; 'session.type_bytes(&[0x05, 0x15, 0x04]);' -- its text is at :3234
+WRONG tests/tui.rs:2721 ,3236 (list; written by 04e4491d as :3236): the head's line holds '}'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :3357
+WRONG tests/tui.rs:2721 ,3928 (list; written by 04e4491d as :3928): the head's line holds '"the block a backspace removed was sent anyway"'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at 3 places
+WRONG tests/tui.rs:2721 ,7648 (list; written by 04e4491d as :7648): the head's line holds 'frame.contains('; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :7769
+WRONG tests/tui.rs:2721 ,7722 (list; written by 04e4491d as :7722): the head's line holds 'Reply::Sse(content_only(&["the read is done"])),'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :7843
+WRONG tests/tui.rs:2721 ,8515 (list; written by 04e4491d as :8515): the head's line holds ');'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :8630
+WRONG tests/tui.rs:2721 ,9216 (list; written by 04e4491d as :9216): the head's line holds ');'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at 3 places
+WRONG tests/tui.rs:2721 ,9412 (list; written by 04e4491d as :9412): the head's line holds '"the resize answered the question on the user\'s be'; 'session.type_bytes(&[0x15, 0x04]);' -- its text is at :9527
+WRONG tests/tui.rs:9563 src/tui/shell.rs:17529 (path; written by da8e4c1a as :17529): the head's line holds 'more,'; 'pub(crate) fn blind(&self) -> bool {' -- its text is at :17608
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 13; other product 24; unread 0; refs 40
+# exit 1
+# all 54 files: SAME 204; SAME-ROW 43; SAME-LINES 3; WRONG 60; other product 556; unread 1; refs 867

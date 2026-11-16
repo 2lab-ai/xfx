@@ -1,0 +1,114 @@
+# SLASH-ARG-SKILLS: past the blank after /statusline, /sound, /permissions,
+# /workspace and /allowlist, fx's slash popup lists the argument from its
+# tables (argCompletionAnchor, nthSlashCompletion,
+# src/core/slash_commands/command_specs.zig:610-644@481104fd) under where
+# the argument starts, the label alone; Tab writes the marked line, with a
+# space for one that takes more (slashCompletionHasArgs, :692-748); Enter
+# runs the marked line (resolveSlashSubmission,
+# src/core/app/input_submit_runtime.zig:1818-1823); one Escape closes the
+# lists and the slash menu while the line begins with / (visibleInlinePickerKind,
+# src/core/app/input_completion_runtime.zig:142-169). /mcp's list (MCP-VERBS)
+# with no server configured, for comparison.
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type /statusline 
+wait 0.6
+snap statusline
+type s
+wait 0.5
+snap statusline-s
+key C-u
+wait 0.3
+type   /statusline  co
+wait 0.6
+snap statusline-ws
+key C-u
+wait 0.3
+type /statusline /co
+wait 0.6
+snap statusline-ghost
+key C-u
+wait 0.3
+type /sound 
+wait 0.6
+snap sound
+key C-u
+wait 0.3
+type /permissions 
+wait 0.6
+snap permissions
+type RE
+wait 0.5
+snap permissions-re
+key C-u
+wait 0.3
+type /workspace 
+wait 0.6
+snap workspace
+type a
+wait 0.4
+key Tab
+wait 0.6
+snap workspace-a-tab
+cursor workspace-a-tab
+key C-u
+wait 0.3
+type /allowlist 
+wait 0.6
+snap allowlist
+type a
+wait 0.4
+key Tab
+wait 0.6
+snap allowlist-add
+type t
+wait 0.4
+key Tab
+wait 0.6
+snap allowlist-add-tool
+key C-u
+wait 0.3
+type /allowlist local 
+wait 0.6
+snap allowlist-local
+key C-u
+wait 0.3
+type /mcp 
+wait 0.8
+snap mcp
+key C-u
+wait 0.3
+type /statusline 
+wait 0.6
+key Escape
+wait 0.5
+key BSpace
+wait 0.6
+snap esc-back
+key C-u
+wait 0.3
+type /statusline 
+wait 0.6
+key Enter
+wait 0.8
+snap statusline-enter
+type /sound ON
+wait 0.6
+key Enter
+wait 0.8
+snap sound-on-enter
+type /workspace 
+wait 0.6
+key Enter
+wait 0.8
+snap workspace-enter
+type /permissions 
+wait 0.6
+key Enter
+wait 0.8
+snap permissions-enter
+type /permissions full
+wait 0.6
+key Enter
+until shown Full access
+snap permissions-full-enter

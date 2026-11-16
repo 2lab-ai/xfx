@@ -276,35 +276,18 @@ fn session(
         // line discipline assembled rather than the keystrokes this session is
         // decoding.
         let reconciled = collect_facts(shell, band, launch, Instant::now())?;
-        read_burst(shell, &stdin, &mut buffer, launch, reconciled)?;
-        // What the bytes could not settle by themselves. A lone `ESC` is both a
-        // key and the first byte of every sequence, so it is the Escape key only
-        // once it has been alone for `input::Decoder::ESC_TIMEOUT`; asking here,
-        // every turn, is what makes that a 50 ms wait rather than a wait for the
-        // next keystroke. It reads no terminal and writes none, which is why it
-        // is outside the two reconciles rather than between them.
-        shell.settle_input(Instant::now());
-        // What the runtime produced since the last turn. Text, not terminal
-        // state, and therefore outside the reconciles for the same reason.
-        take_ui_events(shell, events);
-        // And what neither the bytes nor the events settled: how deep the
-        // submission queue is now, and whether an armed Escape has gone stale.
-        // Both are answers only the clock and the other thread produce, so like
-        // `settle_input` this is what makes them a tick rather than a wait for
-        // the next keystroke.
-        shell.settle_band(Instant::now());
-        // Before a frame is painted: the burst's own readiness checks are waits
-        // too, so a stop could have landed inside one of them. The first token
-        // was spent on the read, so this reconcile is not optional -- it is the
-        // only way to have one.
-        let reconciled = collect_facts(shell, band, launch, Instant::now())?;
-        commit_or_hold(
+        loop_turn(
             shell,
             band,
+            events,
             &mut RawTty::stdout(),
             failures,
-            Instant::now(),
-            reconciled,
+            |shell| read_burst(shell, &stdin, &mut buffer, launch, reconciled),
+            // Before a frame is painted: the burst's own readiness checks are
+            // waits too, so a stop could have landed inside one of them. The
+            // first token was spent on the read, so this reconcile is not
+            // optional -- it is the only way to have one.
+            |shell, band| collect_facts(shell, band, launch, Instant::now()),
         )?;
 
         // The matrix row for a UI that cannot keep up with what it asked for.
@@ -365,6 +348,42 @@ fn commit_or_hold(
     commit_counted_held(shell, band, out, failures, now, reconciled, held)
 }
 
+/// One turn of [`session`]'s loop, from its first reconcile to its frame: the
+/// keys (`read`), what they could not settle, the runtime's events, the band,
+/// the second reconcile (`reconcile`) and the frame, in that order. The
+/// session runs it with the terminal's reads and [`collect_facts`]; a case runs
+/// the same turn with keys of its own, so what it pins is the loop's order
+/// rather than a copy of it.
+fn loop_turn(
+    shell: &mut Shell,
+    band: &mut Band,
+    events: &mut Receiver<UiEvent>,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    read: impl FnOnce(&mut Shell) -> io::Result<()>,
+    reconcile: impl FnOnce(&mut Shell, &mut Band) -> io::Result<Reconciled>,
+) -> io::Result<()> {
+    read(shell)?;
+    // What the bytes could not settle by themselves. A lone `ESC` is both a
+    // key and the first byte of every sequence, so it is the Escape key only
+    // once it has been alone for `input::Decoder::ESC_TIMEOUT`; asking here,
+    // every turn, is what makes that a 50 ms wait rather than a wait for the
+    // next keystroke. It reads no terminal and writes none, which is why it
+    // is outside the two reconciles rather than between them.
+    shell.settle_input(Instant::now());
+    // What the runtime produced since the last turn. Text, not terminal
+    // state, and therefore outside the reconciles for the same reason.
+    take_ui_events(shell, events);
+    // And what neither the bytes nor the events settled: how deep the
+    // submission queue is now, and whether an armed Escape has gone stale.
+    // Both are answers only the clock and the other thread produce, so like
+    // `settle_input` this is what makes them a tick rather than a wait for
+    // the next keystroke.
+    shell.settle_band(Instant::now());
+    let reconciled = reconcile(shell, band)?;
+    commit_or_hold(shell, band, out, failures, Instant::now(), reconciled)
+}
+
 /// Hands the band the window title the session starts with, before the
 /// session's first tick.
 ///
@@ -404,7 +423,7 @@ fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
 }
 
 /// [`take_ui_events`]' drain: whether it stopped because the channel was
-/// empty (or closed), rather than at one of its two bounds.
+/// empty (or closed), rather than at one of its three bounds.
 fn drain_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) -> bool {
     for _ in 0..bridge::UI_EVENTS {
         // And bounded a second way, which is where the pacer's queue gets its
@@ -429,7 +448,17 @@ fn drain_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) -> bool {
             return false;
         }
         match events.try_recv() {
-            Ok(event) => shell.apply(event),
+            Ok(event) => {
+                let starts = matches!(event, UiEvent::TurnStarted { .. });
+                shell.apply(event);
+                // And a third way: behind the start of a turn whose `working`
+                // waits for the frame that first shows it, so that frame shows
+                // the turn beginning and the report follows it
+                // ([`Shell::turn_start_owes_its_frame`]).
+                if starts && shell.turn_start_owes_its_frame() {
+                    return false;
+                }
+            }
             // Empty, or a runtime that is gone -- and a runtime that is gone
             // said so with a `Fatal` before its sender dropped, so there is
             // nothing here that has to be inferred from a closed channel.
@@ -15108,7 +15137,7 @@ mod tests {
     // (`transcript.rs:1078-1104` adopts only on `Landed::All`). So an append the
     // terminal refused must leave the retained row reading exactly what the
     // last accepted vector put there -- and the frame that would have followed
-    // it must not run at all (`event_loop.rs:1128-1131`). Nothing here caches a
+    // it must not run at all (`event_loop.rs:1157-1160`). Nothing here caches a
     // source anywhere: the freshness is read off the screen the accepted bytes
     // make.
     //
@@ -16165,6 +16194,646 @@ mod tests {
         assert!(
             frame.is_some() && report.is_some() && frame < report,
             "{tick:?}"
+        );
+    }
+
+    #[test]
+    fn a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking() {
+        // Upstream never sees a prompt's turn start and end within one pass:
+        // the keystroke holds the worker's next start (`installPendingSubmission`,
+        // `tryHoldTurnStart`, `input_submit_runtime.zig:1123-1150@481104fd`),
+        // its frame shows the prompt's `Thinking`, and the next pass reports
+        // `working` with the prompt queued (`finalizePendingSubmission` ->
+        // `syncState`, `main.zig:1263-1274`) before it lets the worker start
+        // (`markQueued`, `releaseTurnStartHold`, `input_submit_runtime.zig:
+        // 391-405`). So `working` always comes, after a frame showing
+        // `Thinking`, however fast the turn is (`osc/w01-working`). Here the
+        // runtime starts the prompt itself, and a UI thread that was not
+        // scheduled can find the turn's start, its answer and its end on the
+        // channel at once -- after the keystroke's tick, or in that tick's own
+        // drain, which follows its keys (`session`). CI saw both: `idle`,
+        // `done` and no `working`; and a `working` behind a frame that showed
+        // `Generating`, with no `Thinking` ever painted. The tick that reads
+        // the start reads what came before it, and nothing after it.
+        for same_tick in [false, true] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            launch_title(&mut shell, &mut band);
+            status_tick(&mut shell, &mut band, &mut out);
+            shell.route_bytes(b"go\r");
+            if !same_tick {
+                take_ui_events(&mut shell, &mut receiver);
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+            }
+            for event in [
+                UiEvent::Notice(super::super::notice::Notice::neutral(
+                    "test",
+                    "NOTICE-BEFORE-THE-START",
+                )),
+                shell.turn_starts(),
+                UiEvent::Delta("ANSWER".to_string()),
+                UiEvent::TurnEnded { failure: None },
+            ] {
+                events.try_send(event).expect("room on the channel");
+            }
+            let mut ticks = Vec::new();
+            for _ in 0..3 {
+                let before = out.vectors.len();
+                take_ui_events(&mut shell, &mut receiver);
+                shell.flush_paced();
+                shell.settle_band(Instant::now());
+                status_tick(&mut shell, &mut band, &mut out);
+                ticks.push(out.vectors[before..].concat());
+            }
+            let shown = |tick: &[u8]| String::from_utf8_lossy(tick).into_owned();
+            let start = &ticks[0];
+            assert!(
+                holds(start, b"NOTICE-BEFORE-THE-START") && !holds(start, b"ANSWER"),
+                "same tick {same_tick}: the start's tick did not read up to the start and stop: {:?}",
+                shown(start)
+            );
+            let thinking = find(start, b"Thinking");
+            let working = find(start, WORKING.as_bytes());
+            assert!(
+                thinking.is_some() && working.is_some() && thinking < working,
+                "same tick {same_tick}: no working after a frame showing Thinking: {:?}",
+                shown(start)
+            );
+            assert!(
+                !holds(start, DONE.as_bytes()) && holds(&ticks[1], DONE.as_bytes()),
+                "same tick {same_tick}: the end was not the next tick's: {:?}",
+                ticks.iter().map(|tick| shown(tick)).collect::<Vec<_>>()
+            );
+            let reports: Vec<String> = ticks
+                .concat()
+                .split(|byte| *byte == 0x1b)
+                .filter(|piece| piece.starts_with(b"]7501;"))
+                .map(|piece| String::from_utf8_lossy(piece).into_owned())
+                .collect();
+            assert_eq!(
+                reports,
+                ["]7501;state=working:app=xfx", "]7501;state=done:app=xfx"],
+                "same tick {same_tick}"
+            );
+        }
+    }
+
+    /// One turn of the session's loop ([`loop_turn`]) with `keys` as what
+    /// the terminal has to read: a check finds them, reads take them, and the
+    /// next check finds nothing. `pause` is slept after the reads, before the
+    /// loop settles them -- the time a lone `ESC` needs to be the Escape key.
+    fn keyed_turn(
+        shell: &mut Shell,
+        band: &mut Band,
+        events: &mut Receiver<UiEvent>,
+        out: &mut StatusScreen,
+        failures: &mut FrameFailures,
+        keys: &[u8],
+        pause: Duration,
+    ) {
+        let left = std::cell::RefCell::new(keys.to_vec());
+        let mut buffer = [0u8; BURST_BYTES];
+        loop_turn(
+            shell,
+            band,
+            events,
+            out,
+            failures,
+            |shell| {
+                burst(
+                    shell,
+                    &mut buffer,
+                    || Ok(!left.borrow().is_empty()),
+                    |into| {
+                        let mut left = left.borrow_mut();
+                        let n = left.len().min(into.len());
+                        into[..n].copy_from_slice(&left[..n]);
+                        left.drain(..n);
+                        Ok(n)
+                    },
+                )?;
+                std::thread::sleep(pause);
+                Ok(())
+            },
+            |_, _| Ok(Reconciled),
+        )
+        .expect("a turn of the loop");
+    }
+
+    /// The program status reports on `out`'s wire, in order, each as the
+    /// state it names -- a report may ride a frame's lead, so read from the
+    /// bytes rather than one per vector.
+    fn states(out: &StatusScreen) -> Vec<String> {
+        let wire = String::from_utf8_lossy(&out.vectors.concat()).into_owned();
+        wire.split("\u{1b}]7501;state=")
+            .skip(1)
+            .map(|rest| rest.split([':', '\u{1b}']).next().unwrap_or("").to_string())
+            .collect()
+    }
+
+    /// `row` with every count of seconds -- digits and an `s` -- as `#s`.
+    fn without_seconds(row: &str) -> String {
+        let mut out = String::new();
+        let mut digits = String::new();
+        for c in row.chars() {
+            if c.is_ascii_digit() {
+                digits.push(c);
+                continue;
+            }
+            if !digits.is_empty() {
+                out.push_str(if c == 's' { "#" } else { &digits });
+                digits.clear();
+            }
+            out.push(c);
+        }
+        out.push_str(&digits);
+        out
+    }
+
+    /// The screen and its history as a terminal shows `out`'s wire, with
+    /// every count of seconds as `#s`: a turn's clock counts the run's own
+    /// wall time, which a loaded machine can push past one in either run.
+    fn painted(out: &StatusScreen) -> Vec<String> {
+        let mut terminal = Terminal::new(24, 80);
+        terminal.catch_up(&out.vectors.concat());
+        terminal
+            .everything()
+            .iter()
+            .map(|row| without_seconds(row))
+            .collect()
+    }
+
+    /// The last row of `screen` that is not blank: the band's hint row.
+    fn hint_row(screen: &[String]) -> String {
+        screen
+            .iter()
+            .rev()
+            .find(|row| !row.is_empty())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// What a run of the loop came to, for one run to be compared with
+    /// another: the reports in order, the screen and its history as a
+    /// terminal shows them, whether the session is leaving, and everything
+    /// the shell told the runtime.
+    #[derive(Debug, PartialEq)]
+    struct Ran {
+        reports: Vec<String>,
+        /// The hint row as the keys' own tick painted it. Read there, not at
+        /// the end: its cues expire on the clock (`press ctrl+c again to
+        /// exit` after 3 s, the Escape cue after 1 s), and a stall inside one
+        /// run would compare a cue with its expiry.
+        cue: String,
+        /// The screen at the end, the hint row left out for that reason.
+        screen: Vec<String>,
+        leaving: bool,
+        controls: Vec<crate::tui::bridge::TurnControl>,
+        work: Vec<crate::tui::bridge::TurnWork>,
+    }
+
+    /// A prompt sent, then its turn -- its start, its answer and its end --
+    /// on the runtime's channel, then `keys` typed, through the session's own
+    /// loop.
+    ///
+    /// With `split`, everything is on the channel before the tick that reads
+    /// the start: the turn ran whole while the UI thread was not looking,
+    /// the drain stops behind the start (`drain_ui_events`), and the rest
+    /// waits on the channel while the keys are read. Without it, the start
+    /// alone is there for that tick and the rest arrives right after it --
+    /// the schedule a fast turn already had at the base, the end landing just
+    /// after the drain that read the start. The runtime is the same in both:
+    /// the turn is over and its place given back before the keys are read.
+    fn split_run(split: bool, keys: &[u8], pause: Duration) -> Ran {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        launch_title(&mut shell, &mut band);
+        let none = Duration::ZERO;
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            none,
+        );
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"go\r",
+            none,
+        );
+        let mut turn = vec![shell.turn_starts()];
+        turn.push(UiEvent::Delta("THE-ANSWER".to_string()));
+        turn.push(UiEvent::TurnEnded { failure: None });
+        let rest = turn.split_off(1);
+        for event in &turn {
+            events.try_send(event.clone()).expect("room on the channel");
+        }
+        if split {
+            for event in &rest {
+                events.try_send(event.clone()).expect("room on the channel");
+            }
+            shell.handle.give_back();
+        }
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            none,
+        );
+        if split {
+            assert!(
+                receiver.len() == rest.len(),
+                "the start's tick read past the start: {} of {} left",
+                receiver.len(),
+                rest.len()
+            );
+        } else {
+            for event in &rest {
+                events.try_send(event.clone()).expect("room on the channel");
+            }
+            shell.handle.give_back();
+        }
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            keys,
+            pause,
+        );
+        let cue = hint_row(&painted(&out));
+        // Then the loop runs on until the channel is empty, the answer has
+        // been let go of and a tick more has painted it -- or the keys ended
+        // the session, where the loop stops turning.
+        for _ in 0..4 {
+            if shell.leaving() {
+                break;
+            }
+            shell.flush_paced();
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                b"",
+                none,
+            );
+        }
+        assert!(
+            receiver.is_empty() || shell.leaving(),
+            "the turn was never read"
+        );
+        // A session the keys ended goes out the way `run` takes it out: what
+        // the pacer still holds is flushed onto a last frame ([`flushed`]),
+        // so neither run's screen depends on how much the clock had let go of.
+        if shell.leaving() {
+            flushed(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                Instant::now(),
+                Reconciled,
+            )
+            .expect("the exit's flush");
+        }
+        let mut screen = painted(&out);
+        if let Some(hint) = screen.iter().rposition(|row| !row.is_empty()) {
+            screen.remove(hint);
+        }
+        let mut controls = Vec::new();
+        while let Ok(control) = shell._control.try_recv() {
+            controls.push(control);
+        }
+        let mut work = Vec::new();
+        while let Ok(sent) = shell._work.try_recv() {
+            work.push(sent);
+        }
+        Ran {
+            reports: states(&out),
+            cue,
+            screen,
+            leaving: shell.leaving(),
+            controls,
+            work,
+        }
+    }
+
+    #[test]
+    fn keys_between_a_split_turns_start_and_its_queued_end_do_what_they_do_when_the_end_is_late() {
+        // Round-1 review (gpt6, SHOULD 1): the drain now stops behind a start
+        // with the turn's answer and end already on the channel, and the keys
+        // of the next tick are read before that drain reads them (`session`:
+        // the keys, then the events). Through the loop's own turn
+        // (`loop_turn`), each kind of key read in that gap -- typing, a stop,
+        // a second stop, an Escape, Ctrl-D, `/quit` -- comes to what it comes
+        // to when the same turn's answer and end land right after the drain
+        // that read the start: the reports, the screen, whether the session
+        // leaves, and what went to the runtime are the same.
+        let escape = crate::tui::input::Decoder::ESC_TIMEOUT + Duration::from_millis(20);
+        let keys: [(&str, &[u8], Duration); 6] = [
+            ("typing", b"ab", Duration::ZERO),
+            ("a stop", &[0x03], Duration::ZERO),
+            ("two stops", &[0x03, 0x03], Duration::ZERO),
+            ("escape", &[0x1b], escape),
+            ("ctrl-d", &[0x04], Duration::ZERO),
+            ("quit", b"/quit\r", Duration::ZERO),
+        ];
+        for (what, keys, pause) in keys {
+            let split = split_run(true, keys, pause);
+            let late = split_run(false, keys, pause);
+            assert_eq!(split, late, "{what}");
+            assert_eq!(
+                split.cue == "press ctrl+c again to exit",
+                matches!(what, "a stop" | "two stops"),
+                "{what}: {:?}",
+                split.cue
+            );
+            assert_eq!(
+                split.leaving,
+                matches!(what, "two stops" | "quit"),
+                "{what}: {split:?}"
+            );
+            assert_eq!(
+                split.reports.get(..2),
+                Some(&["idle".to_string(), "working".to_string()][..]),
+                "{what}: {:?}",
+                split.reports
+            );
+        }
+        // And the typed keys are in the composer, under the answer, with the
+        // turn's result reported after its `working`.
+        let typed = split_run(true, b"ab", Duration::ZERO);
+        assert_eq!(typed.reports, ["idle", "working", "done"], "{typed:?}");
+        assert!(
+            typed.screen.iter().any(|row| row.contains("THE-ANSWER")),
+            "{typed:?}"
+        );
+        assert!(
+            typed
+                .screen
+                .iter()
+                .any(|row| row.trim_end() == "\u{2503} ab"),
+            "{typed:?}"
+        );
+    }
+
+    #[test]
+    fn under_a_sustained_stream_a_split_turn_stops_the_drain_once_and_every_tick_reads_its_keys() {
+        // The same review's sustained case, through the loop's own turn: a
+        // turn that ran whole and then streams three channels' worth of text.
+        // The start's tick reads nothing past the start; every tick after it
+        // reads the keys typed in it and then empties the channel -- only the
+        // drain's own bound decides how much it takes, and no other event
+        // stops it -- and the whole answer lands in order behind one
+        // `working` and one `done`.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        let none = Duration::ZERO;
+        launch_title(&mut shell, &mut band);
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            none,
+        );
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"go\r",
+            none,
+        );
+        events
+            .try_send(shell.turn_starts())
+            .expect("room on the channel");
+        let total = 3 * bridge::UI_EVENTS;
+        let mut sent = 0;
+        let mut ended = false;
+        // The runtime's side: as much more of the answer as the channel has
+        // room for, then the end once it has all gone, its place given back.
+        fn top_up(
+            events: &mpsc::Sender<UiEvent>,
+            shell: &mut Fixture,
+            sent: &mut usize,
+            ended: &mut bool,
+            total: usize,
+        ) {
+            while *sent < total && events.try_send(UiEvent::Delta(format!("w{sent} "))).is_ok() {
+                *sent += 1;
+            }
+            if *sent == total
+                && !*ended
+                && events
+                    .try_send(UiEvent::TurnEnded { failure: None })
+                    .is_ok()
+            {
+                *ended = true;
+                shell.handle.give_back();
+            }
+        }
+        top_up(&events, &mut shell, &mut sent, &mut ended, total);
+        let queued = receiver.len();
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            none,
+        );
+        assert_eq!(
+            receiver.len(),
+            queued - 1,
+            "the start's tick read past the start"
+        );
+        let mut typed = String::new();
+        for tick in 0..100 {
+            top_up(&events, &mut shell, &mut sent, &mut ended, total);
+            let key = char::from(b'a' + (tick % 26) as u8);
+            if typed.len() < 20 {
+                typed.push(key);
+            }
+            let keys = if typed.len() <= 20 && tick < 20 {
+                vec![key as u8]
+            } else {
+                Vec::new()
+            };
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                &keys,
+                none,
+            );
+            assert!(
+                receiver.is_empty(),
+                "tick {tick}: the drain stopped short of an emptied channel"
+            );
+            if tick < 20 {
+                assert!(
+                    shell.band_rows().iter().any(|row| row.contains(&typed)),
+                    "tick {tick}: the keys typed are not in the composer: {:?}",
+                    shell.band_rows()
+                );
+            }
+            if ended && tick >= 20 {
+                break;
+            }
+        }
+        assert!(ended, "the stream never ended");
+        shell.flush_paced();
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            none,
+        );
+        assert_eq!(states(&out), ["idle", "working", "done"]);
+        let mut terminal = Terminal::new(24, 80);
+        terminal.catch_up(&out.vectors.concat());
+        let text = terminal.everything().join(" ");
+        let mut at = 0;
+        for word in 0..total {
+            let token = format!("w{word} ");
+            at = text[at..]
+                .find(&token)
+                .map(|found| at + found + token.len())
+                .unwrap_or_else(|| panic!("{token:?} is not on the screen in order: {text:?}"));
+        }
+    }
+
+    #[test]
+    fn the_drain_reads_past_a_start_that_owes_no_frame() {
+        // Round-1 review (opus, NIT 3): a start the drain stops behind is one
+        // whose `working` waits for its frame, and no other. A prompt queued
+        // behind a running turn is reported on that turn's `working` and owes
+        // its own start no frame (`Shell::take_status_moved_by_input`), so
+        // the drain that reads the running turn's end and that prompt's start
+        // reads on through the prompt's answer and end, as before.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"first\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert_eq!(out.reports().last().map(String::as_str), Some(WORKING));
+        shell.route_bytes(b"second\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        let second = shell.turn_starts();
+        for event in [
+            UiEvent::TurnEnded { failure: None },
+            second,
+            UiEvent::Delta("SECOND-ANSWER".to_string()),
+            UiEvent::TurnEnded { failure: None },
+        ] {
+            events.try_send(event).expect("room on the channel");
+        }
+        take_ui_events(&mut shell, &mut receiver);
+        assert!(
+            receiver.is_empty(),
+            "the drain stopped behind a start that owes no frame: {} left",
+            receiver.len()
+        );
+    }
+
+    #[test]
+    fn the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report() {
+        // The stop is behind a turn's start that owes its frame, and nowhere
+        // else. A tick whose keys move the status to work -- here the model's
+        // question answered while the turn runs -- owes its report after its frame too
+        // (`Keyed::AfterFrame`), so the predicate is true for the whole tick;
+        // but no start is among what the drain reads, and it reads them all.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.start_turn();
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        use super::super::question::{QuestionId, QuestionRequest};
+        use crate::tools::question::{QuestionEntry, QuestionOption};
+        shell.apply(UiEvent::Question(QuestionRequest {
+            id: QuestionId(1),
+            entries: vec![QuestionEntry {
+                question: "Proceed?".to_string(),
+                options: vec![
+                    QuestionOption {
+                        label: "Go ahead".to_string(),
+                        description: None,
+                    },
+                    QuestionOption {
+                        label: "Stop".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        }));
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        assert!(
+            out.reports()
+                .last()
+                .is_some_and(|report| report.contains("blocked:kind=question")),
+            "{:?}",
+            out.reports()
+        );
+        shell.route_bytes(b"1");
+        assert!(
+            shell.turn_start_owes_its_frame(),
+            "the answer owes no report after its frame, so this proves nothing: {:?}",
+            shell.band_rows()
+        );
+        for word in ["ONE ", "TWO ", "THREE "] {
+            events
+                .try_send(UiEvent::Delta(word.to_string()))
+                .expect("room on the channel");
+        }
+        take_ui_events(&mut shell, &mut receiver);
+        assert!(
+            receiver.is_empty(),
+            "the drain stopped where no start was: {} left",
+            receiver.len()
         );
     }
 
@@ -20047,5 +20716,274 @@ mod tests {
             shell.band_rows().join("\n").contains("Commands "),
             "the catalog went"
         );
+    }
+
+    #[test]
+    fn an_escape_pair_settled_in_the_tick_that_reads_a_held_prompts_start_leaves_the_start_ending_the_drain(
+    ) {
+        // The join with META-PREFIX-DECODE (train 16). Two `ESC` bytes in one
+        // read are a meta prefix the decoder holds; only the clock makes them
+        // keys -- an Escape at `PAIR_TIMEOUT`, the second at `ESC_TIMEOUT`
+        // (`input::Decoder::flush`) -- and the loop's turn asks the clock once,
+        // in `settle_input`, after the read and before the drain
+        // (`loop_turn`). fx's pass also resolves its keys before the worker's
+        // events (`loopCollectFacts`, `main.zig:2975-2982@481104fd`). So in
+        // the tick that reads a held prompt's start, a pair still pending is
+        // no key yet, and a pair settled there is two Escapes at a prompt the
+        // runtime has not started -- they clear the draft, as two Escapes over
+        // a draft do with nothing running (`Gestures::escape`) -- and either
+        // way the start ends the drain, so `working` follows the frame that
+        // shows its `Thinking`. Settled after the drain instead, the same two
+        // would be an Escape pair at a running turn: its interrupt. This case
+        // is the pair settled in that tick; the next two, the pair still
+        // pending there, by hand and through the loop's turns.
+        //
+        // Settled in that tick, through the loop's own turn: the reads are
+        // over at least `ESC_TIMEOUT` before the turn settles them, however
+        // the clock falls.
+        {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut out = StatusScreen::default();
+            let mut failures = FrameFailures::default();
+            let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+            let none = Duration::ZERO;
+            launch_title(&mut shell, &mut band);
+            for keys in [&b""[..], b"go\r"] {
+                keyed_turn(
+                    &mut shell,
+                    &mut band,
+                    &mut receiver,
+                    &mut out,
+                    &mut failures,
+                    keys,
+                    none,
+                );
+            }
+            whole_turn(&mut shell, &events);
+            let before = out.vectors.len();
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                b"ab\x1b\x1b",
+                crate::tui::input::Decoder::ESC_TIMEOUT + Duration::from_millis(20),
+            );
+            let tick = out.vectors[before..].concat();
+            assert_eq!(
+                receiver.len(),
+                2,
+                "the start's tick read past the start: {:?}",
+                shows(&tick)
+            );
+            assert_eq!(
+                composer(&shell),
+                COMPOSER_MARKER,
+                "the pair was not two Escapes ahead of the start"
+            );
+            let thinking = find(&tick, b"Thinking");
+            let working = find(&tick, WORKING.as_bytes());
+            assert!(
+                thinking.is_some() && working.is_some() && thinking < working,
+                "no working after a frame showing Thinking: {:?}",
+                shows(&tick)
+            );
+            for _ in 0..3 {
+                shell.flush_paced();
+                keyed_turn(
+                    &mut shell,
+                    &mut band,
+                    &mut receiver,
+                    &mut out,
+                    &mut failures,
+                    b"",
+                    none,
+                );
+            }
+            assert!(receiver.is_empty(), "the turn was never read");
+            assert_eq!(states(&out), ["idle", "working", "done"]);
+            assert!(
+                shell._control.try_recv().is_err(),
+                "the pair stopped the turn"
+            );
+        }
+    }
+
+    #[test]
+    fn an_escape_pair_still_pending_in_the_tick_that_reads_a_held_prompts_start_is_no_key_and_the_start_ends_the_drain(
+    ) {
+        // The join with META-PREFIX-DECODE, the pair still pending in the tick
+        // that reads a held prompt's start, by hand: the turn's steps called
+        // in `loop_turn`'s order, settling the reads at the clock they were
+        // read at, which no timeout has passed. The next case drives the same
+        // through the loop's own turns.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        launch_title(&mut shell, &mut band);
+        status_tick(&mut shell, &mut band, &mut out);
+        shell.route_bytes(b"go\r");
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        status_tick(&mut shell, &mut band, &mut out);
+        whole_turn(&mut shell, &events);
+        let before = out.vectors.len();
+        let read_at = Instant::now();
+        shell.route_read(b"ab\x1b\x1b");
+        shell.settle_input(read_at);
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(read_at);
+        status_tick(&mut shell, &mut band, &mut out);
+        let tick = out.vectors[before..].concat();
+        assert_eq!(
+            receiver.len(),
+            2,
+            "the start's tick read past the start: {:?}",
+            shows(&tick)
+        );
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} ab"),
+            "the pair was a key"
+        );
+        let thinking = find(&tick, b"Thinking");
+        let working = find(&tick, WORKING.as_bytes());
+        assert!(
+            thinking.is_some() && working.is_some() && thinking < working,
+            "no working after a frame showing Thinking: {:?}",
+            shows(&tick)
+        );
+    }
+
+    #[test]
+    fn an_escape_pair_pending_through_one_loop_turn_settles_in_the_next_ahead_of_the_start_it_reads(
+    ) {
+        // The pending pair through the loop's own turns (`loop_turn`), not by
+        // hand (join review, SHOULD 2). The turn that reads the pair settles
+        // it at a clock no deadline has passed, so it is no key there. The
+        // next turn reads nothing, and the clock it settles at has passed both
+        // deadlines; the held prompt's start, its answer and its end are on
+        // the channel by then. In the production order that turn delivers the
+        // pair's two Escapes first, at a prompt the runtime has not started:
+        // the draft is cleared and no stop is sent. Then the drain stops
+        // behind the start, and the frame showing its `Thinking` goes ahead
+        // of `working`. Settled after the drain instead, the two would be an
+        // Escape pair at a running turn: its interrupt, with the draft kept.
+        //
+        // The clock is the case's on the decoder's side. The pair is read
+        // stamped `LEAD` ahead of the clock ([`Shell::route_read_at`]). So the
+        // reading turn's settle, at the clock inside the turn, finds no
+        // deadline passed however long the thread is held in between (under
+        // `LEAD`). The next turn's read then waits until both deadlines past
+        // the stamp have passed, before that turn settles.
+        const LEAD: Duration = Duration::from_millis(250);
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut out = StatusScreen::default();
+        let mut failures = FrameFailures::default();
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        let none = Duration::ZERO;
+        launch_title(&mut shell, &mut band);
+        for keys in [&b""[..], b"go\r"] {
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                keys,
+                none,
+            );
+        }
+        let read_at = Instant::now() + LEAD;
+        loop_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            |shell| {
+                shell.route_read_at(b"ab\x1b\x1b", read_at);
+                Ok(())
+            },
+            |_, _| Ok(Reconciled),
+        )
+        .expect("the turn that reads the pair");
+        assert_eq!(
+            composer(&shell),
+            format!("{COMPOSER_MARKER} ab"),
+            "the pair was a key in the turn that read it"
+        );
+        whole_turn(&mut shell, &events);
+        let settled = read_at + crate::tui::input::Decoder::ESC_TIMEOUT + Duration::from_millis(20);
+        let before = out.vectors.len();
+        keyed_turn(
+            &mut shell,
+            &mut band,
+            &mut receiver,
+            &mut out,
+            &mut failures,
+            b"",
+            settled.saturating_duration_since(Instant::now()),
+        );
+        let tick = out.vectors[before..].concat();
+        assert_eq!(
+            receiver.len(),
+            2,
+            "the settling turn read past the start: {:?}",
+            shows(&tick)
+        );
+        assert_eq!(
+            composer(&shell),
+            COMPOSER_MARKER,
+            "the pair was not two Escapes ahead of the start"
+        );
+        let thinking = find(&tick, b"Thinking");
+        let working = find(&tick, WORKING.as_bytes());
+        assert!(
+            thinking.is_some() && working.is_some() && thinking < working,
+            "no working after a frame showing Thinking: {:?}",
+            shows(&tick)
+        );
+        for _ in 0..3 {
+            shell.flush_paced();
+            keyed_turn(
+                &mut shell,
+                &mut band,
+                &mut receiver,
+                &mut out,
+                &mut failures,
+                b"",
+                none,
+            );
+        }
+        assert!(receiver.is_empty(), "the turn was never read");
+        assert_eq!(states(&out), ["idle", "working", "done"]);
+        assert!(
+            shell._control.try_recv().is_err(),
+            "the pair stopped the turn"
+        );
+    }
+
+    /// A held prompt's turn run whole while the UI thread was not looking:
+    /// its start, its answer and its end on the channel, and its place given
+    /// back.
+    fn whole_turn(shell: &mut Fixture, events: &mpsc::Sender<UiEvent>) {
+        for event in [
+            shell.turn_starts(),
+            UiEvent::Delta("THE-ANSWER".to_string()),
+            UiEvent::TurnEnded { failure: None },
+        ] {
+            events.try_send(event).expect("room on the channel");
+        }
+        shell.handle.give_back();
+    }
+
+    /// A tick's bytes as text, for a failure's message.
+    fn shows(tick: &[u8]) -> String {
+        String::from_utf8_lossy(tick).into_owned()
     }
 }

@@ -1,0 +1,28 @@
+# The dispatcher's gate at e26ce67b (round 1's head), copied as the dispatcher wrote it
+suite slot: slot-1 (10:49Z)
+fmt rc=0 2s
+clippy rc=0 7s
+clippy-fi rc=0 19s
+test rc=0 138s
+test-fi rc=0 160s
+identity rc=0 2s
+stubs rc=0 17s
+secrets rc=0 111s
+local-paths rc=0 6s
+local-paths-each rc=0 1s
+contract rc=0 4s
+preflight-cost rc=0 151s
+test-secrets rc=0 135s
+test-gate-env rc=0 512s
+test-contract rc=0 93s
+usage-clock rc=0 157s
+test-sweep rc=0 26s
+test-capture rc=0 368s
+build-rel rc=0 31s
+smoke rc=0 2s
+build-faulty rc=0 40s
+smoke-tui rc=0 70s
+  smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+test: passed=5723 failed=0
+test-fi: passed=5760 failed=0
+tree unchanged: e26ce67b, clean

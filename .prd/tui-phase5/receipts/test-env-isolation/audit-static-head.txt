@@ -1,0 +1,261 @@
+# audit-static at 8db95597
+
+## every std::env read in src (comment lines excluded)
+src/interactive.rs:1735:                            dir: crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref()),
+src/lib.rs:51:        ::std::env::var($name)
+src/lib.rs:54:        ::std::env::var_os($name)
+src/lib.rs:57:        ::std::env::var($name)
+src/lib.rs:60:        ::std::env::var_os($name)
+src/lib.rs:63:        |name: &str| ::std::env::var(name).ok()
+src/local_time/tests.rs:230:    let Some(moments) = std::env::var_os(MOMENTS) else {
+src/mcp/docker.rs:94:        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+src/mcp/transport.rs:2623:                std::env::var_os("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
+src/mcp/transport.rs:2735:            std::env::var_os(SENTINEL_RUNNER).is_some(),
+src/mcp/transport.rs:2784:            std::env::var_os(SENTINEL_RUNNER).is_some(),
+src/permission/authority.rs:1465:    let path = std::env::var("PATH")
+src/permission/authority.rs:2288:            let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+src/permission/authority.rs:2350:                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+src/permission/authority.rs:2602:                    .env("PATH", std::env::var_os("PATH").unwrap_or_default()),
+src/permission/authority.rs:2673:                    .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+src/permission/gitconfig.rs:173:        .or_else(|| std::env::var_os("PATH"))
+src/permission/gitconfig.rs:767:        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+src/process.rs:1033:        if std::env::var_os(SIGCHLD_PROBE).is_some() {
+src/profile_home/tests.rs:240:    if std::env::var_os(UNDER_OPEN_UMASK).is_none() {
+src/session/store/fork/tests.rs:1259:    if std::env::var_os(UNDER_OPEN_UMASK).is_none() {
+src/test_env.rs:190:        None if CHILD_KEEPS.iter().any(|kept| OsStr::new(kept) == name) => std::env::var_os(name),
+src/test_env.rs:224:        if let Some(value) = std::env::var_os(name) {
+src/test_env/tests.rs:90:    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+src/test_net.rs:40:    std::env::var(SERVER).ok()
+src/tui/drawn_wider.rs:92:        let list = std::env::var("XFX_DRAWN_WIDER_LIST").expect("XFX_DRAWN_WIDER_LIST");
+src/tui/drawn_wider.rs:93:        let out = std::env::var("XFX_DRAWN_WIDER_OUT").expect("XFX_DRAWN_WIDER_OUT");
+src/tui/fault.rs:147:    std::env::var_os(FAULT_ENV).is_some_and(|value| value == point.name())
+src/tui/mod.rs:458:    let colorfgbg = std::env::var(theme::COLORFGBG).ok();
+src/tui/mod.rs:459:    let colorterm = std::env::var(theme::COLORTERM).ok();
+src/tui/mod.rs:460:    let term_program = std::env::var(theme::TERM_PROGRAM).ok();
+src/tui/shell.rs:2448:        let trace_dir = crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref());
+src/tui/signals.rs:1295:        std::env::var(IGNORED_AT_ENTRY)
+src/tui/term.rs:178:    std::env::var_os("TMUX").is_some_and(|value| !value.is_empty())
+src/usage/cache.rs:890:        if std::env::var_os(KILL_BEFORE_RENAME).is_some() {
+src/usage/cache/tests.rs:1269:    let Some(role) = std::env::var_os(ROLE) else {
+src/usage/cache/tests.rs:1272:    let root = PathBuf::from(std::env::var_os(ROLE_HOME).expect("a home"));
+src/usage/cache/tests.rs:1274:    let arg = std::env::var(ROLE_ARG).unwrap_or_default();
+
+## the readers routed through process_env! (head only)
+src/config.rs:818:            if let Ok(value) = process_env!("config::Environment::from_process", var(key)) {
+src/config.rs:823:            process_env!("config::Environment::from_process", var_os("HOME")).map(PathBuf::from),
+src/gateway/mod.rs:358:        let raw = process_env!("gateway::Endpoint::from_process", var(GATEWAY_URL_ENV)).ok();
+src/mcp/runtime.rs:802:            Box::new(process_env!("mcp::McpRuntime::new", lookup)),
+src/mcp/transport.rs:373:            |name| process_env!("mcp::transport::StdioTransport::spawn", child_var_os(name)),
+src/permission/authority.rs:1469:    let home = process_env!(
+src/permission/gitconfig.rs:95:                    process_env!("permission::GitEnvironment::from_process", var_os(name))
+src/permission/links.rs:146:            process_env!("permission::LinkBase::from_environment", var_os(name))
+src/permission/links.rs:150:        let relative_home = process_env!("permission::LinkBase::from_environment", var_os("HOME"))
+src/tui/mod.rs:67:        && process_env!("tui::should_run", var_os(TUI_ENV)).is_none_or(|value| value != "0")
+src/tui/mod.rs:399:    let env_theme = process_env!("tui::hold", var(theme::ENV)).ok();
+src/usage/clock.rs:57:    now_ms_with(|name| process_env!("usage::clock::now_ms", var_os(name)))
+
+## callers of Environment::from_process()
+src/app.rs:548:        .with_git_environment(crate::permission::GitEnvironment::from_process());
+src/app.rs:898:    let env = Environment::from_process();
+src/config.rs:998:        Self::load_with(&Environment::from_process(), workspace)
+src/interactive.rs:1547:    let env = Environment::from_process();
+src/interactive.rs:1890:        .with_git_environment(crate::permission::GitEnvironment::from_process());
+src/test_env/tests.rs:46:        drop(crate::config::Environment::from_process());
+src/test_env/tests.rs:60:        drop(crate::permission::GitEnvironment::from_process());
+src/test_env/tests.rs:206:            let env = Environment::from_process();
+src/test_env/tests.rs:218:                GitEnvironment::from_process(),
+src/test_env/tests.rs:227:        Environment::from_process()
+src/test_env/tests.rs:239:        drop(Environment::from_process());
+src/test_env/tests.rs:249:            Environment::from_process()
+src/test_env/tests.rs:256:    let outside = super::carried(|| panic_of(|| drop(Environment::from_process())));
+src/tui/signals.rs:796:            crate::config::Environment::from_process()
+src/tui/worker.rs:1761:            Environment::from_process(),
+src/tui/worker.rs:6294:            .with_git_environment(crate::permission::GitEnvironment::from_process()),
+
+## callers of Endpoint::from_process()
+src/credits.rs:169:                Endpoint::from_process().map_err(|err| Answer::Failed(err.to_string()))?;
+src/provider/mod.rs:369:                    crate::gateway::Endpoint::from_process().map_err(|err| err.to_string())?;
+src/provider/model.rs:1091:            let endpoint = Endpoint::from_process().ok()?;
+src/test_env/tests.rs:53:        drop(crate::gateway::Endpoint::from_process());
+src/test_env/tests.rs:212:                crate::gateway::Endpoint::from_process()
+src/tui/worker.rs:987:    match crate::gateway::Endpoint::from_process() {
+src/tui/worker.rs:2124:        let endpoint = crate::gateway::Endpoint::from_process().ok()?;
+
+## callers of GitEnvironment::from_process()
+src/app.rs:548:        .with_git_environment(crate::permission::GitEnvironment::from_process());
+src/interactive.rs:1890:        .with_git_environment(crate::permission::GitEnvironment::from_process());
+src/test_env/tests.rs:60:        drop(crate::permission::GitEnvironment::from_process());
+src/test_env/tests.rs:218:                GitEnvironment::from_process(),
+src/tui/worker.rs:6294:            .with_git_environment(crate::permission::GitEnvironment::from_process()),
+
+## callers of LinkBase::from_environment()
+src/app.rs:547:        .with_link_bases(crate::permission::LinkBase::from_environment())
+src/interactive.rs:1889:        .with_link_bases(crate::permission::LinkBase::from_environment())
+src/test_env/tests.rs:67:        drop(crate::permission::LinkBase::from_environment());
+src/tui/worker.rs:6293:            .with_link_bases(crate::permission::LinkBase::from_environment())
+
+## callers of RuntimeConfig::load(
+
+## callers of Runtime::new(
+src/mcp/config.rs:5322:            crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/mcp/tests.rs:58:        let runtime = McpRuntime::new(Paths {
+src/test_env/tests.rs:287:    let runtime = crate::mcp::McpRuntime::new(paths());
+src/test_env/tests.rs:293:        .run(|| crate::mcp::McpRuntime::new(paths()));
+src/tui/event_loop.rs:13594:            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/tui/event_loop.rs:15681:        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/tui/shell.rs:35742:        let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
+src/tui/worker.rs:1249:    let mcp = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/tui/worker.rs:1290:        let mut state = Runtime::new(config, store, prompter, questioner);
+
+## callers of McpRuntime::new(
+src/mcp/config.rs:5322:            crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/mcp/tests.rs:58:        let runtime = McpRuntime::new(Paths {
+src/test_env/tests.rs:287:    let runtime = crate::mcp::McpRuntime::new(paths());
+src/test_env/tests.rs:293:        .run(|| crate::mcp::McpRuntime::new(paths()));
+src/tui/event_loop.rs:13594:            let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/tui/event_loop.rs:15681:        let runtime = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+src/tui/shell.rs:35742:        let runtime = crate::mcp::McpRuntime::new(crate::mcp::runtime::Paths {
+src/tui/worker.rs:1249:    let mcp = crate::mcp::McpRuntime::new(crate::mcp::Paths {
+
+## callers of catalog_for(
+src/provider/model.rs:1084:pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog + Send + Sync>> {
+src/provider/model.rs:1853:        let catalog_fetcher = catalog_for(config);
+src/provider/model.rs:3452:        assert!(catalog_for(&config).is_none());
+src/provider/model.rs:3471:        let asked = crate::test_env::FakeProcess::new().run(|| catalog_for(&config).is_some());
+src/provider/model.rs:3478:        assert!(catalog_for(&config).is_none(), "asked with the key");
+
+## callers of credits::question(
+src/tui/shell.rs:41521:            .run(|| crate::credits::question(&config))
+src/tui/worker.rs:1245:    let credits = CreditsBoard::new(crate::credits::question(&config));
+src/tui/worker.rs:1869:        self.credits.publish(crate::credits::question(&self.config));
+
+## callers of usage_question(
+src/tui/event_loop.rs:3263:    fn usage_question(origin: &str, key: &str) -> crate::usage::report::Question {
+src/tui/event_loop.rs:3303:        shell.publish_usage_question(Ok(usage_question("http://127.0.0.1:9", "fake-key-a")));
+src/tui/event_loop.rs:3307:        shell.publish_usage_question(Ok(usage_question("http://127.0.0.1:9", "fake-key-b")));
+src/tui/shell.rs:8326:        match self.work.usage_question() {
+src/tui/shell.rs:8342:            let current = self.work.usage_question().ok();
+src/tui/shell.rs:8508:    pub(crate) fn publish_usage_question(
+src/tui/worker.rs:635:    pub(crate) fn usage_question(
+src/tui/worker.rs:985:fn usage_question(config: &crate::config::RuntimeConfig) -> UsageQuestion {
+src/tui/worker.rs:1241:    let usage = UsageBoard::new(usage_question(&config));
+src/tui/worker.rs:1868:        self.usage.publish(usage_question(&self.config));
+
+## callers of title_asker(
+src/tui/worker.rs:1870:        self.titles.publish_asker(self.title_asker());
+src/tui/worker.rs:2119:    fn title_asker(&self) -> Option<(crate::gateway::Endpoint, crate::config::Credential)> {
+src/tui/worker.rs:8625:            state.title_asker().is_none(),
+src/tui/worker.rs:16014:        desk.publish_asker(titled_runtime(|_| generated("x")).2.title_asker());
+src/tui/worker.rs:16077:        assert!(state.title_asker().is_some());
+src/tui/worker.rs:16084:        assert!(state.title_asker().is_none());
+src/tui/worker.rs:16096:        assert!(state.title_asker().is_some());
+
+## callers of should_run(
+src/main.rs:28:    if xfx::tui::should_run(&cli) {
+src/test_env/tests.rs:84:        let _ = crate::tui::should_run(&cli);
+src/tui/mod.rs:65:pub fn should_run(cli: &Cli) -> bool {
+
+## callers of now_ms()
+src/agent/compaction_trace.rs:179:        at_ms: crate::session::event::system_now_ms(),
+src/interactive.rs:2755:    let now = crate::session::event::system_now_ms();
+src/llmux/mod.rs:227:            crate::session::event::system_now_ms(),
+src/session/event.rs:715:pub fn system_now_ms() -> i64 {
+src/session/store.rs:158:        let now = system_now_ms().max(0) as u64;
+src/session/store.rs:358:            ClockKind::System => system_now_ms(),
+src/session/store.rs:1853:            timestamp_ms: self.clock.now_ms(),
+src/session/store/fork.rs:166:        let now = self.clock.now_ms();
+src/test_env/tests.rs:74:        let _ = crate::usage::clock::now_ms();
+src/tui/recall.rs:141:            timestamp_ms: u64::try_from(crate::session::event::system_now_ms()).unwrap_or(0),
+src/tui/session_picker.rs:686:        let columns = Columns::of(&items, self.now_ms());
+src/tui/session_picker.rs:708:                let mut row = title_row(session, marked, self.now_ms(), &columns, budget, palette);
+src/tui/session_picker.rs:717:                title_row(session, marked, self.now_ms(), &columns, cols, palette)
+src/tui/titles.rs:619:        let started_ms = crate::session::event::system_now_ms();
+src/tui/titles.rs:1422:        let before = crate::session::event::system_now_ms();
+src/tui/trace.rs:139:            let now = crate::session::event::system_now_ms();
+src/tui/worker.rs:2426:            now_ms: crate::session::event::system_now_ms(),
+src/usage/clock.rs:56:pub fn now_ms() -> i64 {
+src/usage/clock.rs:68:    crate::session::event::system_now_ms()
+src/usage/clock.rs:121:        ms.saturating_sub(crate::session::event::system_now_ms())
+src/usage/dashboard.rs:439:            || self.now_ms().div_euclid(MINUTE_MS) != shown.now_ms.div_euclid(MINUTE_MS)
+src/usage/dashboard.rs:446:        let now = self.now_ms();
+src/usage/dashboard.rs:502:        let now = self.now_ms();
+src/usage/dashboard.rs:574:            Err(TryRecvError::Disconnected) => Done::Failed(Failure::Network, self.now_ms()),
+src/usage/dashboard.rs:586:        let now = self.now_ms();
+
+## integration harnesses: how each builds a child's environment
+tests/cli.rs:66:        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/cli.rs:73:        command.env_clear();
+tests/cli.rs:2231:    command.env_remove("HOME");
+tests/gateway.rs:1464:        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/gateway.rs:1466:        support::sandbox::clear_env(&mut command);
+tests/interactive.rs:153:            None => command.env_remove("HOME"),
+tests/interactive.rs:2529:    let mut command = Command::new("/bin/sh");
+tests/interactive.rs:2623:    let mut command = Command::new("/bin/sh");
+tests/interactive.rs:2648:    let mut command = Command::new("/bin/sh");
+tests/interactive.rs:2695:    let mut command = Command::new("/bin/sh");
+tests/ledger_compat.rs:313:    command.env_remove("TMUX");
+tests/llmux.rs:1513:        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/llmux.rs:1515:        support::sandbox::clear_env(&mut command);
+tests/mcp.rs:48:    command.env_remove("TMUX");
+tests/parity.rs:306:    let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/parity.rs:310:        .env_clear()
+tests/parity.rs:1075:        Command::new(root.join("scripts").join("check-xfx-identity.sh")).current_dir(&root),
+tests/permissions.rs:470:            "content": "fn main() { std::process::Command::new(\"id\").status().unwrap(); }\n",
+tests/permissions.rs:2087:        Command::new("git")
+tests/permissions.rs:2642:        Command::new("git")
+tests/permissions.rs:2645:            .env_clear()
+tests/permissions.rs:2807:        Command::new("git")
+tests/permissions.rs:2810:            .env_clear()
+tests/permissions.rs:3004:            Command::new("cp")
+tests/permissions.rs:3899:    let Ok(listing) = xfx::process::output(Command::new("ps").args(["-eo", "pid=,pgid=,args="]))
+tests/permissions.rs:3934:            let _ = xfx::process::status(Command::new("kill").args(["-9", &pid]));
+tests/permissions.rs:4623:        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/permissions.rs:4625:        support::sandbox::clear_env(&mut command);
+tests/session_compat.rs:581:        command.env_remove("TMUX");
+tests/session_compat.rs:626:        command.env_remove("TMUX");
+tests/session_compat.rs:710:    command.env_remove("TMUX");
+tests/sessions.rs:49:const CONTROLLED_VARS: &[&str] = &[
+tests/sessions.rs:1547:        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/sessions.rs:1549:        support::sandbox::clear_env(&mut command);
+tests/sessions.rs:1620:        for variable in CONTROLLED_VARS {
+tests/support/fake_clipboard.rs:76:        xfx::process::status(Command::new(&osascript).arg("warm-up"))
+tests/support/sandbox.rs:30:pub fn clear_env(command: &mut Command) {
+tests/support/sandbox.rs:31:    command.env_clear();
+tests/support/sandbox.rs:69:        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/support/sandbox.rs:81:        clear_env(command);
+tests/tool_loop.rs:107:        let status = xfx::process::status(Command::new("mkfifo").arg(&path)).expect("run mkfifo");
+tests/tool_loop.rs:3622:        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+tests/tool_loop.rs:3624:        support::sandbox::clear_env(&mut command);
+tests/tui.rs:31:    command.env_remove("TMUX");
+tests/tui.rs:39:    command.env_remove("TMUX");
+tests/tui.rs:1093:    command.env_remove("XFX_TUI");
+tests/tui.rs:1094:    command.env_remove("TMUX");
+tests/tui.rs:1214:            None => command.env_remove("HOME"),
+tests/tui.rs:1403:    command.env_remove("TMUX");
+tests/tui.rs:2086:    let mut command = Command::new("/bin/sh");
+tests/tui.rs:2161:    let mut command = Command::new("/bin/sh");
+tests/tui.rs:2221:    let mut command = Command::new("/bin/sh");
+tests/tui.rs:2339:    command.env_remove("COLORTERM");
+tests/tui.rs:2340:    command.env_remove("TERM_PROGRAM");
+tests/tui.rs:2353:    light.env_remove("XFX_THEME");
+tests/tui.rs:2354:    light.env_remove("COLORFGBG");
+tests/tui.rs:2431:    command.env_remove("XFX_THEME");
+tests/tui.rs:2432:    command.env_remove("COLORFGBG");
+tests/tui.rs:2505:    command.env_remove("XFX_THEME");
+tests/tui.rs:2506:    command.env_remove("COLORFGBG");
+tests/tui.rs:2664:    command.env_remove("XFX_THEME");
+tests/tui.rs:2665:    command.env_remove("COLORFGBG");
+tests/tui.rs:2723:    told.env_remove("XFX_THEME");
+tests/tui.rs:2724:    told.env_remove("COLORFGBG");
+tests/tui.rs:2737:    silent.env_remove("XFX_THEME");
+tests/tui.rs:2738:    silent.env_remove("COLORFGBG");
+tests/tui.rs:9365:    command.env_remove("TMUX");
+tests/tui.rs:9617:    command.env_remove("TMUX");
+tests/tui.rs:9756:    command.env_remove("TMUX");
+tests/tui.rs:10207:        command.env_remove("TMUX");
+tests/tui.rs:10274:        command.env_remove("TMUX");
+tests/tui.rs:10294:        command.env_remove("TMUX");
+tests/tui.rs:10335:        command.env_remove("TMUX");
+tests/tui.rs:11000:        command.env_remove("TMUX");
+tests/tui.rs:11870:        command.env_remove("TMUX");
+tests/tui.rs:12668:    keyless.env_remove("AI_GATEWAY_API_KEY");

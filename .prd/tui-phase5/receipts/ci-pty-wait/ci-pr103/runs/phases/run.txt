@@ -1,0 +1,223 @@
+Recipe 5 (phases.sh), the before/after: 12 whole tui suites of one build at once (--test-threads=3 --nocapture), one build at a time, 4 rounds, SUITE_LOCK_EXCLUSIVE. before = a6c6de29's fault-injection test binary (the diagnostics, three attempts, no lock); after = the same with f516d090's tests/tui.rs (the lock and five attempts; f516d090 differs from the build in comments only). Start and end, each with vm.loadavg; then each phase's 1-minute load at its start:
+2026-11-16T20:54:17Z
+{ 18.52 21.22 24.03 }
+2026-11-16T21:16:48Z
+{ 11.50 17.93 21.44 }
+1 before load 18.52
+1 after load 12.22
+2 before load 12.01
+2 after load 14.68
+3 before load 45.55
+3 after load 23.95
+4 before load 19.15
+4 after load 14.27
+## each suite: round, build, exit, seconds
+1 before @suite 101 152
+1 before @suite 101 157
+1 before @suite 101 177
+1 before @suite 101 182
+1 before @suite 101 184
+1 before @suite 101 186
+1 before @suite 101 187
+1 before @suite 101 188
+1 before @suite 101 188
+1 before @suite 101 188
+1 before @suite 101 192
+1 before @suite 101 192
+1 after @suite 0 147
+1 after @suite 0 151
+1 after @suite 0 152
+1 after @suite 0 155
+1 after @suite 0 156
+1 after @suite 0 158
+1 after @suite 0 159
+1 after @suite 0 160
+1 after @suite 0 160
+1 after @suite 0 161
+1 after @suite 0 161
+1 after @suite 0 161
+2 before @suite 101 132
+2 before @suite 0 139
+2 before @suite 0 158
+2 before @suite 101 160
+2 before @suite 101 161
+2 before @suite 101 162
+2 before @suite 101 163
+2 before @suite 101 164
+2 before @suite 101 165
+2 before @suite 101 167
+2 before @suite 101 169
+2 before @suite 101 171
+2 after @suite 0 157
+2 after @suite 0 159
+2 after @suite 0 162
+2 after @suite 0 163
+2 after @suite 0 163
+2 after @suite 0 163
+2 after @suite 0 165
+2 after @suite 0 165
+2 after @suite 0 166
+2 after @suite 0 166
+2 after @suite 0 166
+2 after @suite 0 167
+3 before @suite 101 140
+3 before @suite 101 146
+3 before @suite 101 146
+3 before @suite 101 147
+3 before @suite 101 148
+3 before @suite 101 151
+3 before @suite 101 154
+3 before @suite 101 157
+3 before @suite 101 160
+3 before @suite 101 161
+3 before @suite 101 165
+3 before @suite 101 165
+3 after @suite 0 146
+3 after @suite 0 150
+3 after @suite 0 150
+3 after @suite 0 153
+3 after @suite 0 157
+3 after @suite 0 157
+3 after @suite 0 157
+3 after @suite 0 157
+3 after @suite 0 158
+3 after @suite 0 158
+3 after @suite 0 159
+3 after @suite 0 159
+4 before @suite 101 144
+4 before @suite 101 153
+4 before @suite 101 155
+4 before @suite 101 156
+4 before @suite 101 159
+4 before @suite 101 165
+4 before @suite 101 165
+4 before @suite 101 166
+4 before @suite 101 166
+4 before @suite 101 166
+4 before @suite 101 171
+4 before @suite 101 172
+4 after @suite 0 149
+4 after @suite 0 153
+4 after @suite 0 156
+4 after @suite 0 158
+4 after @suite 0 162
+4 after @suite 0 162
+4 after @suite 0 163
+4 after @suite 0 163
+4 after @suite 0 163
+4 after @suite 0 163
+4 after @suite 0 163
+4 after @suite 0 164
+## the counts (count_gaps.py)
+== after: 48 whole-suite runs
+  paced: ok 48
+  unpaced, types nothing: ok 48
+  unpaced, no approval: ok 48
+  status frames: ok 48
+  sessions with pauses of 0ns: 96, rejected 0 (0.0%); accepted longest: median 13.6 ms, max 33.0 ms
+    accepted, its longest pause between parts, none planned: 2
+    accepted, its longest pause inside a part, behind a poll: 94
+  sessions with pauses of 12ms: 48, rejected 0 (0.0%); accepted longest: median 23.5 ms, max 30.7 ms
+    accepted, its longest pause across a planned pause: 48
+== before: 48 whole-suite runs
+  paced: FAILED 34, ok 14
+  unpaced, types nothing: FAILED 35, ok 13
+  unpaced, no approval: FAILED 16, ok 32
+  status frames: ok 48
+    red: before.@suite.1.1.log: paced: every session rejected
+    red: before.@suite.1.1.log: unpaced, types nothing: every session rejected
+    red: before.@suite.1.10.log: paced: every session rejected
+    red: before.@suite.1.10.log: unpaced, types nothing: every session rejected
+    red: before.@suite.1.11.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.1.12.log: unpaced, types nothing: every session rejected
+    red: before.@suite.1.12.log: unpaced, no approval: every session rejected
+    red: before.@suite.1.2.log: paced: every session rejected
+    red: before.@suite.1.2.log: unpaced, types nothing: every session rejected
+    red: before.@suite.1.2.log: unpaced, no approval: every session rejected
+    red: before.@suite.1.3.log: paced: every session rejected
+    red: before.@suite.1.3.log: unpaced, types nothing: every session rejected
+    red: before.@suite.1.3.log: unpaced, no approval: every session rejected
+    red: before.@suite.1.4.log: unpaced, no approval: every session rejected
+    red: before.@suite.1.5.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.1.6.log: paced: every session rejected
+    red: before.@suite.1.6.log: unpaced, types nothing: every session rejected
+    red: before.@suite.1.7.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.1.7.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.1.8.log: paced: every session rejected
+    red: before.@suite.1.9.log: paced: every session rejected
+    red: before.@suite.1.9.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.1.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.1.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.10.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.11.log: paced: every session rejected
+    red: before.@suite.2.11.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.11.log: unpaced, no approval: every session rejected
+    red: before.@suite.2.12.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.12.log: unpaced, no approval: every session rejected
+    red: before.@suite.2.2.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.3.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.4.log: paced: every session rejected
+    red: before.@suite.2.4.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.5.log: paced: every session rejected
+    red: before.@suite.2.5.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.5.log: unpaced, no approval: every session rejected
+    red: before.@suite.2.6.log: paced: every session rejected
+    red: before.@suite.2.6.log: unpaced, types nothing: every session rejected
+    red: before.@suite.2.8.log: paced: every session rejected
+    red: before.@suite.3.1.log: paced: every session rejected
+    red: before.@suite.3.1.log: unpaced, types nothing: every session rejected
+    red: before.@suite.3.10.log: paced: every session rejected
+    red: before.@suite.3.10.log: unpaced, types nothing: every session rejected
+    red: before.@suite.3.11.log: paced: every session rejected
+    red: before.@suite.3.12.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.3.12.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.3.2.log: unpaced, no approval: every session rejected
+    red: before.@suite.3.3.log: paced: every session rejected
+    red: before.@suite.3.3.log: unpaced, types nothing: every session rejected
+    red: before.@suite.3.3.log: unpaced, no approval: every session rejected
+    red: before.@suite.3.4.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.3.5.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.3.5.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.3.6.log: paced: every session rejected
+    red: before.@suite.3.6.log: unpaced, types nothing: every session rejected
+    red: before.@suite.3.7.log: unpaced, types nothing: every session rejected
+    red: before.@suite.3.7.log: unpaced, no approval: every session rejected
+    red: before.@suite.3.8.log: unpaced, no approval: every session rejected
+    red: before.@suite.3.9.log: paced: every session rejected
+    red: before.@suite.3.9.log: unpaced, no approval: every session rejected
+    red: before.@suite.4.1.log: paced: every session rejected
+    red: before.@suite.4.1.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.10.log: paced: every session rejected
+    red: before.@suite.4.10.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.10.log: unpaced, no approval: every session rejected
+    red: before.@suite.4.11.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.4.12.log: paced: every session rejected
+    red: before.@suite.4.12.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.2.log: unpaced, no approval: every session rejected
+    red: before.@suite.4.3.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.4.3.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.4.4.log: paced: every session rejected
+    red: before.@suite.4.4.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.4.log: unpaced, no approval: every session rejected
+    red: before.@suite.4.5.log: paced: every session rejected
+    red: before.@suite.4.5.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.6.log: paced: every session rejected
+    red: before.@suite.4.6.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.7.log: paced: every session rejected
+    red: before.@suite.4.8.log: paced: every session rejected
+    red: before.@suite.4.8.log: unpaced, types nothing: every session rejected
+    red: before.@suite.4.8.log: unpaced, no approval: every session rejected
+    red: before.@suite.4.9.log: paced: every session rejected
+    red: before.@suite.4.9.log: unpaced, types nothing: every session rejected
+  sessions with pauses of 0ns: 257, rejected 192 (74.7%); accepted longest: median 47.5 ms, max 49.8 ms
+    accepted, its longest pause between parts, none planned: 5
+    accepted, its longest pause inside a part, behind a poll: 60
+    rejected between parts, none planned: 8; the ending write 20-32 ms, median 29; the rest 20-39 ms, median 25
+    rejected inside a part, behind a poll: 184; the sleep took 0-7 ms, median 3; the ending write 10-50 ms, median 26; the rest 0-44 ms, median 25
+  sessions with pauses of 12ms: 117, rejected 88 (75.2%); accepted longest: median 47.6 ms, max 49.9 ms
+    accepted, its longest pause across a planned pause: 6
+    accepted, its longest pause between parts, none planned: 4
+    accepted, its longest pause inside a part, behind a poll: 19
+    rejected across a planned pause: 13; the sleep took 15-21 ms, median 18; the ending write 16-32 ms, median 20; the rest 0-22 ms, median 17
+    rejected between parts, none planned: 4; the ending write 24-28 ms, median 26; the rest 23-29 ms, median 25
+    rejected inside a part, behind a poll: 71; the sleep took 0-8 ms, median 3; the ending write 14-40 ms, median 26; the rest 14-39 ms, median 24

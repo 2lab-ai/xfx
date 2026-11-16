@@ -1,0 +1,5 @@
+Recipe 4 (one_suite.sh): one foreground suite beside 11 background suites that skip the hostile pastes, stopped after its first suite: the background loaded nothing that slowed the writer -- its longest pauses were 3-18 ms. Its lines:
+1 before @suite 0 182
+the paste's longest pause: 18.0015ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 17.935917ms; the write that ended it took 47.083µs, and the rest, 18.5µs, is
+the paste's longest pause: 3.5985ms (pauses of 0ns), inside part 242 of 256, at its write attempt 3 of 9, behind a full queue's 2ms poll that slept 2.970292ms; the write that ended it took 626.917µs, 
+the paste's longest pause: 3.30075ms (pauses of 0ns), inside part 69 of 256, at its write attempt 8 of 11, behind a full queue's 2ms poll that slept 3.019208ms; the write that ended it took 280.541µs,

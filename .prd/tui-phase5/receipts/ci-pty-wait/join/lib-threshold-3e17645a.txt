@@ -1,0 +1,6 @@
+round3/lib_threshold_mutants.py (with the join's per-run bound) on the same clone at 3e17645a, under the suite lock, after mutants.py.
+baseline: green, passed ['tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart', 'tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet']
+quarantine-ends-at-any-quiet: killed by tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart, tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet
+quarantine-quiet-5ms: killed by tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet, tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart
+quarantine-quiet-20ms: killed by tui::input::tests::a_quarantine_ends_at_the_first_empty_check_at_or_past_the_quiet, tui::input::tests::a_quarantine_ends_only_after_two_empty_checks_a_quiet_period_apart
+lib-threshold exit 0

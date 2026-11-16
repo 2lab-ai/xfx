@@ -1,0 +1,297 @@
+gate (aarch64-apple-darwin)	Tests, with the fault injector	﻿2026-11-16T19:56:10.2254040Z ##[group]Run cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2256230Z ^[[36;1mcargo clippy --locked --all-targets --features fault-injection -- -D warnings^[[0m
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2256980Z ^[[36;1mcargo test --locked --features fault-injection --test tui^[[0m
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2257460Z ^[[36;1mcargo test --locked --lib --features fault-injection^[[0m
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2261190Z shell: $RUNNER_TEMP/bash32/bash -e {0}
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2261470Z env:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2261780Z   CARGO_TERM_COLOR: never
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2262010Z   RUST_BACKTRACE: 1
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2262330Z   COMMIT_UNDER_TEST: 461b4736c9790e03de760aa7d3bbf0b4819af392
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:10.2262650Z ##[endgroup]
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:56:11.3871030Z    Compiling xfx v0.2.0 ($RUNNER_HOME/work/xfx/xfx)
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:06.7152430Z     Finished `dev` profile [unoptimized + debuginfo] target(s) in 56.29s
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:07.3377560Z     Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:07.3443810Z      Running tests/tui.rs (target/debug/deps/tui-53949604dd03d502)
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:07.3804560Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:07.3805380Z running 212 tests
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:07.4549100Z test a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:07.4554700Z test a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:08.5925530Z test a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:08.9826420Z test a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:09.7249640Z test a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band_comes_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:10.7761020Z test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:12.2224130Z test a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:12.3490060Z test a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:13.1663850Z test a_burst_of_winches_costs_one_frame ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:13.6607530Z test a_command_the_tui_runs_keeps_a_sigint_ignore_and_only_that ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:13.7651670Z test a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:14.4790750Z test a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:14.4995280Z test a_document_append_moves_the_band_off_its_rows_until_the_next_frame ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:15.2611740Z test a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:15.3216910Z test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:15.9809100Z test a_double_escape_clears_the_composer_and_warns_before_it_does ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:16.6192430Z test a_fresh_sessions_first_prompt_is_titled_by_a_model_in_the_window_and_the_log ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:16.7266840Z test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:16.8571760Z test a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:16.8885320Z test a_keystroke_that_arrived_with_the_answer_is_typed_rather_than_scanned ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:17.0874960Z test a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:17.3036350Z test a_live_theme_notification_repaints_the_band_without_losing_the_draft ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:18.2281470Z test a_level_chosen_on_llmux_rides_as_output_config_effort ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:18.5721860Z a timing-indeterminate session: the paste paused for 61.333958ms (pauses of 12ms); a second later the screen held:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:18.5849710Z x𝒇x v0.2.0 (debug 2026-11-16-1816-461b4736c979) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:18.5931890Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:18.6036710Z ┃ x
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:18.6129830Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:19.2577600Z test a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:20.0070150Z a timing-indeterminate session: the paste paused for 58.589459ms (pauses of 12ms); a second later the screen held:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:20.0170140Z x𝒇x v0.2.0 (debug 2026-11-16-1816-461b4736c979) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:20.0272220Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:20.0373840Z ┃ x
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:20.0387480Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9474080Z a timing-indeterminate session: the paste paused for 96.789625ms (pauses of 12ms); a second later the screen held:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9587570Z x𝒇x v0.2.0 (debug 2026-11-16-1816-461b4736c979) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9689770Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9743760Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9744840Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9745430Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9746370Z ┃ xK00005121
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9746920Z ┃ K00005131
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9747270Z ┃ K00005141
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9749330Z ┃ K00005151
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9749870Z ┃ K00005161
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9750220Z ┃ K00005171
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9750600Z ┃ K00005181
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9750890Z ┃ K00005191
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9751250Z   MARKER-UNPACED
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9751520Z   0s (↑3 ↓5)
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9752090Z ✗ system: the Gateway returned HTTP 500: fake server: unscripted request
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9752620Z ┃
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:24.9752920Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:25.1364660Z test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... FAILED
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:26.4634450Z test a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:27.0455370Z test a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:27.8585690Z test a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:28.2423910Z test a_normal_exit_gives_the_terminal_back_byte_for_byte ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:28.2432270Z test a_notice_wrapped_onto_the_row_under_it_is_held_and_another_notice_is_not ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:28.7564990Z test a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_paints_in ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:29.0019400Z test a_palette_the_user_named_is_not_overruled_by_the_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:29.9744820Z test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:31.1942730Z test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:31.9986760Z test a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:32.7248350Z test a_permission_question_rings_the_bell_when_it_opens ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:33.9811400Z the paste's longest pause: 43.138708ms (pauses of 0ns)
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:34.3724070Z the paste's longest pause: 28.042584ms (pauses of 0ns)
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:34.8374990Z test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:35.3546600Z test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:35.7991110Z test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:35.9461890Z test a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:36.5404360Z test a_prompt_sent_while_an_answer_streams_cuts_it_and_the_turn_goes_on_with_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:36.5551470Z test a_profile_only_ask_refuses_starts_the_tui ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:37.0726290Z test a_prompt_typed_behind_a_provider_switch_is_titled_by_the_provider_switched_to ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:37.0828880Z test a_question_still_being_painted_is_not_a_painted_question ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:37.4642310Z test a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:38.2000330Z test a_refusal_in_the_band_leaves_the_file_alone ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:38.4749190Z test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:38.7837050Z test a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:40.1132220Z test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:40.3309900Z test a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:40.3511010Z test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:40.7906130Z test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:41.2709380Z test a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:41.5738250Z test a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:41.9746390Z test a_resize_mid_answer_keeps_what_the_document_already_holds ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:42.1144450Z test a_resize_moves_the_band_to_the_foot_of_the_new_screen ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:42.2196420Z test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:42.2709710Z test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:42.5932140Z test a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:42.7200490Z test a_resize_while_a_question_is_up_keeps_the_question_and_the_decision_still_lands ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:43.2003060Z test a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:43.2980400Z test a_return_typed_before_the_session_is_a_newline_in_the_composer_as_upstreams_is ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:43.4876810Z test a_resumed_session_keeps_its_model_and_opening_it_writes_nothing ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:44.0742920Z test a_rule_that_asks_before_a_read_puts_the_read_band_up_in_auto_and_a_no_is_denied_to_the_model ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:44.3419170Z test a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:44.9569310Z test a_save_that_fails_is_said_once_for_fast_and_for_effort ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:45.8891420Z test a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:46.1120550Z test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:47.1847070Z test a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:47.2582660Z test a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_and_stays_there ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:47.8823100Z test a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:48.2829170Z test a_session_with_no_credential_is_told_so_before_it_spends_a_prompt ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:49.1243710Z test a_sigint_the_launcher_ignored_stays_ignored ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:49.1248060Z test a_skills_sandbox_path_never_holds_what_its_case_searches ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:49.2892050Z test a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:49.3236640Z test a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:49.9737110Z test a_slash_word_opens_a_menu_that_completes_without_taking_the_caret ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:50.0612390Z test a_small_change_is_still_asked_in_the_band_and_takes_no_plane ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:50.1416250Z test a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:50.4677840Z test a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:50.9593690Z test a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:50.9645240Z test a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:51.8133450Z test a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:51.9039960Z test a_subcommand_is_never_the_tui_however_the_variable_is_set ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:52.1270740Z test a_streamed_answer_grows_the_document_only_inside_the_update_that_paints_the_band ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:52.2434970Z test a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:52.3319360Z test a_terminal_too_small_for_a_band_is_refused_with_a_reason ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:52.4919390Z test a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:52.7112910Z test a_theme_notification_repaints_the_band_with_no_keystroke_behind_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:53.0545160Z test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:53.1768230Z test a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:53.3710380Z test a_tool_a_global_deny_covers_is_left_out_of_the_request_until_allowlist_lets_it_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:53.8269410Z test a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:54.0222320Z test a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:54.5912630Z test a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:54.6362940Z test a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:54.6689430Z test a_very_large_paste_collapses_on_screen_and_expands_on_submit ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:55.4446910Z test after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_window ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:55.5695460Z test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:56.2188530Z test alias_is_offered_under_extensions_and_answers_every_form_with_upstreams_notice ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:56.2495720Z test a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:56.2699010Z test an_always_answered_in_the_band_is_written_where_a_resume_will_read_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:56.3607120Z test an_ask_on_a_terminal_reports_no_program_status ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:56.8282450Z test an_answer_lands_even_with_a_prompt_already_queued ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:57.6079840Z test an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:57.7167730Z test an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_even_after_a_resume ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:57.9067970Z test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:58.1063350Z test an_escape_sequence_in_an_answer_reaches_the_terminal_disarmed ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:58.3472470Z test an_external_sigint_is_not_swallowed_because_isig_is_off ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:58.9182950Z test an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really_has ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:59.1298690Z test an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:59.2235600Z test an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:59.3946730Z test an_ordinary_exit_leaves_no_independent_diagnostic_behind ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:59.4914690Z test an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:59.4953520Z test an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:57:59.5168910Z test an_unpaced_case_whose_every_paste_paused_fails_saying_so ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:00.0491420Z test an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:00.5424400Z test any_value_but_zero_is_the_tui ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:00.7597350Z test an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn_is_over ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:01.3706850Z test captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:01.6467010Z test ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:03.2711400Z test compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:03.9184920Z test an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:04.5649680Z test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:04.7150130Z test credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:05.1006000Z test compact_of_one_turn_has_nothing_to_compact_and_asks_nobody ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:05.2500850Z test ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130 ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:05.3151580Z test ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:06.0261800Z test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:06.0861660Z test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:06.5555240Z test ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:06.8699740Z test ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:07.2219450Z test edit_history_undo_and_yank_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:07.6462740Z test escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:07.7889850Z test escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:07.8227920Z test faults::a_failure_after_raw_mode_still_gives_the_terminal_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:07.9063950Z test faults::a_failure_before_raw_mode_writes_no_restore_bytes_at_all ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:08.2402540Z test faults::a_panic_off_the_ui_thread_leaves_the_terminal_to_its_owner ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:08.2607960Z test every_size_puts_the_composer_over_the_rule_and_the_hint_on_its_last_row ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:08.2917840Z test faults::a_panic_on_the_ui_thread_restores_before_the_message_is_printed ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:08.7533480Z test faults::a_panic_while_the_other_plane_is_owned_gives_back_the_plane_and_the_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:09.2101690Z test faults::a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:09.2393440Z test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:09.5320180Z test faults::a_terminal_that_takes_half_a_frame_ends_the_session_and_is_given_back_exactly ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:09.6421550Z test faults::a_torn_first_frame_recovered_once_still_lets_the_session_run_and_exit_clean ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:10.1066410Z test faults::a_session_killed_between_a_reports_write_and_its_publication_leaves_no_report ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:10.2804960Z test faults::a_torn_repaint_of_the_question_whose_cleanup_is_refused_ends_the_session_reported_as_partial ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:10.4922940Z test faults::a_torn_repaint_of_the_question_is_recovered_and_the_question_is_still_answerable ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:10.5790860Z test faults::a_worker_panic_arrives_as_data_and_the_ui_restores_before_printing_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:10.7060760Z test faults::an_update_torn_inside_its_rows_with_its_cleanup_refused_is_closed_by_the_exit ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:11.0430480Z test herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:11.3830790Z test leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:11.6864240Z test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:12.2881630Z test paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:12.8488170Z test one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:13.4609060Z test faults::quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:13.7118630Z test quit_before_any_prompt_names_nothing_and_keeps_no_session ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:13.7647080Z test quit_leaves_the_way_ctrl_d_does ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:13.9827470Z test quit_after_a_conversation_names_the_session_and_resume_continues_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:14.2892900Z test shell_output_from_before_the_launch_is_still_readable_afterwards ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:14.5302340Z test read_file_of_an_image_shows_it_to_the_model_on_every_later_request ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:14.6134160Z test sighup_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:14.6544130Z test quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:15.0980280Z test sigterm_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:15.0984400Z test sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:15.1616940Z test sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:15.6786980Z test sigtstp_really_stops_the_process_with_the_terminal_given_back ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:15.9958150Z test six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:16.0134580Z test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:16.6200990Z test slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:16.8077050Z test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:17.4999750Z test switching_provider_sends_the_next_prompt_only_to_the_new_fixture ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:17.5239770Z test status_counts_the_turn_the_live_conversation_just_held ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:17.7075720Z test slash_sound_saves_both_switches_and_moves_what_the_next_turn_rings ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:17.7176220Z test the_bell_counter_skips_the_titles_terminator ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:18.0312020Z test the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:18.0868810Z test the_band_is_painted_under_the_welcome_inside_one_synchronized_frame ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:18.3284190Z test the_catalog_is_read_at_launch_and_a_session_s_first_turn_is_sized_by_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:18.5193720Z test the_composer_stops_growing_at_half_the_content_area ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:18.5746660Z test the_harness_measures_a_pause_between_two_writes_of_one_paste ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:19.2895720Z test the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:19.2897970Z test the_last_bytes_of_a_stream_start_at_a_character ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:19.7830490Z test the_launch_asks_for_the_background_then_the_mode_and_the_cursor_report_fences_both ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:19.7988110Z test the_hint_row_says_what_mode_and_which_model_a_turn_will_use ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:19.9704740Z test the_launch_probe_asks_where_the_cursor_is_and_does_not_eat_the_answer ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:20.5694810Z test the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:20.6014910Z test the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:21.1541660Z test the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:21.1644180Z test the_request_after_an_interrupt_says_the_last_turn_ended_early_as_upstreams_does ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:21.1947280Z test the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:21.5896860Z test the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:22.0051220Z test the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:22.6005670Z test the_speed_column_and_the_switches_ride_as_upstreams_provider_options ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:22.9716190Z test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:23.5257510Z test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:23.6463430Z test typing_appears_in_the_composer_and_the_cursor_follows_it ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:23.9482260Z test under_tmux_the_kitty_keyboard_push_is_omitted ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:24.5929050Z test undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:24.8445910Z test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:25.9542000Z test what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:26.5293560Z test what_was_typed_before_the_session_took_the_terminal_is_in_the_composer ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:26.6098450Z test with_no_usable_home_a_resume_has_nothing_to_continue ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:27.1370310Z test usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:27.4978430Z test with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:28.1752760Z test with_no_usable_home_a_tool_runs_under_the_session_authority_alone ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:28.5160330Z test what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:28.7468670Z test with_session_titles_off_nothing_is_asked_and_the_prompt_titles_the_session ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:28.7843880Z test with_startup_scrollback_off_the_launch_starts_under_the_shells_output ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:29.0118340Z test without_the_variable_a_bare_xfx_is_the_tui ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:29.1005970Z test zero_is_the_line_shell ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:29.4493890Z test xfx_sound_off_keeps_a_session_silent ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4435470Z test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... ok
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4444970Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4446430Z failures:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4512490Z error: test failed, to rerun pass `--test tui`
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4514420Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4515400Z ---- a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing stdout ----
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4518440Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4519230Z thread 'a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing' (124162) panicked at tests/tui.rs:3831:5:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4523760Z each of 3 pastes paused for 50ms or more ([61.333958ms, 58.589459ms, 96.789625ms]): the harness was not scheduled while it wrote, and the TUI ends a paste's quarantine at such a pause by design, so no session tested the paste; what each screen held a second later: [
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4533140Z     "after 61.333958ms: x𝒇x v0.2.0 (debug 2026-11-16-1816-461b4736c979) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4542870Z     "after 58.589459ms: x𝒇x v0.2.0 (debug 2026-11-16-1816-461b4736c979) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4545850Z     "after 96.789625ms: x𝒇x v0.2.0 (debug 2026-11-16-1816-461b4736c979) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ┃ xK00005121 | ┃ K00005131 | ┃ K00005141 | ┃ K00005151 | ┃ K00005161 | ┃ K00005171 | ┃ K00005181 | ┃ K00005191 |   MARKER-UNPACED |   0s (↑3 ↓5) | ✗ system: the Gateway returned HTTP 500: fake server: unscripted request | ┃ | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4549180Z ]
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4549330Z stack backtrace:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4549710Z    0: __rustc::rust_begin_unwind
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4550060Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4550590Z    1: core::panicking::panic_fmt
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4551030Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4551880Z    2: tui::unpaced_case::<tui::hostile_paste_types_nothing::{closure#0}>
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4552430Z              at ./tests/tui.rs:3831:5
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4552720Z    3: tui::hostile_paste_types_nothing
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4553310Z              at ./tests/tui.rs:3957:5
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4554140Z    4: tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4555310Z              at ./tests/tui.rs:3949:5
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4555900Z    5: tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing::{closure#0}
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4556770Z              at ./tests/tui.rs:3917:97
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4564630Z    6: <tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4565540Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4566430Z    7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4567120Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4568270Z note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4569120Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4569130Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4569210Z failures:
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4569760Z     a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4570140Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4570370Z test result: FAILED. 211 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 83.06s
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4573070Z 
+gate (aarch64-apple-darwin)	Tests, with the fault injector	2026-11-16T19:58:30.4642090Z ##[error]Process completed with exit code 101.

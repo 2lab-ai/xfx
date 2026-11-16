@@ -1,0 +1,4 @@
+pre (ef595df2): 12 of 72 rejected (16.7%)
+head (ba133c25): 9 of 69 rejected (13.0%)
+Fisher's exact two-sided p: 0.64
+an increase the run could have shown at p < 0.05: head rejecting 22 of 69 (31.9%) or more, against pre's 16.7%

@@ -1,0 +1,111 @@
+# RED: the unit's tests over the base's code (df45025c's src/ outside the test modules), each tree's own test module, the names as filters, TMPDIR=<tmp>, under a 300-900 s alarm.
+
+## R3. Round 3: 29175fa7's timing tests over ff65cdb0's code (the round-2 head; 29175fa7 changes tests only), in the worktree before the fix, 2026-11-16
+test tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst ... ok
+test tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc ... FAILED
+test tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50 ... FAILED
+test tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are ... ok
+test tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do ... ok
+test tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move ... ok
+thread 'tui::input::tests::the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc' panicked at src/tui/input.rs:4622:9:
+  left: [Action(ParagraphUp)]
+ right: [Action(Escape), Action(Up)]
+thread 'tui::input::tests::the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50' panicked at src/tui/input.rs:4579:9:
+  left: [[Action(ParagraphUp)], [Action(Escape), Action(Up)], [Action(Escape), Action(Submit)], [Action(Ignore)]]
+ right: [[Action(Escape), Action(Up)], [Action(Escape), Action(Up)], [Action(Escape), Action(Submit)], [Action(Escape), Action(Escape), Action(Cancel)]]
+test result: FAILED. 4 passed; 2 failed; 0 ignored; 0 measured; 4810 filtered out; finished in 0.17s
+
+
+## 0. Round 2: fd898fc5's five new or changed tests over the base's code, in a --no-local clone at 873328ab
+test tui::input::tests::the_quiet_is_one_50_ms_window_not_fxs_two_stages ... FAILED
+test tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits ... FAILED
+test tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one ... FAILED
+test tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending ... FAILED
+test tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape ... FAILED
+thread 'tui::input::tests::the_quiet_is_one_50_ms_window_not_fxs_two_stages' panicked at src/tui/input.rs:4408:9:
+  left: [Action(Escape), Action(Up)]
+ right: [Action(ParagraphUp)]
+thread 'tui::input::tests::a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits' panicked at src/tui/input.rs:4360:9:
+  left: [Action(Ignore)]
+ right: [Action(WordRight)]
+thread 'tui::input::tests::an_escape_inside_a_prefixed_sequence_starts_a_bare_one' panicked at src/tui/input.rs:4336:9:
+  left: [Action(Escape), Action(Ignore), Action(Up)]
+ right: [Action(Ignore), Action(Up)]
+thread 'tui::input::tests::a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending' panicked at src/tui/input.rs:4319:13:
+  left: [Action(Escape), Action(Escape), Action(Cancel), Text('x')]
+ right: [Action(Ignore), Text('x')]
+thread 'tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape' panicked at src/tui/shell.rs:23805:13:
+  left: Some(Cancel { through: 1 })
+ right: None
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4810 filtered out; finished in 0.03s
+
+
+## 1. 47fccd97's tests (the corrected ones) over the base's code, in a --no-local clone
+test tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst ... FAILED
+test tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it ... FAILED
+test tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it ... FAILED
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... FAILED
+test tui::shell::tests::two_escapes_in_one_burst_are_two_presses_as_a_person_s_two_are ... ok
+test tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_the_clear_as_two_presses_do ... ok
+test tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move ... FAILED
+test tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape ... FAILED
+thread 'tui::input::tests::two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst' panicked at src/tui/input.rs:4101:13:
+thread 'tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it' panicked at src/tui/input.rs:4257:13:
+  left: [Action(Escape), Action(AltB)]
+ right: [Action(AltB)]
+thread 'tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it' panicked at src/tui/input.rs:4183:13:
+  left: [Action(Escape), Action(Up)]
+ right: [Action(ParagraphUp)]
+thread 'tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move' panicked at src/tui/input.rs:3982:13:
+  left: [Action(Ignore)]
+ right: [Action(Up)]
+thread 'tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_stops_it_and_a_prefixed_up_is_a_move' panicked at src/tui/shell.rs:27408:9:
+  left: "stream lines"
+ right: ""
+thread 'tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape' panicked at src/tui/shell.rs:23805:13:
+  left: Some(Cancel { through: 1 })
+ right: None
+test result: FAILED. 4 passed; 6 failed; 0 ignored; 0 measured; 4801 filtered out; finished in 0.01s
+
+## 2. As first committed, each run before its commit on exactly its tree
+c76e5a51's burst rows asserted one Escape, fx's key decoder alone; fx's captures showed two (README, "Corrected within the unit"), and 47fccd97 corrected them. Kept as they ran.
+
+### c76e5a51
+test tui::input::tests::a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key ... ok
+test tui::input::tests::a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one ... ok
+test tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it ... FAILED
+test tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it ... FAILED
+test tui::input::tests::two_escapes_a_person_pressed_are_two_and_two_in_one_burst_are_one ... FAILED
+test tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move ... FAILED
+test tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_nothing_else ... FAILED
+test tui::shell::tests::two_escapes_in_one_burst_are_one_press_and_a_person_s_two_are_two ... FAILED
+test tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_arms_and_a_prefixed_up_is_a_move ... FAILED
+thread 'tui::input::tests::what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it' panicked at src/tui/input.rs:4242:13:
+  left: [Action(Escape), Action(AltB)]
+ right: [Action(AltB)]
+thread 'tui::input::tests::a_prefixed_key_is_one_key_as_upstream_reads_it' panicked at src/tui/input.rs:4170:13:
+  left: [Action(Escape), Action(Up)]
+ right: [Action(ParagraphUp)]
+thread 'tui::input::tests::two_escapes_a_person_pressed_are_two_and_two_in_one_burst_are_one' panicked at src/tui/input.rs:4095:13:
+thread 'tui::input::tests::every_modifier_on_left_right_home_and_end_is_upstreams_move' panicked at src/tui/input.rs:3982:13:
+  left: [Action(Ignore)]
+ right: [Action(Up)]
+thread 'tui::shell::tests::two_escapes_in_one_burst_close_a_menu_and_arm_nothing_else' panicked at src/tui/shell.rs:27327:9:
+  left: "run `xfx setup` · auto · glm-5.2\u{1b}[0m                              \u{1b}[38;5;245mesc again to clear"
+ right: "run `xfx setup` · auto · glm-5.2"
+thread 'tui::shell::tests::two_escapes_in_one_burst_are_one_press_and_a_person_s_two_are_two' panicked at src/tui/shell.rs:27300:9:
+  left: ""
+ right: "a draft worth keeping"
+thread 'tui::shell::tests::over_a_running_turn_a_burst_of_two_escapes_arms_and_a_prefixed_up_is_a_move' panicked at src/tui/shell.rs:27352:9:
+  left: "stream lines"
+ right: ""
+test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 4801 filtered out; finished in 0.06s
+
+### adb740bd
+test tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape ... FAILED
+thread 'tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape' panicked at src/tui/shell.rs:23805:13:
+  left: Some(Cancel { through: 1 })
+ right: None
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4810 filtered out; finished in 0.01s

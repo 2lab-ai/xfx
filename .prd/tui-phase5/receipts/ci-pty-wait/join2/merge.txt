@@ -1,0 +1,15 @@
+The merge d0115e72 = 5f9f38e2 (this branch) + 1a4cb6b4 (train 16's final head), checked:
+- git merge-tree --write-tree --name-only 5f9f38e2 1a4cb6b4, before the merge: 45465042e159b48aac586436132d924fc0041649 and 0 conflicted files
+- the merge commit's tree: 45465042e159b48aac586436132d924fc0041649
+- lines git show --cc prints for the merge beyond its header (what the merge itself wrote): 0
+- git diff 1a4cb6b4 d0115e72 against git diff 8be4693b 5f9f38e2 (this branch on train 16 before and after): byte-identical, 137 files, 129 of them this unit's receipt
+- git diff 5f9f38e2 d0115e72 against git diff 8be4693b 1a4cb6b4 (what the merge brought, against train 16's rounds 5 and 6): byte-identical
+- the files outside this unit's receipt that the merged head changes against 1a4cb6b4 (git diff --numstat):
+    1	1	docs/parity.md
+    2	2	scripts/fxcap/capfile.py
+    10	10	scripts/fxcap/parity-ledger.toml
+    1	1	scripts/smoke-tui.sh
+    966	28	src/tui/event_loop.rs
+    126	6	src/tui/shell.rs
+    19	1	tests/support/pty.rs
+    429	74	tests/tui.rs

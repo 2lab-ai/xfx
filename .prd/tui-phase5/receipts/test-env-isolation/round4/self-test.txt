@@ -1,0 +1,55 @@
+accepted  tests/accepted.rs
+refused   tests/multi_line_reason.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/let_cut_at_a_brace.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/quote_char_unit.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/renamed_import.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/braced_import.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+            std::env::var outside env_exception! and process_env!, unlisted (1)
+refused   tests/closure_rebinding.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/shadowed_constant.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/alias_through_alias.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/path_reference.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/libc_system_as_run.rs
+            libc::system outside env_exception! and process_env!, unlisted (1)
+refused   tests/every_reader.rs
+            std::env::var outside env_exception! and process_env!, unlisted (1)
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+            std::env::vars outside env_exception! and process_env!, unlisted (1)
+            std::env::vars_os outside env_exception! and process_env!, unlisted (1)
+            std::env::home_dir outside env_exception! and process_env!, unlisted (1)
+            libc::getenv outside env_exception! and process_env!, unlisted (1)
+refused   tests/crate_level_allow_all.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/group_allow.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/expect.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/cfg_attr_allow.rs
+            std::env::var_os outside env_exception! and process_env!, unlisted (1)
+refused   tests/a_start_under_an_env_allow.rs
+            std::process::Command::status outside env_exception! and process_env!, unlisted (1)
+refused   tests/unlisted_name.rs
+            env_exception! reads GIT_CONFIG_GLOBAL, which is not an allowed name
+            an unlisted env_exception! of ['GIT_CONFIG_GLOBAL'] (1 more than listed)
+refused   tests/home_outside_the_copy.rs
+            an unlisted env_exception! of ['HOME'] (1 more than listed)
+refused   tests/unlisted_invocation.rs
+            an unlisted env_exception! of ['TMPDIR'] (1 more than listed)
+refused   tests/raw_string_name.rs
+            an env_exception! that is not the literal form
+refused   tests/a_constant_into_the_macro.rs
+            does not compile: no rules expected `NAME`
+refused   tests/a_macro_of_the_same_name.rs
+            std::env::var_os inside env_exception! (defined in tests/a_macro_of_the_same_name.rs)
+refused   tests/a_wrapping_macro.rs
+            an env_exception! that is not the literal form
+check-env-reads --self-test: 24 fixtures, 0 not as expected

@@ -1,0 +1,22 @@
+== screen-moves-base.txt: 225 listed lines
+  206  a saved session's id (resume ids, /status's Session row)
+  19  other
+    other: xfx fulltranscript-notice end rows [9]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx fulltranscript-notice full rows [24]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx fulltranscript-notice full-pgup rows [24]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx fulltranscript-notice full-top rows [24]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-mcp-menu-new approve-confirm rows [9, 10]: [('  ↳ <local-path>', '____________________________________________________________'), ('  ↳ <checkout>/scripts/fxcap/scenarios/p5-mcp-stdio.ts', '  ↳
+    other: xfx p5-panels-badsettings launch rows [3, 5, 6, 8, 10, 40]: [('* config: 1 configuration issue (ctrl+o to view)', ''), ('d not read (user config diagnostic: malformed_settings); fix', '')]
+    other: xfx p5-panels-sweep-a alias rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a allowlist rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a copy rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a credits rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a fast rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a image-missing rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a images rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a rename rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a shell rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a stats rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a ultrafast rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a undo rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]
+    other: xfx p5-panels-sweep-a version rows [3]: [('* version: 0.2.0 (debug 2026-11-16-0615-866747ff7feb)', '* version: 0.2.0 (debug 2026-11-16-0759-2b78aab658dd)')]

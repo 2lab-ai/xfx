@@ -1,0 +1,66 @@
+# SLASH-LEADING-WS: fx's slash trigger kind is a draft whose first character
+# past leading spaces, tabs, CR and LF is `/` (inlinePickerTriggerKind,
+# src/core/input/picker_state.zig:293-294@481104fd), and the popup's query is
+# that trimmed draft (slashCompletionPrefix, command_specs.zig:568-576).
+# Two spaces, a line break and a pasted tab before the slash word; Escape's
+# latch while the word grows, and across a space after it; Tab over a line
+# break; a slash word after other words (the ghost); a command sent with the
+# menu closed, then recalled. The words are ones both registries answer alike
+# (`/he` would list fx's /shell, which xfx does not have yet).
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type   /help
+wait 0.6
+snap spaces
+key C-u
+wait 0.3
+type   /hel
+wait 0.5
+key Escape
+wait 0.5
+type p
+wait 0.5
+snap spaces-esc-grow
+key C-u
+wait 0.3
+type /help
+wait 0.5
+key Escape
+wait 0.5
+key Space
+wait 0.3
+snap esc-space
+key BSpace
+wait 0.5
+snap esc-space-back
+key C-u
+wait 0.3
+key C-j
+type /help
+wait 0.6
+snap newline
+key Tab
+wait 0.6
+snap newline-tab
+key C-u
+wait 0.3
+type say /he
+wait 0.6
+snap mid
+key C-u
+wait 0.3
+paste \t/help
+wait 0.6
+snap tab
+key C-u
+wait 0.3
+type   /version
+wait 0.6
+key Escape
+wait 0.5
+key Enter
+wait 1
+snap vers-run
+key Up
+wait 0.6
+snap vers-recall

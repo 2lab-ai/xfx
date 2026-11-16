@@ -1,0 +1,33 @@
+# SLASH-ARG-SKILLS' second part, not copied here (the probe this receipt's
+# probe/ was captured from, as scripts/fxcap/scenarios/p5-slash-arg-skills-mixed.cap):
+# past the blank after a name fx does not know, or one with arguments and no
+# table, fx's popup goes on and lists the skills its words find
+# (mixedSlashCompletionCount, src/ui/footer/picker_presentation.zig:1170-1175@481104fd;
+# skillMatchRank, src/core/skills/skill_runtime.zig:1380-1392): `/git log`
+# finds release-notes by its description; Tab binds it over the whole prefix
+# (bindSelectedSlashSkill, src/core/app/app_input_runtime.zig:2451-2476).
+fx: work skills-ws-fx
+xfx: work skills-ws-xfx
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type /git log
+wait 0.8
+snap git-log
+key Tab
+wait 0.6
+snap git-log-tab
+key C-u
+wait 0.3
+type /skills x
+wait 0.6
+snap skills-x
+key C-u
+wait 0.3
+type /help x
+wait 0.6
+snap help-x
+key C-u
+wait 0.3
+type /rename notes
+wait 0.6
+snap rename-notes

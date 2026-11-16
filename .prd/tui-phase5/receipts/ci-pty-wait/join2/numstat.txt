@@ -1,0 +1,5 @@
+1a4cb6b4..d0115e72
+  product  +98 -33
+  tests    +1442 -76
+  receipt  +10526 -0
+  other    +14 -14

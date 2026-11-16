@@ -227,6 +227,7 @@ impl RawCli {
                 no_save,
                 add_dir,
                 auto,
+                full_access,
                 yolo,
                 resume,
                 resume_id,
@@ -241,9 +242,9 @@ impl RawCli {
                             .to_string(),
                     };
                 }
-                // clap already rejects `--auto --yolo` together, so at most one
-                // is set here; the `else` order is not a precedence rule.
-                let mode = if yolo {
+                // clap already rejects any two mode flags together, so at most
+                // one is set here; the `else` order is not a precedence rule.
+                let mode = if yolo || full_access {
                     Some(PermissionMode::Yolo)
                 } else if auto {
                     Some(PermissionMode::Auto)
@@ -387,10 +388,17 @@ enum RawCommand {
         // option because that is the spelling upstream uses
         // (`cli_surface.zig:61`), and because `--yolo` should be a word a user
         // has to type deliberately rather than a value they could mistype into.
+        // fx v0.0.16 spells the third `--full-access` or `--yolo`, exactly
+        // (`cli_ask.zig:3582`), and lists them as two lines, the second an alias
+        // (`commands.zig:35-37@481104fd`): two flags here, so the help does too.
+        // Any second mode flag is refused (`cli_ask.zig:3580`, `:3583`).
         /// Run bounded reversible workspace changes and read-only commands without asking
-        #[arg(long, conflicts_with = "yolo")]
+        #[arg(long, conflicts_with_all = ["yolo", "full_access"])]
         auto: bool,
-        /// Skip every permission check for this run (prints a warning)
+        /// Disable xfx permission checks
+        #[arg(long = "full-access", conflicts_with = "yolo")]
+        full_access: bool,
+        /// Alias for --full-access
         #[arg(long)]
         yolo: bool,
         /// The question. Everything after `--`, and everything after the first
@@ -705,12 +713,40 @@ mod tests {
         assert_eq!(mode(&["ask", "hi"]), None);
         assert_eq!(mode(&["ask", "--auto", "hi"]), Some(PermissionMode::Auto));
         assert_eq!(mode(&["ask", "--yolo", "hi"]), Some(PermissionMode::Yolo));
+        // fx's other spelling of it (`cli_ask.zig:3582@481104fd`).
+        assert_eq!(
+            mode(&["ask", "--full-access", "hi"]),
+            Some(PermissionMode::Yolo)
+        );
         // Two modes at once has no honest meaning, and picking one silently
         // would make `--yolo --auto` and `--auto --yolo` mean different things.
-        assert!(matches!(
-            parse(&["ask", "--auto", "--yolo", "hi"]),
-            Command::Rejected { .. }
-        ));
+        // fx refuses a second mode flag of any kind (`:3580`, `:3583`).
+        for args in [
+            ["ask", "--auto", "--yolo", "hi"],
+            ["ask", "--full-access", "--auto", "hi"],
+            ["ask", "--full-access", "--yolo", "hi"],
+            ["ask", "--yolo", "--yolo", "hi"],
+            ["ask", "--auto", "--auto", "hi"],
+            ["ask", "--full-access", "--full-access", "hi"],
+            ["ask", "--yolo", "--full-access", "hi"],
+            ["ask", "--yolo", "--auto", "hi"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
+        // Exactly, as fx compares them (`std.mem.eql`): no other case.
+        for args in [
+            ["ask", "--YOLO", "hi"],
+            ["ask", "--Full-Access", "hi"],
+            ["ask", "--AUTO", "hi"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
         // The mode flags belong to `ask`; `status` and `doctor` change nothing.
         for args in [vec!["status", "--auto"], vec!["doctor", "--yolo"]] {
             assert!(

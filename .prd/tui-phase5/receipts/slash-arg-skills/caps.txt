@@ -1,0 +1,7 @@
+# caps.sh's output (one suite-lock slot; the base's paired run stopped early: red.txt)
+fx p5-slash-arg-skills exit 0
+base p5-slash-arg-skills exit 1
+head p5-slash-arg-skills exit 0
+fx p5-slash-arg-skills-mixed exit 0
+base p5-slash-arg-skills-mixed exit 0
+head p5-slash-arg-skills-mixed exit 0

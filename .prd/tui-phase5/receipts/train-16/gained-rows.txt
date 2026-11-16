@@ -1,0 +1,13 @@
+pairs that gained a differing row: 9
+    main approved-divergence -> head approved-divergence: 1
+    main unresolved-defect -> head unresolved-defect: 8
+  8  other
+  1  a placeholder where main's row held a path of the run (LOCAL-PATHS)
+    p5-panels-sweep-b after-compact (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b compact (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b rename (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b resume (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b stats (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b trace (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-panels-sweep-b undo (unresolved-defect -> unresolved-defect): fx 'unced_resizes=0, footer_updates=0, stream_chunks=0' / xfx 'unced_resizes=0, footer_updates=0, stream_chunks=0'
+    p5-transcript-question full-60 (unresolved-defect -> unresolved-defect): fx '<banner>' / xfx ' (debug 2026-11-16-0759-2b78aab658dd) · Run /help…'

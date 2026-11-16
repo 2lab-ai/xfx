@@ -1,0 +1,31 @@
+## p5-approval-paste-spaces-40x120: fx against xfx, cell by cell (cells.py, row 1 left out); scope rows: 19 21 22 23 24 25 
+SCOPE  amend-letter           rows: 19 21 22 23 24 25 
+       fx:    ❯ 1  Apply once, ab cd ef gh ijz | refusals 0 | draft ends 'cd ef gh ijz'
+       xfx:   ❯ 1  Apply once, ab cd ef gh ijz | refusals 0 | draft ends 'cd ef gh ijz'
+SCOPE  amend-pasted           rows: 19 21 22 23 24 25 
+       fx:    ❯ 1  Apply once, ab cd ef gh ij | refusals 0 | draft ends ' cd ef gh ij'
+       xfx:   ❯ 1  Apply once, ab cd ef gh ij | refusals 0 | draft ends ' cd ef gh ij'
+SCOPE  amend-super-left       rows: 19 21 22 23 24 25 
+       fx:    ❯ 1  Apply once, yab cd ef gh ijz | refusals 0 | draft ends 'cd ef gh ijz'
+       xfx:   ❯ 1  Apply once, yab cd ef gh ijz | refusals 0 | draft ends 'cd ef gh ijz'
+SCOPE  amend-terminal-paste   rows: 19 21 22 23 24 25 
+       fx:    ❯ 1  Apply once, yab cd ef gh ijz and the rest | refusals 0 | draft ends 'and the rest'
+       xfx:   ❯ 1  Apply once, yab cd ef gh ijz and the rest | refusals 0 | draft ends 'and the rest'
+SCOPE  asked                  rows: 19 21 22 23 24 25 
+       fx:    ❯ 1  Apply once | refusals 0 | draft ends '  Apply once'
+       xfx:   ❯ 1  Apply once | refusals 0 | draft ends '  Apply once'
+WINDOW deny-fits              rows: 19 20 21 22 23 24 26 27 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxa b'
+       xfx:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxa b'
+WINDOW deny-held              rows: 19 20 21 22 23 24 26 27 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxxxx'
+       xfx:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxxxx'
+WINDOW deny-letter-refused    rows: 21 22 23 24 25 26 28 29 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 1 | draft ends 'xxxxxxxxxa b'
+       xfx:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 1 | draft ends 'xxxxxxxxxa b'
+WINDOW deny-paste-refused     rows: 23 24 25 26 27 28 30 31 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 2 | draft ends 'xxxxxxxxxa b'
+       xfx:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 2 | draft ends 'xxxxxxxxxa b'
+
+0 of 9 pairs identical, 5 more differing only in the scope rows, 4 more only in the draft's window
+banners (asked row 1): fx 𝒇x v0.0.16 · Run /help for commands / xfx x𝒇x v0.1.0-9a73d0b [debug] · Run /help for commands

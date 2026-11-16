@@ -1,0 +1,40 @@
+# Train 16's sweeps, as sweep.sh printed them; then each sweep's run.json, the banners (banners.py) and the base's rescore (sweep.sh --rescore on a copy, with the head's ledger).
+
+## base
+# base: build in clone-base at 866747ff, exit 0; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732
+# size 40x120; selection: selection-sweep.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.96
+# base: sweep exit 0, 4318 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 21.98
+[419/421] fx p5-ctrlo-wider-inline-fam: ran (7s)
+[420/421] xfx p5-ctrlo-wider-inline-fam: ran (8s)
+[421/421] fx (inventory): ran (34s)
+pass = 879 / 1408 = 62.4%; unresolved 487, failed 0, timeout 0
+wrote <out>/scoreboard.md
+run.json: started 2026-11-16T17:31:29+09:00; wall 71m50s; start_load 8.96; peak_load 46.65; jobs 2; size 40x120; xfx_sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 866747ff7febf75db82cba8cb7391910d1bb419f
+
+## head
+# head: build in clone-head at 2b78aab6, exit 0; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a
+# size 40x120; selection: selection-sweep.txt
+# fx sha256 before: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.96
+# head: sweep exit 0, 4495 s; fx sha256 after: 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 17.00
+[445/447] xfx p5-ctrlo-wider-inline-fam: ran (8s)
+[446/447] xfx p5-mode-case-env: ran (5s)
+[447/447] fx (inventory): ran (33s)
+pass = 971 / 1514 = 64.1%; unresolved 501, failed 0, timeout 0
+wrote <out>/scoreboard.md
+run.json: started 2026-11-16T17:31:30+09:00; wall 74m48s; start_load 8.96; peak_load 46.65; jobs 2; size 40x120; xfx_sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx_sha256 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; repo_head 2b78aab658ddf66353e4ca99feb3596a86573184
+
+## banners
+head: 1354 xfx snaps show the banner; 1354 name the build 2b78aab; others none
+base: 1249 xfx snaps show the banner; 1249 name the build 866747f; others none
+
+## the base sweep rescored with the head's ledger
+pass = 879 / 1408 = 62.4%; unresolved 487, failed 0, timeout 0
+wrote <out>/scoreboard.md
+exit 0
+ref-base: before pass = 879 / 1408; after pass = 879 / 1408; ledger 123720b4 (the head's 123720b4)
+pair by pair: 1408 pairs before, 1408 after; verdicts moved by the rescore: 0
+
+## the product version each tree builds (Cargo.toml)
+866747f version = "0.2.0"
+2b78aab version = "0.2.0"

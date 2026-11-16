@@ -1,0 +1,5 @@
+starve.sh (recipe A, plain QoS) at ba133c25's tui test binary (a --no-local clone), 10 rounds x 2 copies of five entries -- the whole tui suite (@suite), the status test, the paced hostile paste and the two unpaced ones -- so 10 processes at once, every run --nocapture, under the suite lock (one slot; the gate held another). Start and end, each with vm.loadavg (1, 5, 15 min):
+2026-11-16T14:37:17Z
+{ 41.75 52.82 45.52 }
+2026-11-16T14:42:35Z
+{ 74.82 61.25 50.78 }

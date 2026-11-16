@@ -19,6 +19,7 @@ use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
 use serde_json::Value;
 use support::fake_gateway::{sent, FakeGateway};
+use support::profiles;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::{Sandbox, UNREADABLE_PROVIDER};
 use unicode_segmentation::UnicodeSegmentation;
@@ -588,7 +589,7 @@ fn assert_raw(state: TerminalState) {
 ///
 /// Every other raw-mode assertion in this suite waits on a byte that the child
 /// writes *after* the `tcsetattr` in question -- the mode set, which `resume`
-/// emits only once raw mode is back (`src/tui/mod.rs:759-760`). That works
+/// emits only once raw mode is back (`src/tui/mod.rs:772-773`). That works
 /// whenever the wire says which mode set is which. After a stop whose timing
 /// the test does not control, it does not: a session stopped *after* it
 /// announced itself has already put one mode set on the wire, so waiting for
@@ -1058,6 +1059,126 @@ fn a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken() {
     assert_no_mode_bytes(&text);
     assert_eq!(before, modes(&pty), "a refused resume touched the terminal");
     assert_eq!(sandbox.session_ids(), Vec::<String>::new());
+}
+
+/// A profile fx v0.0.16 refuses stops the TUI before the terminal is
+/// taken: fx loads the startup state after its terminal check and before raw
+/// mode (`bootstrapInteractiveApp`, `app_lifecycle.zig:851-883@481104fd`),
+/// refuses (`:689-703`) and exits 1 with `fx: InvalidProfileConfiguration`
+/// (`app_entry_runtime.zig:537-539`, `main.zig:3316`). So: that one line, no
+/// mode byte, the terminal's modes as they were, and the home and the
+/// workspace untouched -- a resume too, which fx refuses before it looks for
+/// the session.
+#[test]
+fn a_profile_fx_refuses_is_refused_before_the_terminal_is_taken() {
+    let cases = profiles::every_launch_refuses()
+        .map(|(name, profile, error)| (name, profile, error, None))
+        .chain([(
+            "not JSON, on a resume",
+            profiles::REJECTED[0].1,
+            "InvalidProfileConfiguration",
+            Some("no-such-session"),
+        )]);
+    for (name, profile, error, resume) in cases {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, profile) {
+            eprintln!("skipped {name}: the mode bits do not stop this reader");
+            continue;
+        }
+        let tree_before = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut command = tui(&sandbox);
+        if let Some(id) = resume {
+            command.arg("--resume").arg(id);
+        }
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        assert_eq!(session.wait_exit().code(), Some(1), "{name}");
+        let text = session.settled_text();
+        assert_eq!(text, format!("xfx: {error}\r\n"), "{name}");
+        assert_no_mode_bytes(&text);
+        assert_eq!(
+            before,
+            modes(&pty),
+            "{name}: the refusal touched the terminal"
+        );
+        let tree_after = (
+            profiles::snapshot(&sandbox.home),
+            profiles::snapshot(&sandbox.workspace),
+        );
+        assert_eq!(tree_after, tree_before, "{name}: the refusal wrote");
+        profiles::unlock(&sandbox.home);
+    }
+}
+
+/// What only `ask` refuses (fx's `durable_path_unsafe`) starts the TUI, as
+/// fx's interactive launch, with the stored credential mode, goes on
+/// (`app_lifecycle.zig:693-696`, `:501-515`).
+#[test]
+fn a_profile_only_ask_refuses_starts_the_tui() {
+    // A linked `~/.xfx`, or a file in its place, is not here: the session
+    // store refuses one in its own words before anything is asked
+    // (`src/profile_home.rs`, whose rule `docs/parity.md` keeps), which
+    // this unit leaves as it was.
+    for (name, profile) in profiles::UNSAFE.iter().filter(|(_, profile)| {
+        !matches!(
+            profile,
+            profiles::Profile::LinkedDir | profiles::Profile::FileForDir
+        )
+    }) {
+        let sandbox = Sandbox::new();
+        if !profiles::lay(&sandbox.home, &sandbox.workspace, *profile) {
+            continue;
+        }
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+        session.wait_for(READY);
+        assert!(
+            !session.text().contains("InvalidProfileConfiguration"),
+            "{name}"
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0), "{name}");
+    }
+}
+
+/// A profile that goes bad after the launch is no refusal: the session goes
+/// on and the `/status` panel says the settings could not be read where Auth
+/// would stand (`openStatusSnapshot`, `session_commands.zig:280-296@481104fd`;
+/// `p5-panels-status-badsettings`).
+#[test]
+fn a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal() {
+    let sandbox = Sandbox::new();
+    assert!(profiles::lay(
+        &sandbox.home,
+        &sandbox.workspace,
+        profiles::Profile::Text(r#"{"permission_mode": "auto"}"#)
+    ));
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    std::fs::write(
+        sandbox.settings_path(),
+        r#"{"permission_mode": "auto", "sandbox": "#,
+    )
+    .expect("the profile goes bad");
+    session.type_bytes(b"/status\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["couldn't be read: InvalidSettingsFormat"],
+        &["InvalidProfileConfiguration"],
+    );
+    session.type_bytes(b"\x1b");
+    on_screen(&session, (40, 120), &[], &["couldn't be read"]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
@@ -2200,7 +2321,7 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     // terminal's own answer rather than the 24x80 a pty with no size falls
     // back to -- and so the assertion below is about geometry.
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2275,7 +2396,7 @@ fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2335,7 +2456,7 @@ fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output() {
     std::fs::write(&profile, "{\"startup_scrollback\":false}").expect("the profile");
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.arg("-c").arg(format!(
         "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
         env!("CARGO_BIN_EXE_xfx")
@@ -2597,7 +2718,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1809,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412` all clear the line
+    // (`tests/tui.rs:1930,2312,2887,3234,3357,4509,8229,8303,9090,9791,9987` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -3031,7 +3152,7 @@ fn the_hint_row_says_what_mode_and_which_model_a_turn_will_use() {
 fn a_session_with_no_credential_is_told_so_before_it_spends_a_prompt() {
     // The segment that leads the row, and the only one that is about the
     // machine rather than about the turn: this sandbox exports no credential of
-    // any kind (`Sandbox::CONTROLLED_VARS` are removed), so every turn it could
+    // any kind (`support::sandbox::clear_env` keeps none), so every turn it could
     // run would refuse -- which is worth knowing before typing a prompt rather
     // than after sending one.
     let sandbox = Sandbox::new();
@@ -3555,11 +3676,421 @@ fn hostile_paste(start_inside: bool) -> Vec<u8> {
 /// parts of 4 KiB ([`Session::write_raw`]: no pause before or after), and
 /// then leaves the terminal quiet for a second -- far past the paste's
 /// quarantine -- so that what follows is a key of the test's own.
-fn paste_unpaced(session: &Session, bytes: &[u8]) {
-    for part in bytes.chunks(4096) {
-        session.write_raw(part);
+///
+/// Or stops at the first part behind which the terminal can have gone
+/// [`PASTE_QUIET`] without a byte ([`Session::write_raw_measured`]): that
+/// session is **timing-indeterminate**. The measure is an upper bound on how
+/// long the input queue can have been empty, not a reading of it -- the queue
+/// may have held bytes all the while -- so such a session neither proves nor
+/// disproves the quarantine: the TUI may have ended it there by design, or
+/// not. Its rest is not written (a hostile body typed as keys can outlast the
+/// write's own bound on a loaded machine), and what it came to is kept: the
+/// pause, and the screen a second later, printed and handed back
+/// ([`Rejected`]) for [`unpaced_case`] to say.
+///
+/// The longest pause is printed either way, so a failure later in the case
+/// carries it: a timeout behind a paste that never paused is the product's.
+fn paste_unpaced(session: &Session, bytes: &[u8], size: (usize, usize)) -> Result<(), Rejected> {
+    paste_with_pauses(session, bytes, size, std::time::Duration::ZERO, &[])
+}
+
+/// [`paste_unpaced`] with the terminal pausing `pause` before each part
+/// whose index is in `before` -- a pause it means to take, counted in the
+/// measure like any other.
+fn paste_with_pauses(
+    session: &Session,
+    bytes: &[u8],
+    (rows, cols): (usize, usize),
+    pause: std::time::Duration,
+    before: &[usize],
+) -> Result<(), Rejected> {
+    let mut previous = None;
+    let mut longest = std::time::Duration::ZERO;
+    let mut longest_fell = String::new();
+    let parts = bytes.len().div_ceil(4096);
+    for (at, part) in bytes.chunks(4096).enumerate() {
+        let mut planned = None;
+        if before.contains(&at) {
+            let asleep = std::time::Instant::now();
+            std::thread::sleep(pause);
+            planned = Some(asleep.elapsed());
+        }
+        let written = session.write_raw_traced(part, &mut previous);
+        let gap = written.longest;
+        if gap > longest {
+            longest = gap;
+            longest_fell = where_it_fell(at, parts, &written, planned, pause);
+        }
+        if gap >= PASTE_QUIET {
+            let fell = where_it_fell(at, parts, &written, planned, pause);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let text = session.text();
+            let screen: Vec<String> = match Screen::painted(&text, rows, cols) {
+                Some(screen) => (1..=rows)
+                    .map(|row| screen.row_text(row))
+                    .filter(|row| !row.trim().is_empty())
+                    .collect(),
+                None => vec![format!(
+                    "(no whole frame; the terminal's last bytes) {:?}",
+                    last_bytes(&text, 400)
+                )],
+            };
+            say(&format!(
+                "a timing-indeterminate session: the paste paused for {gap:?} \
+                 (pauses of {pause:?}), {fell}; \
+                 a second later the screen held:\n{}\n",
+                screen.join("\n")
+            ));
+            return Err(Rejected { gap, fell, screen });
+        }
     }
+    say(&format!(
+        "the paste's longest pause: {longest:?} (pauses of {pause:?}), {longest_fell};\n"
+    ));
     std::thread::sleep(std::time::Duration::from_secs(1));
+    Ok(())
+}
+
+/// Where a paste's pause of [`PASTE_QUIET`] or more fell, in words: between
+/// two parts -- across the planned pause before part `at`, with how long that
+/// sleep took, or with none planned there -- or inside part `at`, behind a
+/// full queue's [`IDLE_POLL`] poll, with how long that sleep took; and how
+/// long the `write` that ended it took, and the rest of the pause (the write
+/// before it, and the time this thread was off a CPU). A pause between parts
+/// spans the last write of one part and the first of the next as well as
+/// whatever lay between them.
+fn where_it_fell(
+    at: usize,
+    parts: usize,
+    written: &support::pty::Written,
+    planned: Option<std::time::Duration>,
+    pause: std::time::Duration,
+) -> String {
+    let (place, slept) = if written.at <= 1 {
+        let between = format!("between parts {} and {at} of {parts}", at.saturating_sub(1));
+        match planned {
+            Some(slept) => (
+                format!("{between}, across a planned {pause:?} pause that slept {slept:?}"),
+                slept,
+            ),
+            None => (
+                format!("{between}, with no pause planned there"),
+                std::time::Duration::ZERO,
+            ),
+        }
+    } else {
+        (
+            format!(
+                "inside part {at} of {parts}, at its write attempt {} of {}, behind a full \
+                 queue's {IDLE_POLL:?} poll that slept {:?}",
+                written.at, written.attempts, written.slept
+            ),
+            written.slept,
+        )
+    };
+    let rest = written.longest.saturating_sub(slept + written.wrote);
+    format!(
+        "{place}; the write that ended it took {:?}, and the rest, {rest:?}, is the write \
+         before it and the time this thread was off a CPU",
+        written.wrote
+    )
+}
+
+/// Writes `line` to standard error in one write, so a parallel suite's other
+/// output cannot cut it: `eprintln!` writes its pieces one by one, and with
+/// `--nocapture` the harness's `test ... ok` lines landed inside them (a
+/// fifth of the paste diagnostics in CI-PTY-WAIT round 3's suite runs).
+fn say(line: &str) {
+    use std::io::Write;
+    let _ = std::io::stderr().lock().write_all(line.as_bytes());
+}
+
+/// At most the last `most` bytes of `text`, from a character's start: a
+/// terminal's stream cut at a byte count can land inside a character.
+fn last_bytes(text: &str, most: usize) -> &str {
+    let mut from = text.len() - text.len().min(most);
+    while !text.is_char_boundary(from) {
+        from += 1;
+    }
+    &text[from..]
+}
+
+#[test]
+fn the_last_bytes_of_a_stream_start_at_a_character() {
+    // `┃` is three bytes: a cut one byte into it starts the tail after it.
+    let text = format!("ab\u{2503}{}", "x".repeat(398));
+    assert_eq!(text.len(), 403);
+    assert_eq!(last_bytes(&text, 400), "x".repeat(398));
+    assert_eq!(
+        last_bytes(&text, 401),
+        format!("\u{2503}{}", "x".repeat(398))
+    );
+    assert_eq!(last_bytes("short", 400), "short");
+}
+
+/// A session [`paste_unpaced`] stopped at a pause: the pause, where it fell
+/// ([`where_it_fell`]), and the screen's non-blank rows a second after it.
+struct Rejected {
+    gap: std::time::Duration,
+    fell: String,
+    screen: Vec<String>,
+}
+
+/// How long the input has to be quiet for a paste's quarantine to end:
+/// `Decoder::PASTE_QUIET` at `src/tui/input.rs:835`. That constant is
+/// `pub(crate)`, so this suite cannot name it; a copy, kept beside the
+/// product's in the same change.
+const PASTE_QUIET: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Held by each case about an unpaced paste for the whole case
+/// ([`unpaced_case`]), so no two of them write their mebibyte at once.
+///
+/// libtest starts a binary's tests in name order, and the three hostile-paste
+/// cases are neighbours (`a_mebibyte_of_hostile_clipboard_...`): on a runner
+/// with three threads they start together and run together, each writing a
+/// mebibyte through a TUI that decodes it. Beside one another the writer's
+/// `write` calls slow to 20-30 ms each, and a pause the measure counts
+/// spans two of them and the sleep between -- 50 ms, with no help from the
+/// sleep (CI-PTY-WAIT §12: twelve suites at once rejected 75% of sessions
+/// with each suite's three together, and none with them one at a time). PR
+/// #103's first CI run is the same shape: the paced case's three sessions
+/// were all rejected while the two unpaced cases, started right behind it,
+/// ran; their own longest pauses were 43 and 28 ms. The other tests still
+/// run beside one hostile paste; none of them writes a mebibyte.
+static ONE_PASTE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// How many sessions a case about an unpaced paste runs before it gives up on
+/// a write the terminal never paused inside ([`unpaced_case`]). Five since
+/// PR #103's first CI run, where all three of the paced case's were rejected
+/// (CI-PTY-WAIT §12): a session is rejected, not failed, so each one more
+/// is one more chance at a session that tests the paste, and none can turn
+/// a failed one green.
+const UNPACED_ATTEMPTS: usize = 5;
+
+/// Runs `case` -- one whole session about an unpaced paste -- until one of
+/// them wrote its paste with no pause of [`PASTE_QUIET`] inside it.
+///
+/// A pause that long is a terminal that may have paused inside its paste,
+/// and the TUI ends a paste's quarantine at such a pause by design: what
+/// follows it is keys (`src/tui/input.rs`'s module doc, "a terminal that
+/// pauses that long inside one paste ends the quarantine there"). The harness
+/// is that terminal, and a harness thread a loaded runner does not schedule
+/// for 50 ms writes exactly that pause (CI run 42939692388: the body typed as
+/// keys from its line `K0000822` on). Such a session is timing-indeterminate
+/// ([`paste_unpaced`]), so its `case` stops at the pause (`Err`) and a new
+/// session runs; one whose paste went out unpaced makes every assertion
+/// (`Ok`), and an assertion that fails there fails the case at once -- no
+/// retry runs after it. Every session paused is a failure that says so, with
+/// what each one held.
+///
+/// The measure is the writer's own clock: a reader that falls behind keeps
+/// the queue full, and every attempt the writer makes against a full queue is
+/// one more reading of it, 2 ms apart ([`IDLE_POLL`]). It is not a reading of
+/// what the reader saw, and an accepted session does not prove the reader
+/// ever found the input quiet. A product that breaks the quarantine could
+/// still load the machine until the writer pauses -- at worst a misleading
+/// red (every session rejected, saying so), never a green: a rejected session
+/// asserts nothing, and the case passes only on one the writer did not pause.
+/// The receipt's quarantine mutants (CI-PTY-WAIT round 2) failed on such
+/// sessions.
+fn unpaced_case(mut case: impl FnMut() -> Result<(), Rejected>) {
+    // One such case at a time in this binary ([`ONE_PASTE_AT_A_TIME`]). A
+    // case that panicked holding the lock has failed on its own; the next
+    // one goes on.
+    let _alone = ONE_PASTE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut paused = Vec::new();
+    for _ in 0..UNPACED_ATTEMPTS {
+        match case() {
+            Ok(()) => return,
+            Err(rejected) => paused.push(rejected),
+        }
+    }
+    let held: Vec<String> = paused
+        .iter()
+        .map(|rejected| {
+            format!(
+                "after {:?} ({}): {}",
+                rejected.gap,
+                rejected.fell,
+                rejected.screen.join(" | ")
+            )
+        })
+        .collect();
+    panic!(
+        "each of {UNPACED_ATTEMPTS} pastes paused for {PASTE_QUIET:?} or more ({:?}): \
+         the harness was not scheduled while it wrote, and the TUI ends a paste's \
+         quarantine at such a pause by design, so no session tested the paste; what \
+         each screen held a second later: {held:#?}",
+        paused
+            .iter()
+            .map(|rejected| rejected.gap)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn the_harness_measures_a_pause_between_two_writes_of_one_paste() {
+    // What `unpaced_case` decides by: the longest the terminal can have gone
+    // without a byte, across the calls that write one paste. The child reads
+    // nothing, so each write is one attempt the queue takes at once.
+    let pty = Pty::open();
+    let mut command = support::command("/bin/sh");
+    command.args(["-c", "sleep 30"]);
+    let session = Session::spawn_without_taking_the_terminal(&pty, command);
+    let mut previous = None;
+    assert_eq!(
+        session.write_raw_measured(b"a", &mut previous),
+        std::time::Duration::ZERO
+    );
+    std::thread::sleep(PASTE_QUIET * 2);
+    let gap = session.write_raw_measured(b"b", &mut previous);
+    assert!(gap >= PASTE_QUIET * 2, "{gap:?}");
+}
+
+#[test]
+fn a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep() {
+    // What a rejected session says of its pause (`where_it_fell`): CI's
+    // first red of the paced case (PR #103) held three pauses and no word of
+    // where they fell.
+    let ms = std::time::Duration::from_millis;
+    let rest = "is the write before it and the time this thread was off a CPU";
+    let between = support::pty::Written {
+        longest: ms(97),
+        at: 1,
+        slept: std::time::Duration::ZERO,
+        wrote: ms(1),
+        attempts: 1,
+    };
+    assert_eq!(
+        where_it_fell(64, 256, &between, Some(ms(90)), ms(12)),
+        format!(
+            "between parts 63 and 64 of 256, across a planned 12ms pause that slept 90ms; \
+             the write that ended it took 1ms, and the rest, 6ms, {rest}"
+        )
+    );
+    assert_eq!(
+        where_it_fell(70, 256, &between, None, ms(12)),
+        format!(
+            "between parts 69 and 70 of 256, with no pause planned there; the write that \
+             ended it took 1ms, and the rest, 96ms, {rest}"
+        )
+    );
+    let inside = support::pty::Written {
+        longest: ms(61),
+        at: 3,
+        slept: ms(3),
+        wrote: ms(8),
+        attempts: 4,
+    };
+    assert_eq!(
+        where_it_fell(9, 256, &inside, None, ms(12)),
+        format!(
+            "inside part 9 of 256, at its write attempt 3 of 4, behind a full queue's 2ms \
+             poll that slept 3ms; the write that ended it took 8ms, and the rest, 50ms, {rest}"
+        )
+    );
+    // And the writer's own trace: a gap between two calls is at the second
+    // call's first attempt.
+    let pty = Pty::open();
+    let mut command = support::command("/bin/sh");
+    command.args(["-c", "sleep 30"]);
+    let session = Session::spawn_without_taking_the_terminal(&pty, command);
+    let mut previous = None;
+    assert_eq!(session.write_raw_traced(b"a", &mut previous).at, 0);
+    std::thread::sleep(PASTE_QUIET);
+    let traced = session.write_raw_traced(b"b", &mut previous);
+    assert_eq!((traced.at, traced.attempts), (1, 1), "{traced:?}");
+    assert!(traced.longest >= PASTE_QUIET, "{traced:?}");
+}
+
+#[test]
+fn no_two_unpaced_cases_run_at_once() {
+    // `ONE_PASTE_AT_A_TIME`: three cases started together, as libtest
+    // starts the three hostile pastes, run one after another, each for all
+    // of its sessions.
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    use std::sync::Arc;
+    let (inside, most) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let cases: Vec<_> = (0..3)
+        .map(|_| {
+            let (inside, most) = (Arc::clone(&inside), Arc::clone(&most));
+            std::thread::spawn(move || {
+                let mut sessions = 0;
+                unpaced_case(|| {
+                    most.fetch_max(inside.fetch_add(1, SeqCst) + 1, SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    inside.fetch_sub(1, SeqCst);
+                    sessions += 1;
+                    if sessions < 2 {
+                        Err(Rejected {
+                            gap: PASTE_QUIET,
+                            fell: String::new(),
+                            screen: Vec::new(),
+                        })
+                    } else {
+                        Ok(())
+                    }
+                })
+            })
+        })
+        .collect();
+    for case in cases {
+        case.join().expect("a case");
+    }
+    assert_eq!(most.load(SeqCst), 1, "two cases' sessions ran at once");
+}
+
+#[test]
+fn an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused() {
+    let mut runs = 0;
+    unpaced_case(|| {
+        runs += 1;
+        if runs < UNPACED_ATTEMPTS {
+            Err(Rejected {
+                gap: PASTE_QUIET,
+                fell: String::new(),
+                screen: Vec::new(),
+            })
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(runs, UNPACED_ATTEMPTS);
+    let mut runs = 0;
+    unpaced_case(|| {
+        runs += 1;
+        Ok(())
+    });
+    assert_eq!(runs, 1);
+}
+
+#[test]
+fn an_unpaced_case_whose_every_paste_paused_fails_saying_so() {
+    // With what each timing-indeterminate session held: its pause and its
+    // screen, so a red run shows whether the body was typed in any of them.
+    let caught = std::panic::catch_unwind(|| {
+        unpaced_case(|| {
+            Err(Rejected {
+                gap: PASTE_QUIET,
+                fell: "between parts 63 and 64 of 256".to_string(),
+                screen: vec!["K00000011".to_string()],
+            })
+        })
+    });
+    let message = caught
+        .expect_err("a case whose every paste paused passed")
+        .downcast::<String>()
+        .expect("a formatted message");
+    for said in [
+        "no session tested the paste",
+        "50ms",
+        "between parts 63 and 64 of 256",
+        "K00000011",
+    ] {
+        assert!(message.contains(said), "{said:?} is not said: {message}");
+    }
 }
 
 #[test]
@@ -3569,42 +4100,89 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothi
     // (`event_loop.zig:94-119@481104fd`) -- the receipt's `measure.txt` has
     // the base submitting it. Here the paste's first part is kept and nothing
     // after its embedded end marker is a key, however the deliveries fall.
-    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_gateway::content_only(&["MARKER-UNPACED"]),
-    )]);
-    let sandbox = Sandbox::new();
-    let pty = Pty::open();
-    pty.resize(40, 120);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
-    session.wait_for(READY);
+    hostile_paste_types_nothing(std::time::Duration::ZERO, &[]);
+}
 
-    paste_unpaced(&session, &hostile_paste(false));
-    // A key of the test's own, once the input has been quiet: the composer
-    // holds the paste and that key, and nothing of the body. It is written
-    // after the whole paste, so once it is on the screen the paste has all
-    // been read -- the barrier the request count below is read behind.
-    session.type_bytes(b"z");
-    on_screen(
-        &session,
-        (40, 120),
-        &[
-            "\u{2503} xz",
-            "! input: Input that arrived right after the paste was ignored.",
-        ],
-        &["K0000"],
-    );
-    assert_eq!(
-        gateway.request_count(),
-        0,
-        "the clipboard behind the end marker submitted the composer"
-    );
-    session.type_bytes(b"\r");
-    session.wait_for("MARKER-UNPACED");
-    assert_eq!(user_messages(&gateway.only_request().json()), ["xz"]);
+#[test]
+fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing() {
+    // The same, from a terminal that pauses 12 ms before four of its 4 KiB
+    // writes, the first right behind the part that carries the end marker:
+    // longer than a turn of the loop (8 ms, `TICK`), so an idle TUI finds
+    // the input empty and waits there, and well under the quiet that ends
+    // the quarantine (`PASTE_QUIET`). An unpaced write's refill gaps are a
+    // few milliseconds at idle, under one turn, so the loop never records a
+    // quiet's start there (`burst` returns at its first empty check); these
+    // pauses make it record one, at the seam this case guards: `burst`,
+    // `end_delivery`, on the loop's own clock.
+    //
+    // Four 12 ms pauses, not 20 ms ones at every boundary: under load the
+    // writer oversleeps a 20 ms sleep by 10-30 ms, and 20 ms at all 255
+    // boundaries had a fifth of its sessions rejected, against an eighth of
+    // the unpaced cases'; 20 ms at four still had a fifth rejected inside a
+    // parallel suite (CI-PTY-WAIT round 3, `round3/` in the receipt).
+    //
+    // What it does not carry: the quarantine's threshold, which the lib
+    // pins without a clock (`src/tui/input.rs:5334`, `:5933`); and proof
+    // that the reader saw each pause -- acceptance is measured on the
+    // writer, and a starved reader can take two parts in one read. A
+    // quarantine that ends at any quiet, or after 5 ms, fails here; one that
+    // ends after 20 ms does only when the writer oversleeps (CI-PTY-WAIT
+    // rounds 2 and 3, the receipt's quarantine mutants).
+    //
+    // A red here whose every pause was under 50 ms is not retried, and it
+    // can be the known clock-after-poll defect rather than a regression: the
+    // loop reads its clock after the check that found the input empty
+    // (`src/tui/event_loop.rs:750-751` -> `src/tui/shell.rs:11303-11304` ->
+    // `src/tui/input.rs:983`), so one reader stall there, with the quiet's
+    // start already recorded at a pause, ends the quarantine early. The
+    // queued PASTE-QUARANTINE-CLOCK unit fixes it.
+    hostile_paste_types_nothing(std::time::Duration::from_millis(12), &[1, 64, 128, 192]);
+}
 
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
+/// The hostile paste at an empty composer, `pause` before each part in
+/// `before`: the
+/// composer holds the paste's `x` and the test's own `z`, nothing of the body
+/// is a key, and nothing was sent until the test's own Enter.
+fn hostile_paste_types_nothing(pause: std::time::Duration, before: &[usize]) {
+    unpaced_case(|| {
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["MARKER-UNPACED"]),
+        )]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(40, 120);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+        session.wait_for(READY);
+
+        paste_with_pauses(&session, &hostile_paste(false), (40, 120), pause, before)?;
+        // A key of the test's own, once the input has been quiet: the composer
+        // holds the paste and that key, and nothing of the body. It is written
+        // after the whole paste, so once it is on the screen the paste has all
+        // been read -- the barrier the request count below is read behind.
+        session.type_bytes(b"z");
+        on_screen(
+            &session,
+            (40, 120),
+            &[
+                "\u{2503} xz",
+                "! input: Input that arrived right after the paste was ignored.",
+            ],
+            &["K0000"],
+        );
+        assert_eq!(
+            gateway.request_count(),
+            0,
+            "the clipboard behind the end marker submitted the composer"
+        );
+        session.type_bytes(b"\r");
+        session.wait_for("MARKER-UNPACED");
+        assert_eq!(user_messages(&gateway.only_request().json()), ["xz"]);
+
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+        Ok(())
+    });
 }
 
 #[test]
@@ -3613,39 +4191,42 @@ fn a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval() {
     // its newline the Enter on it. Nothing after the embedded end marker is a
     // key -- a second paste's start marker in it included -- so the question
     // is still waiting when the test answers it itself.
-    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
-    let sandbox = Sandbox::new();
-    let notes = support::sandbox::with_notes(&sandbox);
-    let pty = Pty::open();
-    pty.resize(24, 80);
-    let mut command = tui_with(&sandbox, &gateway);
-    command.env("XFX_PERMISSION_MODE", "ask");
-    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
-    session.wait_for(READY);
-    session.type_bytes(b"edit the notes\r");
-    session.wait_for(PERMISSION_TITLE);
+    unpaced_case(|| {
+        let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+        let sandbox = Sandbox::new();
+        let notes = support::sandbox::with_notes(&sandbox);
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_PERMISSION_MODE", "ask");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"edit the notes\r");
+        session.wait_for(PERMISSION_TITLE);
 
-    paste_unpaced(&session, &hostile_paste(true));
-    // A barrier in the input's own order: Down, written after the whole
-    // paste, moves the question's marker to its second choice. Once that is
-    // on the screen every byte of the paste has been read, so a paste that
-    // had answered would have taken the question down before it.
-    session.type_bytes(b"\x1b[B");
-    on_screen(&session, (24, 80), &["\u{276f} 2  "], &[]);
-    assert_eq!(
-        std::fs::read_to_string(&notes).expect("read back"),
-        "alpha\n",
-        "the clipboard behind the end marker approved the edit"
-    );
-    // Still asking: the test's own `1` is the answer, and the edit runs.
-    session.type_bytes(b"1");
-    session.wait_for("the edit is done");
-    assert_eq!(
-        std::fs::read_to_string(&notes).expect("read back"),
-        "beta\n"
-    );
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
+        paste_unpaced(&session, &hostile_paste(true), (24, 80))?;
+        // A barrier in the input's own order: Down, written after the whole
+        // paste, moves the question's marker to its second choice. Once that is
+        // on the screen every byte of the paste has been read, so a paste that
+        // had answered would have taken the question down before it.
+        session.type_bytes(b"\x1b[B");
+        on_screen(&session, (24, 80), &["\u{276f} 2  "], &[]);
+        assert_eq!(
+            std::fs::read_to_string(&notes).expect("read back"),
+            "alpha\n",
+            "the clipboard behind the end marker approved the edit"
+        );
+        // Still asking: the test's own `1` is the answer, and the edit runs.
+        session.type_bytes(b"1");
+        session.wait_for("the edit is done");
+        assert_eq!(
+            std::fs::read_to_string(&notes).expect("read back"),
+            "beta\n"
+        );
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+        Ok(())
+    });
 }
 
 #[test]
@@ -6418,7 +6999,7 @@ fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses() {
     on_screen(
         &session,
         (40, 120),
-        &["\u{2717} credits: provider=rejected: the `provider` setting is `not-a-provider`"],
+        &["\u{2717} credits: provider=rejected: the `provider` setting is `codex`"],
         &["MARKER-TITLE", "balance=42.17"],
     );
 
@@ -8216,14 +8797,8 @@ mod faults {
         assert_eq!(before, modes(&pty));
 
         // A torn manifest is worse than a slow exit: the session must still read.
-        let listed = xfx::process::output(
-            Command::new(env!("CARGO_BIN_EXE_xfx"))
-                .arg("session")
-                .arg("last")
-                .current_dir(&sandbox.workspace)
-                .env("HOME", &sandbox.home),
-        )
-        .expect("read the session back");
+        let listed = xfx::process::output(sandbox.command().arg("session").arg("last"))
+            .expect("read the session back");
         assert!(
             listed.status.success(),
             "the session log was left unreadable: {listed:?}"
@@ -9445,7 +10020,7 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     // tells the child -- and a real terminal has the same gap: the kernel
     // raises `SIGWINCH` after the size has already changed, and no process can
     // withhold a frame for a size nobody has told it about. `Shell::blind`
-    // (`src/tui/shell.rs:17529`) is `resize_pending || screen != geometry`, and
+    // (`src/tui/shell.rs:17644`) is `resize_pending || screen != geometry`, and
     // neither is true until the handler has run. So a frame composed in that
     // gap is composed for the screen the session still believes in, and it is
     // not a frame written *while blind*.
@@ -14266,6 +14841,91 @@ fn a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn() {
 
 // -- /skills and `$` -----------------------------------------------------------
 
+/// A sandbox for a case that searches the skills for `searched`, whose whole
+/// path holds none of them. A search reads each skill's path too
+/// (`skillMatchRank`; `src/tui/skills_menu.rs`'s `rank`), so a sandbox whose
+/// path holds the word lists every skill for it. The root is `.tmp` and six
+/// random letters and digits, and a root that happens to be named
+/// `.tmpqFOo7z` lists every skill for `$foo` -- about one in 7 400 for a given
+/// three-letter word, and CI drew one (run 42942450215: `Skills 3` under
+/// `$foo`): that name is drawn again. The directory it is made in is the
+/// machine's (`TMPDIR`), the same on every draw, so a word there is a
+/// failure that says so rather than a case that times out on every run.
+fn skills_sandbox(searched: &[&str]) -> Sandbox {
+    for _ in 0..100 {
+        let sandbox = Sandbox::new();
+        let root = sandbox.workspace.parent().expect("the sandbox root");
+        match found_in_sandbox(root, searched) {
+            Found::Nowhere => return sandbox,
+            Found::InTheRootsName => continue,
+            Found::AboveTheRoot => panic!(
+                "the directory the sandboxes are made in, {:?}, holds one of {searched:?}: \
+                 a `$` search reads every skill's path, so it would list every skill; \
+                 run with a TMPDIR whose path holds none of them",
+                root.parent().unwrap_or(root)
+            ),
+        }
+    }
+    panic!("a hundred sandbox roots named with one of {searched:?}");
+}
+
+/// Where a search for one of `searched` finds the paths of a sandbox at
+/// `root` -- its `home` and its `workspace`, whole and with ASCII case folded,
+/// as the skills menu's search reads them.
+#[derive(Debug, PartialEq)]
+enum Found {
+    Nowhere,
+    /// In the root's own name, which a new sandbox draws again.
+    InTheRootsName,
+    /// Above the root, where no draw changes it.
+    AboveTheRoot,
+}
+
+fn found_in_sandbox(root: &std::path::Path, searched: &[&str]) -> Found {
+    let holds = |text: &str| {
+        let text = text.to_ascii_lowercase();
+        searched
+            .iter()
+            .any(|word| text.contains(&word.to_ascii_lowercase()))
+    };
+    let found = ["home", "workspace"]
+        .iter()
+        .any(|below| holds(&root.join(below).to_string_lossy()));
+    if !found {
+        Found::Nowhere
+    } else if root
+        .file_name()
+        .is_some_and(|name| holds(&name.to_string_lossy()))
+    {
+        Found::InTheRootsName
+    } else {
+        Found::AboveTheRoot
+    }
+}
+
+#[test]
+fn a_skills_sandbox_path_never_holds_what_its_case_searches() {
+    use std::path::Path;
+    let found = |root: &str, searched: &[&str]| found_in_sandbox(Path::new(root), searched);
+    assert_eq!(
+        found("some/dir/.tmpqFOo7z", &["foo"]),
+        Found::InTheRootsName
+    );
+    assert_eq!(
+        found("some/dir/.tmpdEMx1a", &["zz", "dem"]),
+        Found::InTheRootsName
+    );
+    assert_eq!(found("some/dir/.tmpfo0o1a", &["foo"]), Found::Nowhere);
+    assert_eq!(found("some/FOOD/.tmpab12cd", &["foo"]), Found::AboveTheRoot);
+    assert_eq!(
+        found("some/condemn/.tmpab12cd", &["dem"]),
+        Found::AboveTheRoot
+    );
+    let sandbox = skills_sandbox(&["foo"]);
+    let root = sandbox.workspace.parent().expect("a root");
+    assert_eq!(found_in_sandbox(root, &["foo"]), Found::Nowhere);
+}
+
 /// The capture's workspace (`research/media-ext/scenarios/skills-ws`) on xfx's
 /// roots: `demo` in `.xfx/skills`, `release-notes` in `skills/`, and a local
 /// source directory holding `foo`.
@@ -14319,7 +14979,7 @@ fn a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions() {
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
         support::fake_gateway::content_only(&["Used ", "the skill."]),
     )]);
-    let sandbox = Sandbox::new();
+    let sandbox = skills_sandbox(&["dem"]);
     skills_workspace(&sandbox);
     let pty = Pty::open();
     pty.resize(40, 120);
@@ -14436,7 +15096,7 @@ If a skill cannot be followed, state the blocker instead of silently substitutin
 fn slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network() {
     // `cap/fx-skills-40x120-menu`, `-add-local`, `-path`; a source that is not
     // a directory is the failed install upstream says for a clone that failed.
-    let sandbox = Sandbox::new();
+    let sandbox = skills_sandbox(&["foo"]);
     skills_workspace(&sandbox);
     let pty = Pty::open();
     pty.resize(40, 120);

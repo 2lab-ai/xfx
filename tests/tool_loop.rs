@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 
@@ -51,16 +51,6 @@ use xfx::workspace::{AccessScope, PathError, ProjectContext};
 use support::fake_gateway::{
     content_only, finish, sse_body, text_delta, tool_call, FakeGateway, Reply,
 };
-
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-];
 
 /// A test secret that must never appear on stdout or stderr.
 const TEST_KEY: &str = "xfx-test-tool-key-must-not-appear";
@@ -114,7 +104,8 @@ impl Tree {
     /// run on.
     fn mkfifo(&self, relative: &str) -> PathBuf {
         let path = self.root.join(relative);
-        let status = xfx::process::status(Command::new("mkfifo").arg(&path)).expect("run mkfifo");
+        let status =
+            xfx::process::status(support::command("mkfifo").arg(&path)).expect("run mkfifo");
         assert!(status.success(), "mkfifo failed: {status:?}");
         path
     }
@@ -3628,12 +3619,10 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         for (key, value) in env {
             command.env(key, value);
         }
@@ -3986,8 +3975,7 @@ fn usage_frame(journal: &RecordingJournal) -> &SessionEvent {
 /// Whether `program` is on this process's `PATH`, which the terminal tool
 /// passes to its commands.
 fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+    std::env::split_paths(&support::sandbox::path()).any(|dir| dir.join(program).is_file())
 }
 
 /// A command the terminal tool runs starts with no signal blocked, whichever

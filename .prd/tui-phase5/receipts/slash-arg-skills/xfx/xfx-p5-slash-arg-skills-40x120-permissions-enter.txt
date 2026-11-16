@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-f039948 [debug] · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* sound: on
+
+* workspace: primary=<work_______________________________________>
+  saved_suppressed=false limit=16
+  additional directories: (none)
+
+* permissions: mode set to ask
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

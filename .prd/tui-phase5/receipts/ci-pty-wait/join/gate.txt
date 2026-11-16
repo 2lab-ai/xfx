@@ -1,0 +1,34 @@
+train 16's gates.sh (ci.yml's gate job at the joined main) at ba133c25, on a --no-local clone, in one hold of the suite lock; one line per step: its exit, seconds, the load at its start. Then the two cargo test steps' totals, from their logs.
+# head ba133c25; tree clean: yes
+01 pinned-toolchain                   exit 0     0s  load 66.91
+02 bash32                             exit 0     0s  load 66.91
+03 which-bash                         exit 0     0s  load 66.91
+04 fmt                                exit 0     3s  load 66.91
+05 clippy                             exit 0    47s  load 66.91
+06 clippy-fault                       exit 0    38s  load 56.91
+07 check-env-reads                    exit 0   571s  load 52.09
+08 check-env-reads-self-test          exit 0    12s  load 76.81
+09 test                               exit 0   112s  load 74.38
+10 test-fault                         exit 0   106s  load 65.53
+11 check-xfx-identity                 exit 0     2s  load 52.36
+12 check-no-stubs                     exit 0     9s  load 52.36
+13 check-no-secrets                   exit 0    87s  load 55.46
+14 check-no-local-paths               exit 0    30s  load 86.13
+15 test-check-no-local-paths          exit 0    15s  load 91.57
+16 check-preview-contract             exit 0     4s  load 89.70
+17 check-tui-preflight-cost           exit 0     3s  load 87.33
+18 check-at-search-cost               exit 0     1s  load 87.33
+19 check-usage-clock                  exit 0     2s  load 87.94
+20 test-check-no-secrets              exit 0    71s  load 87.94
+21 test-gate-env                      exit 0   175s  load 89.98
+22 test-preview-contract              exit 0    54s  load 65.10
+23 test-early-stop                    exit 0     1s  load 44.78
+24 fxcap-test-sweep                   exit 0    16s  load 44.78
+25 fxcap-test-capture                 exit 0   602s  load 41.52
+26 build-release                      exit 0    18s  load 54.00
+27 build-faulty                       exit 0    33s  load 53.57
+28 smoke                              exit 0     2s  load 55.97
+29 smoke-tui                          exit 0    66s  load 55.97
+# 29 steps, 0 failed; tree clean after: yes
+09-test.log: 14 test binaries, 6075 passed, 0 failed, 8 ignored
+10-test-fault.log: 14 test binaries, 6112 passed, 0 failed, 8 ignored

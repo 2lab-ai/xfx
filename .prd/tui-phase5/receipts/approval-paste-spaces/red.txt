@@ -1,0 +1,65 @@
+# RED: the unit's tests at the RED commit over the base's code (df45025c's src outside the test modules)
+# cargo test --locked --lib -- tui::approval_amendment tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs
+
+running 13 tests
+test tui::approval_amendment::tests::a_multibyte_paste_is_not_cut_mid_character ... ok
+test tui::approval_amendment::tests::the_middle_choice_has_no_draft_and_a_closed_panel_takes_no_keys ... ok
+test tui::approval_amendment::tests::a_bracketed_paste_becomes_draft_text_and_never_an_entity ... FAILED
+test tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs ... FAILED
+test tui::approval_amendment::tests::a_blank_draft_is_an_absent_one_and_the_other_side_never_travels ... ok
+test tui::approval_amendment::tests::an_oversized_paste_is_refused_atomically_with_a_visible_notice ... ok
+test tui::approval_amendment::tests::super_up_and_down_are_the_whole_drafts_edges ... ok
+test tui::approval_amendment::tests::undo_redo_and_yank_work_inside_a_draft ... ok
+test tui::approval_amendment::tests::a_draft_is_bounded_in_rows_and_windows_on_the_caret ... ok
+test tui::approval_amendment::tests::keystrokes_past_the_budget_are_said_once_until_an_edit_goes_through ... ok
+test tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized ... FAILED
+test tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs ... FAILED
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... FAILED
+
+failures:
+
+---- tui::approval_amendment::tests::a_bracketed_paste_becomes_draft_text_and_never_an_entity stdout ----
+
+thread 'tui::approval_amendment::tests::a_bracketed_paste_becomes_draft_text_and_never_an_entity' (541382891) panicked at src/tui/approval_amendment.rs:603:9:
+assertion `left == right` failed: the paste is not the draft
+  left: "the diff is right but rename the flag\nand keep the old name as an alias"
+ right: "the diff is right but rename the flag and keep the old name as an alias"
+
+---- tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs stdout ----
+
+thread 'tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs' (541382894) panicked at src/tui/approval_amendment.rs:653:9:
+assertion `left == right` failed
+  left: "one\r\ntwo\rthree\n\tfour"
+ right: "one two three  four"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized stdout ----
+
+thread 'tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized' (541382895) panicked at src/tui/approval_amendment.rs:719:9:
+assertion `left == right` failed: a paste that fits once its CR LF is one space was refused
+  left: 4093
+ right: 4096
+
+---- tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs stdout ----
+
+thread 'tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs' (541382902) panicked at src/tui/shell.rs:41782:13:
+band: the draft is not one line: ["\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "         \u{1b}[38;5;245m(this change has no before and after to show)\u{1b}[0m", "\u{1b}[38;5;240m┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\u{1b}[0m", "  \u{1b}[1mPermission needed · Review change\u{1b}[0m                                       \u{1b}[38;5;245mEdit\u{1b}[0m", "  \u{1b}[1mnotes.txt\u{1b}[0m  ·  Apply this change?", "  \u{1b}[1;38;5;255m❯ 1  Apply once, \u{1b}[0m\u{1b}[1;38;5;255mab\u{1b}[0m", "                   \u{1b}[1;38;5;255mcd\u{1b}[0m", "                   \u{1b}[1;38;5;255mef    gh\rijz\u{1b}[0m\u{1b}[1;38;5;255m\u{1b}[7m \u{1b}[0m", "    \u{1b}[38;5;245m2\u{1b}[0m  Apply + allow future edits to this file for this session", "    \u{1b}[38;5;245m3\u{1b}[0m  Don't apply", "  \u{1b}[38;5;245m2 = allow every future edit_file to `notes.txt` for the rest of this session\u{1b}[0m", "\u{1b}[38;5;240m────────────────────────────────────────────────────────────────────────────────\u{1b}[0m", "  \u{1b}[38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel\u{1b}[0m"]
+
+---- tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs stdout ----
+
+thread 'tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs' (541382903) panicked at src/tui/shell.rs:25304:13:
+assertion `left == right` failed: ctrl-home
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("zab\ncd") })
+ right: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("zab cd") })
+
+
+failures:
+    tui::approval_amendment::tests::a_bracketed_paste_becomes_draft_text_and_never_an_entity
+    tui::approval_amendment::tests::a_paste_into_a_draft_is_one_line_as_fxs
+    tui::approval_amendment::tests::a_paste_is_measured_against_the_budget_after_it_is_normalized
+    tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs
+    tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs
+
+test result: FAILED. 8 passed; 5 failed; 0 ignored; 0 measured; 4793 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--lib`

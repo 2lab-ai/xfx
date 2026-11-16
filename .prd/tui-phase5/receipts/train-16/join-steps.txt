@@ -1,0 +1,57 @@
+# join_steps.py <repo> ac0b0ff5 e0aedbf6 a4452753: ours (the train before the join), theirs (main), the joined code head
+# ours ac0b0ff5: 27 steps, all in the merge: True; in its order there: True
+# ours: matrix rows 5; the merge's 5; each of the side's rows' keys and values in the merge's row of its runner and part: True
+  theirs: 'Check out the exact commit': the merge's `with` adds ['persist-credentials'] (the other side's)
+# theirs e0aedbf6: 28 steps, all in the merge: True; in its order there: True
+# theirs: matrix rows 5; the merge's 5; each of the side's rows' keys and values in the merge's row of its runner and part: True
+# the toolchain step in the merge: ['rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy', 'rustup default 1.99.1']
+# ours: 126 comment lines in the gate job; not whole in the merge's: 4 (the `script_tests` comment, the one conflict block, byhand.py 7: its words are in the merged sentence, read in the README)
+    themselves (test-gate-env.sh, which runs test-check-no-secrets.sh,
+    test-preview-contract.sh, test-check-no-local-paths.sh and
+    check-env-reads.py --self-test). They exercise the OS's own tools --
+    bash, grep, git and getconf (bash 3.2 and BSD grep on macOS, GNU grep
+# theirs: 123 comment lines in the gate job; not whole in the merge's: 3 (the `script_tests` comment, the one conflict block, byhand.py 7: its words are in the merged sentence, read in the README)
+    whole), test-preview-contract.sh, test-check-no-local-paths.sh and
+    test-early-stop.sh. They exercise the OS's bash, grep, git and getconf
+    -- BSD grep on macOS, GNU grep on Linux -- and build nothing for the
+# the merged order:
+   0 Check out the exact commit | 
+   1 Confirm the checkout is the commit under test | 
+   2 Install the pinned toolchain | 
+   3 Confirm the runner really is this target | 
+   4 The gate scripts run /bin/bash | matrix.bash32
+   5 Which bash the gate scripts run | matrix.script_tests
+   6 Formatting | matrix.part != 'release'
+   7 Lints | matrix.part != 'release'
+   8 Every read of the environment clippy lets through is listed | matrix.part != 'release'
+   9 The environment check refuses every way round it | matrix.script_tests
+  10 Tests | matrix.part != 'release'
+  11 Tests, with the fault injector | matrix.part != 'release'
+  12 No stubs, and the parity ledger reconciles | matrix.part != 'release'
+  13 No credentials in tracked files | matrix.part != 'release'
+  14 No path of one machine in tracked files | matrix.part != 'release'
+  15 The local-path check refuses what it exists for | matrix.script_tests
+  16 No gate takes its options, repository or config from the environment | matrix.script_tests
+  17 One product name in tracked files | matrix.part != 'release'
+  18 The preview publication contract holds | matrix.part != 'release'
+  19 The preview contract catches every mutant it exists for | matrix.script_tests
+  20 A gate script that stops early fails | matrix.script_tests
+  21 The output check still fits inside a frame's budget | matrix.part != 'checks'
+  22 The @ search still fits inside a frame | matrix.part != 'checks'
+  23 A release build ignores the pinned usage clock | matrix.part != 'checks'
+  24 Release build | matrix.part != 'checks'
+  25 Smoke the release binary | matrix.part != 'checks'
+  26 Keep the smoke evidence of a failed run | failure() && matrix.part != 'checks'
+  27 Build the binary the restoration matrix drives | matrix.part != 'checks'
+  28 Smoke the TUI on a real terminal | matrix.part != 'checks'
+  29 Keep the TUI evidence of a failed run | failure() && matrix.part != 'checks'
+# the rows `matrix.script_tests` selects, from the merge's matrix: ubuntu-24.04, macos-15
+# the steps under it, each on those rows alone:
+   5 Which bash the gate scripts run: bash --version | sed -n 1p
+   9 The environment check refuses every way round it: python3 -I scripts/check-env-reads.py --self-test
+  15 The local-path check refuses what it exists for: ./scripts/test-check-no-local-paths.sh
+  16 No gate takes its options, repository or config from the environment: ./scripts/test-gate-env.sh
+  19 The preview contract catches every mutant it exists for: ./scripts/test-preview-contract.sh
+  20 A gate script that stops early fails: ./scripts/test-early-stop.sh
+# 0 missing, changed or out of order
+# exit 0

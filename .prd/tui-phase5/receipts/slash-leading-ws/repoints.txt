@@ -1,0 +1,39 @@
+## repoint.py <repo> bca985c9 (dry run at that commit, before its re-point commit)
+repoint ledger:505 src/tui/shell.rs:13962 -> src/tui/shell.rs:13993
+repoint ledger:689 src/tui/shell.rs:16977 -> src/tui/shell.rs:17011
+repoint ledger:806 src/tui/shell.rs:42431 -> src/tui/shell.rs:42610
+repoint ledger:817 src/tui/shell.rs:42431 -> src/tui/shell.rs:42610
+repoint ledger:829 src/tui/shell.rs:42431 -> src/tui/shell.rs:42610
+repoint ledger:840 src/tui/shell.rs:42431 -> src/tui/shell.rs:42610
+repoint ledger:851 src/tui/shell.rs:42431 -> src/tui/shell.rs:42610
+repoint ledger:863 src/tui/shell.rs:10558 -> src/tui/shell.rs:10572
+repoint ledger:865 src/tui/shell.rs:10558 -> src/tui/shell.rs:10572
+repoint ledger:865 :1929 -> :1930
+repoint ledger:919 src/tui/shell.rs:42431 -> src/tui/shell.rs:42610
+repoint ledger:955 src/tui/shell.rs:1854 -> src/tui/shell.rs:1855
+repoint ledger:989 src/tui/shell.rs:16977 -> src/tui/shell.rs:17011
+repoint ledger:1066 src/tui/shell.rs:4557 -> src/tui/shell.rs:4561
+14 re-points
+
+## repoint.py <repo> 057e3d1e (dry run at that commit, before its re-point commit)
+repoint ledger:806 src/tui/shell.rs:42610 -> src/tui/shell.rs:42612
+repoint ledger:817 src/tui/shell.rs:42610 -> src/tui/shell.rs:42612
+repoint ledger:829 src/tui/shell.rs:42610 -> src/tui/shell.rs:42612
+repoint ledger:840 src/tui/shell.rs:42610 -> src/tui/shell.rs:42612
+repoint ledger:851 src/tui/shell.rs:42610 -> src/tui/shell.rs:42612
+repoint ledger:919 src/tui/shell.rs:42610 -> src/tui/shell.rs:42612
+6 re-points
+
+## repoint.py <repo> 7eb2eac2 --apply (round 2, written into 9af11724)
+repoint ledger:505 src/tui/shell.rs:13993 -> src/tui/shell.rs:13996
+repoint ledger:689 src/tui/shell.rs:17011 -> src/tui/shell.rs:17015
+repoint ledger:806 src/tui/shell.rs:42612 -> src/tui/shell.rs:42680
+repoint ledger:817 src/tui/shell.rs:42612 -> src/tui/shell.rs:42680
+repoint ledger:829 src/tui/shell.rs:42612 -> src/tui/shell.rs:42680
+repoint ledger:840 src/tui/shell.rs:42612 -> src/tui/shell.rs:42680
+repoint ledger:851 src/tui/shell.rs:42612 -> src/tui/shell.rs:42680
+repoint ledger:863 src/tui/shell.rs:10572 -> src/tui/shell.rs:10575
+repoint ledger:865 src/tui/shell.rs:10572 -> src/tui/shell.rs:10575
+repoint ledger:919 src/tui/shell.rs:42612 -> src/tui/shell.rs:42680
+repoint ledger:989 src/tui/shell.rs:17011 -> src/tui/shell.rs:17015
+11 re-points written

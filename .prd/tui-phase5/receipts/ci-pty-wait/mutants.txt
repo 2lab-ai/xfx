@@ -1,0 +1,11 @@
+Round 2 of mutants.py (this folder's), on a clone at a77fad76, under the suite lock (run3's slot, after its rates). Each mutant: one exact replacement, the named tests run, the file put back.
+drain-never-stops: killed by tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+drain-stops-after-any-event: killed by tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+owed-only-when-held: killed by tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame, tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+owed-only-when-keyed: killed by tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame
+measure-not-carried: killed by the_harness_measures_a_pause_between_two_writes_of_one_paste
+measure-never-grows: killed by the_harness_measures_a_pause_between_two_writes_of_one_paste
+retry-gives-up-quietly: killed by an_unpaced_case_whose_every_paste_paused_fails_saying_so, an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused
+retry-runs-once: killed by an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused
+name-check-case-sensitive: killed by a_skills_sandbox_root_is_never_named_with_what_its_case_searches
+exit 0

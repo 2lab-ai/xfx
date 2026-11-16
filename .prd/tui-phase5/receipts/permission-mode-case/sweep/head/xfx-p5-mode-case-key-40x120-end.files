@@ -1,0 +1,13 @@
+=== ~/.xfx/history.jsonl (503 bytes)
+{"schema_version":1,"timestamp_ms":1794352789647,"workspace_root":"<work____________________________________________________________>","text":"/permissions FULL-ACCESS"}
+{"schema_version":1,"timestamp_ms":1794352794037,"workspace_root":"<work____________________________________________________________>","text":"/permissions Auto"}
+{"schema_version":1,"timestamp_ms":1794352795246,"workspace_root":"<work____________________________________________________________>","text":"/permissions Full Access"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (61 bytes)
+{
+  "permission_mode": "yolo",
+  "yolo_acknowledged": true
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

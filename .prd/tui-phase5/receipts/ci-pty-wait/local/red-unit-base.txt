@@ -1,0 +1,22 @@
+The final unit test (a70dcd89) against base product code: a clone at a70dcd89 with src/tui/shell.rs and drain_ui_events as at dcfa5146; only the test differs from base.
+  cargo test --locked --lib a_turn_read_whole_in_one_drain
+
+
+running 1 test
+test tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking ... FAILED
+
+failures:
+
+---- tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking stdout ----
+
+thread 'tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking' panicked at src/tui/event_loop.rs:16047:13:
+same tick false: the start's tick did not read up to the start and stop: "\u{1b}]2;go\u{7}\u{1b}[?2026h\u{1b}[?25l\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;250m* \u{1b}[0m\u{1b}[38;5;250mtest:\u{1b}[0m\u{1b}[38;5;250m NOTICE-BEFORE-THE-START\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H  ANSWER\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[38;5;245m  0s (↑1 ↓2)\u{1b}[0m\u{1b}[K\u{1b}[24;1H\n\u{1b}[21;1H\u{1b}[K\u{1b}[22;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[24;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[22;3H\u{1b}[?2026l\u{1b}[?25h\u{1b}]7501;state=done:app=xfx\u{1b}\\\u{7}"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4782 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

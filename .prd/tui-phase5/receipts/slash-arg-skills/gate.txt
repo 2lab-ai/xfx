@@ -1,0 +1,68 @@
+# Round 2: the gate at 555756bb, the code head, on a clean git clone --no-local of it, TMPDIR short, one suite-lock slot (gate.sh)
+head 555756bb
+fmt rc=0 2s
+clippy rc=0 49s
+clippy-fi rc=0 34s
+test rc=0 190s
+test-fi rc=101 260s
+identity rc=0 5s
+stubs rc=0 13s
+secrets rc=0 74s
+local-paths rc=0 5s
+
+cargo test --locked --no-fail-fast: 5708 passed, 0 failed, 7 ignored over 15 binaries
+cargo test --locked --features fault-injection --no-fail-fast: 5742 passed, 3 failed, 7 ignored over 15 binaries
+first lines' totals (the lib):
+test result: ok. 4784 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 55.38s
+test result: FAILED. 4804 passed; 3 failed; 7 ignored; 0 measured; 0 filtered out; finished in 71.33s
+the fault-injection run's three failures (tui::worker, the catalog wait's timing -- the dispatcher's known class; no file this unit touches):
+test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one ... FAILED
+thread 'tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop' panicked at src/tui/worker.rs:19375:9:
+assertion `left == right` failed: each: whether stopped, the batches the band was shown (their sizes), the turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past 1.
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' panicked at src/tui/worker.rs:18758:9:
+assertion `left == right` failed: each: the starts, the first turn's end, whether it came when it should (with the stop: 300 ms to 1 s; without it: past the wait's 1.9 s), the ends, the second turn's 
+thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one' panicked at src/tui/worker.rs:19147:9:
+assertion `left == right` failed: each: the starts, both turns' ends, whether the first came when it should (with the stop: 300 ms to 1 s; without it: past 1.2 s), what the log says of the turns
+each rerun alone, three times, in one suite-lock slot (rerun.sh): 9 of 9 passed
+run 1 a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop: test result: ok. 1 passed; 0 failed; 0 ignored
+run 1 a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number: test result: ok. 1 passed; 0 failed; 0 ignored
+run 1 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored
+run 2 a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop: test result: ok. 1 passed; 0 failed; 0 ignored
+run 2 a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number: test result: ok. 1 passed; 0 failed; 0 ignored
+run 2 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored
+run 3 a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop: test result: ok. 1 passed; 0 failed; 0 ignored
+run 3 a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number: test result: ok. 1 passed; 0 failed; 0 ignored
+run 3 a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one: test result: ok. 1 passed; 0 failed; 0 ignored
+
+identity: check-xfx-identity: ok (20296 tracked file(s) scanned)
+stubs: check-no-stubs: ok
+secrets: check-no-secrets: ok (20296 tracked file(s) scanned)
+local-paths: check-no-local-paths: ok (20296 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+fmt: 0 bytes of output; clippy, clippy-fi: exit 0, 0 warnings
+
+
+# The gate at 245e99ec, the code head, in the worktree (clean), TMPDIR short, one suite-lock slot (gate.sh)
+head 245e99ec
+fmt rc=0 1s
+clippy rc=0 6s
+clippy-fi rc=0 6s
+test rc=0 136s
+test-fi rc=0 164s
+identity rc=0 4s
+stubs rc=0 15s
+secrets rc=0 77s
+local-paths rc=0 3s
+
+cargo test --locked --no-fail-fast: 5706 passed, 0 failed, 7 ignored over 15 binaries
+cargo test --locked --features fault-injection --no-fail-fast: 5743 passed, 0 failed, 7 ignored over 15 binaries
+first lines' totals (the lib):
+test result: ok. 4782 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.66s
+test result: ok. 4805 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.97s
+
+identity: check-xfx-identity: ok (20123 tracked file(s) scanned)
+stubs: check-no-stubs: ok
+secrets: check-no-secrets: ok (20123 tracked file(s) scanned)
+local-paths: check-no-local-paths: ok (20123 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))
+fmt: 0 bytes of output; clippy, clippy-fi: exit 0, 0 warnings

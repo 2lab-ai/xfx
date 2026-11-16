@@ -1,0 +1,56 @@
+== oneshot.sh <fx v0.0.16 | xfx at 9d010f33> <run> <profile> <command> (status lines cut to permission_mode)
+== fx status with {"permission_mode": "ASK"}
+exit=0
+  out: [status] permission_mode=ask
+== xfx status with {"permission_mode": "ASK"}
+exit=0
+  out: [status] build_revision=9d010f33fe09
+  out: [status] permission_mode=auto
+== xfx doctor with {"permission_mode": "ASK"}
+exit=0
+  out: [ok] config: loaded settings from ~/.xfx/settings.json
+  out: [warn] config: user config diagnostic: invalid_value key=permission_mode
+== fx setup with {"provider": "not-a-provider"}
+exit=1
+  err: fx setup: stored API keys are disabled by FX_DISABLE_KEYCHAIN
+== xfx setup gateway --json with {"provider": "not-a-provider"}
+exit=0
+  out: {"kind":"setup","provider":"gateway","model":"zai/glm-5.2","model_reason":"compiled_default","auth":"missing","settings_path":"<run>/home/.xfx/settings.json"}
+  err: xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.
+== fx doctor with {"provider": "missing", "providers": {}}
+exit=0
+  out: [doctor] ok=2 warn=3 fail=3
+  out: [doctor] workspace=<run>/work
+  out: [doctor] model=spacexai/grok-4.7
+  out: [doctor] auth=missing
+  out: [doctor] auth_refreshable=false
+  out: [doctor] permission_mode=auto
+  out: [doctor] agent_step_limit=0
+  out: [doctor] mcp_connection_check=not_checked
+  out: [doctor] mcp_servers=0 mcp_configuration_issues=0
+  out: [ok] workspace: using workspace <run>/work
+  out: [fail] config: failed to load config: UnknownConfiguredProvider
+  out: [fail] auth: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.
+  out: [fail] startup: failed to resolve startup settings: UnknownConfiguredProvider
+  out: [ok] state: sessions ready
+  out: [warn] sessions: no saved sessions yet
+  out: [warn] git: not a git repository; pr/issue workflows will be limited
+  out: [warn] gh: GitHub CLI not found in PATH; publish workflows unavailable
+== xfx doctor with {"provider": "missing", "providers": {}}
+exit=0
+  out: [doctor] ok=3 warn=1 fail=3
+  out: [doctor] workspace=<run>/work
+  out: [doctor] model=zai/glm-5.2
+  out: [doctor] provider=rejected
+  out: [doctor] provider_rejected=missing
+  out: [doctor] auth=missing
+  out: [doctor] auth_refreshable=false
+  out: [doctor] permission_mode=auto
+  out: [doctor] agent_step_limit=25
+  out: [ok] workspace: using workspace <run>/work
+  out: [fail] config: failed to load config: UnknownConfiguredProvider
+  out: [fail] provider: provider=rejected: the `provider` setting is `missing`, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the prompt to an endpoint you did not choose
+  out: [warn] auth: no provider was validly chosen, so there is no credential question to answer
+  out: [ok] permissions: mode=auto: bounded workspace changes and reporting commands run without asking, but nothing that compiles or runs project code; sandbox=none
+  out: [ok] sessions: 0 session(s) recorded
+  out: [fail] startup: failed to resolve startup settings: UnknownConfiguredProvider

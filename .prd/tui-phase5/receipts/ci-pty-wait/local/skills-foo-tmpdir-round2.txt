@@ -1,0 +1,11 @@
+slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network with TMPDIR under a directory whose name holds `foo` (paths below scrubbed):
+
+at c601ef29 (tests/tui.rs as at e4212678; the root's name only was checked): exit 101 after 21 s:
+timed out waiting for ["Skills 1", "  foo    xfx · Global"] on the screen, ["  demo "] off it
+('Skills 3' frames in its terminal dump: 1)
+
+at round 2's tests (d4f660f7; the whole path is checked): exit 101 at once:
+panicked at tests/tui.rs:14458:36:
+the directory the sandboxes are made in, "<tmp>", holds one of ["foo"]: a `$` search reads every skill's path, so it would list every skill; run with a TMPDIR whose path holds none of them
+
+the same case at round 2 with an ordinary TMPDIR: test result: ok. 1 passed

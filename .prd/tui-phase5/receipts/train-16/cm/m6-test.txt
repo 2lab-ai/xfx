@@ -1,0 +1,32 @@
+# merge 6's tree (1bce5348, all six merges, no join commit): cargo test --locked --all-targets --no-fail-fast, under the suite lock, in the worktree; exit 0
+     Running unittests src/lib.rs (target/debug/deps/xfx-752eec987ac57577)
+test result: ok. 5115 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 48.40s
+     Running unittests src/main.rs (target/debug/deps/xfx-de0216ee5b091466)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/cli.rs (target/debug/deps/cli-fef02efad20dce3d)
+test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+     Running tests/gateway.rs (target/debug/deps/gateway-db483dc650d05f2a)
+test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
+     Running tests/interactive.rs (target/debug/deps/interactive-2602acaeb0defb17)
+test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.06s
+     Running tests/isolation.rs (target/debug/deps/isolation-a3a3e72d5c8c9111)
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/ledger_compat.rs (target/debug/deps/ledger_compat-5e6e68de486bdbd2)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+     Running tests/llmux.rs (target/debug/deps/llmux-7003cb8b85c112a4)
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.12s
+     Running tests/mcp.rs (target/debug/deps/mcp-21331ad2c371c2be)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.05s
+     Running tests/parity.rs (target/debug/deps/parity-a6e7df5ef6b8139b)
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.41s
+     Running tests/permissions.rs (target/debug/deps/permissions-8e80de7e3f0cc686)
+test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+     Running tests/session_compat.rs (target/debug/deps/session_compat-428301f51175d000)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.84s
+     Running tests/sessions.rs (target/debug/deps/sessions-17fb3ae5ac83bbaf)
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.72s
+     Running tests/tool_loop.rs (target/debug/deps/tool_loop-0fd4bf219d9b2fb6)
+test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+     Running tests/tui.rs (target/debug/deps/tui-37de454a04550832)
+test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.15s
+# summed: 6057 passed, 0 failed

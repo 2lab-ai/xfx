@@ -1,0 +1,38 @@
+== round 2, at 45009bc7 (code as at 6a198b9d)
+-- cargo test --locked --lib config::layer_json
+test config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes ... ok
+test config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth ... ok
+test config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion ... ok
+test config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4756 filtered out;
+-- cargo test --locked --lib config::tests::no_key_xfx_reads
+test config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float ... ok
+test config::tests::no_key_xfx_reads_looks_past_the_depth_kept ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4758 filtered out;
+-- cargo test --locked --lib config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer
+test config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --lib config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it
+test config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --lib config::tests::a_project_file_fx_reads_is_applied
+test config::tests::a_project_file_fx_reads_is_applied ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --lib config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer
+test config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --lib mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+test mcp::config::tests::the_saved_choices_load_where_fxs_load_does ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --lib mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them
+test mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --lib mcp::command::tests::an_entry_rewritten_after_its_approval_was_saved_stays_pending
+test mcp::command::tests::an_entry_rewritten_after_its_approval_was_saved_stays_pending ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4759 filtered out;
+-- cargo test --locked --test cli ask_
+test ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused ... ok
+test ask_takes_fxs_two_spellings_of_full_access_exactly ... ok
+test ask_goes_on_with_a_profile_fx_starts_with ... ok
+test ask_refuses_a_profile_fx_refuses ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out;

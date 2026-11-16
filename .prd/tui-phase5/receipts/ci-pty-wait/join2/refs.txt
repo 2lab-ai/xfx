@@ -1,0 +1,11 @@
+The content check (train 16's content.sh over code and docs, its refs_content.py over this README) at the merge d0115e72 and both parents, compared by citing file and reference.
+code and docs at 5f9f38e2: # all 54 files: SAME 261; SAME-ROW 43; SAME-LINES 3; WRONG 9; other product 556; unread 1; refs 873
+code and docs at 1a4cb6b4: # all 54 files: SAME 256; SAME-ROW 43; SAME-LINES 3; WRONG 8; other product 556; unread 1; refs 867
+code and docs at d0115e72: # all 54 files: SAME 261; SAME-ROW 43; SAME-LINES 3; WRONG 9; other product 556; unread 1; refs 873
+- the merge's WRONG set against 5f9f38e2's: the same
+- against 1a4cb6b4's: train 16's 8 (four of them, its comma list in event_loop.rs, on a line this branch moved 29 lower: the same references), and docs/parity.md's pinned transport reference, which train 16 leaves
+README at 5f9f38e2: # SAME 53; SAME-ROW 0; SAME-LINES 0; WRONG 18; other product 5; unread 0; refs 76
+README at d0115e72: # SAME 52; SAME-ROW 0; SAME-LINES 0; WRONG 19; other product 5; unread 0; refs 76
+- the one more at the merge:
+    WRONG .prd/tui-phase5/receipts/ci-pty-wait/README.md:731 src/config.rs:2639 (path; written by cd098f1a as :2639): the head's line holds '/// a conversion to the same type.'; 'u32::from(stat.st_mode) & 0o022 != 0' -- its text is at 0 places; the head's line most like its first is :2642 (ratio 0.84)
+  Not moved: train 16's round 5 rewrote the line it names (the Linux clippy hit, fixed). It is pinned to ba133c25, where it stands, with the fix's line beside it (README §9).

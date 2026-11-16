@@ -8,13 +8,22 @@ license = "Apache-2.0"
 repository = "https://github.com/2lab-ai/xfx"
 publish = false
 
+# Neither target's tests run in the developer's process: the binary has no
+# unit tests to run (`test = false`, so `cargo test` builds no harness for
+# it), and a doctest would run in that process as rustdoc builds it, before
+# any isolation (`doctest = false`). The library's unit tests run under
+# `src/test_env.rs`'s fake process; every integration test binary runs in a
+# clean copy of itself (`tests/support/isolated.rs`).
+# `scripts/check-env-reads.py` refuses any other test executable cargo builds.
 [[bin]]
 name = "xfx"
 path = "src/main.rs"
+test = false
 
 [lib]
 name = "xfx"
 path = "src/lib.rs"
+doctest = false
 
 [features]
 # Deliberate failures the terminal-restoration matrix has to drive: a panic on
@@ -102,3 +111,9 @@ rustix = { version = "1", features = ["fs", "process", "pty", "termios"] }
 
 [profile.release]
 strip = true
+
+# `env!` and `option_env!` are disallowed macros (clippy.toml), held by
+# scripts/check-env-reads.py, which forces the lint on and allows only the
+# names it lists. Off here, where the 76 uses of those names would fail it.
+[lints.clippy]
+disallowed_macros = "allow"

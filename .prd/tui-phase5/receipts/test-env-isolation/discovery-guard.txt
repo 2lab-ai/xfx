@@ -1,0 +1,193 @@
+# Discovery, guard only: the whole lib suite with the guard and no case converted yet (the RED cases + guard, before any conversion), under sentinel-run.sh, under the suite lock
+# Each failing case, and the reader whose refusal it hit (GUARD <reader>) or OTHER.
+test result: FAILED. 4464 passed; 161 failed; 7 ignored; 0 measured; 0 filtered out; finished in 90.88s
+
+ 120 GUARD config::Environment::from_process
+  20 GUARD gateway::Endpoint::from_process
+   8 GUARD usage::clock::now_ms
+   6 GUARD permission::LinkBase::from_environment
+   3 GUARD mcp::McpRuntime::with_environment
+   1 OTHER process::tests::no_child_process_is_made_any_other_way
+   1 OTHER process::tests::a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it
+   1 OTHER mcp::transport::tests::a_server_and_its_docker_cleanup_see_only_what_they_are_given
+   1 GUARD mcp::McpRuntime::new
+
+## by case
+GUARD config::Environment::from_process app::tests::the_shell_is_dispatched_and_refuses_a_test_harness_that_is_not_a_terminal
+GUARD gateway::Endpoint::from_process credits::tests::an_unreadable_provider_asks_nobody_and_says_so_in_the_turns_words
+GUARD mcp::McpRuntime::with_environment mcp::command::tests::an_entry_rewritten_after_its_approval_was_saved_stays_pending
+GUARD mcp::McpRuntime::with_environment mcp::command::tests::approve_reaches_an_entry_that_parses_only_once_expanded
+GUARD mcp::McpRuntime::with_environment mcp::command::tests::show_and_list_never_print_an_env_or_header_value_raw_or_expanded
+GUARD mcp::McpRuntime::new mcp::config::tests::the_runtime_starts_only_what_the_expansion_and_the_name_check_leave
+OTHER mcp::transport::tests::a_server_and_its_docker_cleanup_see_only_what_they_are_given
+OTHER process::tests::a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it
+OTHER process::tests::no_child_process_is_made_any_other_way
+GUARD gateway::Endpoint::from_process provider::model::tests::an_unreadable_provider_has_no_catalog_to_ask_with_the_key
+GUARD config::Environment::from_process tui::event_loop::tests::a_line_after_a_stop_that_dropped_the_compaction_has_its_turn_to_itself
+GUARD gateway::Endpoint::from_process tui::shell::tests::credits_is_asked_at_once_and_answered_as_upstreams_notice
+GUARD gateway::Endpoint::from_process tui::shell::tests::credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c
+GUARD usage::clock::now_ms tui::shell::tests::every_advertised_slash_command_is_answered_without_asking_the_model
+GUARD usage::clock::now_ms tui::shell::tests::every_command_that_opens_a_surface_drops_a_fork_on_its_way
+GUARD usage::clock::now_ms tui::shell::tests::no_usage_screen_shows_the_key
+GUARD usage::clock::now_ms tui::shell::tests::opening_the_panel_closes_the_menus_that_share_its_slot_and_theirs_close_it
+GUARD usage::clock::now_ms tui::shell::tests::the_usage_screen_and_the_mcp_menu_close_each_other
+GUARD usage::clock::now_ms tui::shell::tests::usage_opens_the_dashboard_in_place_of_the_composer_and_writes_nothing
+GUARD usage::clock::now_ms tui::usage_menu::tests::no_screen_the_runtime_reaches_names_the_key
+GUARD config::Environment::from_process tui::worker::tests::a_catalog_asked_for_again_while_a_turn_runs_is_read_at_once_and_told_before_it_ends
+GUARD config::Environment::from_process tui::worker::tests::a_catalog_asked_for_while_a_question_has_parked_the_turn_is_told_before_it_is_answered
+GUARD config::Environment::from_process tui::worker::tests::a_catalog_asked_for_while_an_approval_has_parked_the_turn_is_told_before_it_is_answered
+GUARD config::Environment::from_process tui::worker::tests::a_catalog_request_answers_the_menu_and_never_the_document
+GUARD config::Environment::from_process tui::worker::tests::a_catalog_that_answers_while_a_turn_runs_is_told_to_the_band_at_once
+GUARD config::Environment::from_process tui::worker::tests::a_catalog_that_could_not_be_read_admits_the_id_and_says_it_was_not_checked
+GUARD config::Environment::from_process tui::worker::tests::a_change_chosen_under_another_provider_is_saved_for_it_and_lands_on_no_selector
+GUARD config::Environment::from_process tui::worker::tests::a_change_lands_while_the_loop_is_idle_and_one_typed_before_leaving_is_not_lost
+GUARD config::Environment::from_process tui::worker::tests::a_change_put_aside_is_applied_before_the_next_piece_of_work_and_survives_the_end
+GUARD config::Environment::from_process tui::worker::tests::a_change_sent_after_work_was_queued_is_applied_before_that_work_starts
+GUARD config::Environment::from_process tui::worker::tests::a_change_the_band_announced_is_applied_with_its_effort_and_saved_as_one_write
+GUARD config::Environment::from_process tui::worker::tests::a_choice_made_after_a_resume_is_written_at_once_and_not_over_by_its_first_turn
+GUARD config::Environment::from_process tui::worker::tests::a_compaction_a_stop_drops_before_it_began_is_told_how_it_ended
+GUARD config::Environment::from_process tui::worker::tests::a_compaction_dropped_in_a_turns_race_with_no_room_is_told_after_that_turn_and_before_more_work
+GUARD config::Environment::from_process tui::worker::tests::a_compaction_dropped_with_no_room_for_its_word_is_told_once_before_the_reset_after_it
+GUARD config::Environment::from_process tui::worker::tests::a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_conversation_kept_across_a_provider_switch_or_rebuilt_after_new_can_still_ask
+GUARD config::Environment::from_process tui::worker::tests::a_dropped_compactions_place_is_held_until_its_ending_is_on_the_channel
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_failure_before_the_store_is_asked_keeps_the_id_status_names
+GUARD config::Environment::from_process tui::worker::tests::a_fork_asked_after_the_log_stopped_taking_events_is_refused
+GUARD config::Environment::from_process tui::worker::tests::a_fork_before_the_first_prompt_is_listed_at_one_turn_and_named_at_the_exit
+GUARD config::Environment::from_process tui::worker::tests::a_fork_holds_its_own_grants_and_the_mode_in_force_through_its_next_turn
+GUARD config::Environment::from_process tui::worker::tests::a_fork_is_offered_before_each_prompt_whose_turn_and_the_one_before_it_ended
+GUARD config::Environment::from_process tui::worker::tests::a_fork_opens_before_the_source_lets_go_and_replays_only_the_kept_turns
+GUARD config::Environment::from_process tui::worker::tests::a_fork_that_cannot_be_made_leaves_the_conversation_exactly_as_it_was
+GUARD config::Environment::from_process tui::worker::tests::a_fork_whose_scope_cannot_be_settled_leaves_the_source_whole
+GUARD config::Environment::from_process tui::worker::tests::a_grant_a_model_and_a_new_conversation_each_reach_what_status_reads
+GUARD config::Environment::from_process tui::worker::tests::a_grant_is_published_as_it_is_held_for_the_panel_to_spell
+GUARD config::Environment::from_process tui::worker::tests::a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker
+GUARD config::Environment::from_process tui::worker::tests::a_listing_leaves_out_the_session_this_one_is_in_and_the_ones_with_no_turn
+GUARD config::Environment::from_process tui::worker::tests::a_log_that_stopped_taking_events_has_no_fork_to_offer
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_mode_a_higher_layer_outranks_is_saved_and_says_so_in_upstreams_words
+GUARD config::Environment::from_process tui::worker::tests::a_mode_change_moves_the_conversation_the_configuration_the_log_and_the_profile
+GUARD config::Environment::from_process tui::worker::tests::a_model_a_loaded_catalog_does_not_list_is_applied_and_recorded_as_typed
+GUARD config::Environment::from_process tui::worker::tests::a_model_change_is_recorded_where_a_resumed_session_will_read_it
+GUARD config::Environment::from_process tui::worker::tests::a_model_is_saved_for_its_provider_and_the_next_launch_reads_it_back
+GUARD config::Environment::from_process tui::worker::tests::a_new_conversation_after_a_resume_records_the_settings_it_carries
+GUARD config::Environment::from_process tui::worker::tests::a_new_conversation_after_a_resume_starts_its_own_log_and_leaves_the_resumed_one
+GUARD config::Environment::from_process tui::worker::tests::a_pick_keeps_the_speed_its_row_offers_and_a_query_turns_both_off
+GUARD config::Environment::from_process tui::worker::tests::a_picker_resume_and_a_refused_first_turn_write_nothing_and_the_next_turn_writes_the_mode
+GUARD config::Environment::from_process tui::worker::tests::a_picker_resume_moves_the_runtime_to_the_recorded_provider_and_says_what_it_lacks
+GUARD config::Environment::from_process tui::worker::tests::a_prompt_held_for_a_switch_asks_of_the_conversation_it_will_run_in
+GUARD config::Environment::from_process tui::worker::tests::a_prompt_inside_a_failed_catalogs_backoff_reads_nothing_and_one_after_it_reads_again
+GUARD config::Environment::from_process tui::worker::tests::a_prompt_over_a_held_catalog_reads_it_again_only_once_it_is_five_minutes_old
+GUARD config::Environment::from_process tui::worker::tests::a_prompts_images_wait_for_the_retry_behind_a_failed_catalog
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_provider_switch_drops_the_old_bundle_and_keeps_the_conversation
+GUARD config::Environment::from_process tui::worker::tests::a_provider_switch_keeps_the_mode_the_person_chose
+GUARD config::Environment::from_process tui::worker::tests::a_query_with_no_catalog_in_hand_loads_it_retrying_a_failure_and_tells_the_ui
+GUARD config::Environment::from_process tui::worker::tests::a_question_asked_after_a_new_is_the_next_conversations
+GUARD config::Environment::from_process tui::worker::tests::a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once
+GUARD config::Environment::from_process tui::worker::tests::a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_real_tui_conversation_can_ask_the_user_a_question
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_refused_workspace_change_changes_nothing
+GUARD config::Environment::from_process tui::worker::tests::a_rename_before_any_prompt_opens_the_session_and_keeps_it_titled
+GUARD config::Environment::from_process tui::worker::tests::a_rename_before_the_first_prompt_opens_the_log_with_the_settings_in_force
+GUARD config::Environment::from_process tui::worker::tests::a_rename_before_the_first_prompt_writes_the_rules_held_for_its_session
+GUARD config::Environment::from_process tui::worker::tests::a_rename_is_answered_once_by_what_became_of_its_write
+GUARD config::Environment::from_process tui::worker::tests::a_rename_the_store_refuses_says_why_and_the_session_keeps_its_old_title
+GUARD config::Environment::from_process tui::worker::tests::a_request_carrying_tool_images_waits_for_the_retry_behind_a_failed_catalog
+GUARD config::Environment::from_process tui::worker::tests::a_reset_between_turns_drops_what_waits_and_then_says_the_conversation_is_gone
+GUARD config::Environment::from_process tui::worker::tests::a_reset_is_ask_and_no_grants_and_says_so_to_the_board
+GUARD config::Environment::from_process tui::worker::tests::a_reset_is_written_down_so_a_resume_does_not_bring_the_grants_back
+GUARD config::Environment::from_process tui::worker::tests::a_reset_mid_turn_takes_the_grants_away_from_that_turns_next_call
+GUARD config::Environment::from_process tui::worker::tests::a_reset_or_a_resume_leaves_the_changes_before_it_behind
+GUARD config::Environment::from_process tui::worker::tests::a_reset_that_drops_the_conversation_takes_its_reply_with_it
+GUARD config::Environment::from_process tui::worker::tests::a_restored_fast_binding_needs_the_provider_the_model_and_fast_the_session_ran_under
+GUARD config::Environment::from_process tui::worker::tests::a_resume_never_restores_a_model_with_a_control_character_in_it
+GUARD config::Environment::from_process tui::worker::tests::a_resume_puts_back_the_effort_and_the_speed_the_session_recorded
+GUARD config::Environment::from_process tui::worker::tests::a_resume_puts_back_the_first_saves_settings_and_nothing_it_does_not_restore
+GUARD config::Environment::from_process tui::worker::tests::a_resume_writes_nothing_and_its_first_turn_writes_down_what_it_runs_under
+GUARD config::Environment::from_process tui::worker::tests::a_resumed_session_is_the_conversation_from_the_start_with_its_grants
+GUARD config::Environment::from_process tui::worker::tests::a_runtime_that_was_asked_nothing_names_no_session_and_wrote_none
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_save_a_higher_layer_outranks_or_that_fails_says_so_after_the_switch
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_saved_directory_swapped_for_a_link_is_out_of_the_next_turn
+GUARD config::Environment::from_process tui::worker::tests::a_session_that_ends_with_a_drop_still_untold_ends_when_the_band_closes_its_channel
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_session_that_has_asked_nothing_has_nothing_to_undo
+GUARD config::Environment::from_process tui::worker::tests::a_session_with_no_home_runs_unsaved_and_says_so
+GUARD config::Environment::from_process tui::worker::tests::a_speed_change_is_applied_recorded_and_saved_and_one_overtaken_by_a_switch_is_not
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_speed_change_saves_what_upstream_saves_beside_it_under_a_model_override
+GUARD config::Environment::from_process tui::worker::tests::a_speed_the_band_saved_before_a_model_change_this_thread_saves_later_is_still_the_files
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_speed_written_again_after_a_model_change_says_nothing_of_a_save_that_landed
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one
+GUARD config::Environment::from_process tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_store_that_refuses_the_session_is_a_shell_that_cannot_save_until_one_opens
+GUARD config::Environment::from_process tui::worker::tests::a_switch_to_ask_mid_turn_gates_that_turns_next_tool_call
+GUARD config::Environment::from_process tui::worker::tests::a_title_for_a_conversation_let_go_of_names_neither_it_nor_the_next
+GUARD config::Environment::from_process tui::worker::tests::a_title_runtime_answers_a_forced_catalog_read_from_its_stand_in
+GUARD config::Environment::from_process tui::worker::tests::a_title_runtime_starts_no_catalog_read_that_the_loop_would_tell_the_band
+GUARD config::Environment::from_process tui::worker::tests::a_title_that_comes_after_a_rename_the_turn_put_aside_is_dropped
+GUARD config::Environment::from_process tui::worker::tests::a_title_that_comes_back_between_turns_is_written_and_then_shown
+GUARD config::Environment::from_process tui::worker::tests::a_title_that_comes_back_mid_turn_is_shown_then_and_written_when_the_turn_ends
+GUARD config::Environment::from_process tui::worker::tests::a_turn_is_in_the_published_count_before_the_ui_is_told_it_ended
+GUARD config::Environment::from_process tui::worker::tests::a_turn_publishes_the_reply_before_its_conclusion_is_sent
+GUARD config::Environment::from_process tui::worker::tests::a_turn_sends_the_effort_only_to_a_model_the_catalog_says_takes_it
+GUARD permission::LinkBase::from_environment tui::worker::tests::a_turn_stopped_before_its_request_leaves_the_history_notice_to_the_next_turn
+GUARD config::Environment::from_process tui::worker::tests::a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog
+GUARD config::Environment::from_process tui::worker::tests::a_turns_start_names_its_submission_past_the_work_a_stop_dropped
+GUARD config::Environment::from_process tui::worker::tests::a_users_title_is_kept_and_only_the_derived_one_is_replaced
+GUARD gateway::Endpoint::from_process tui::worker::tests::a_workspace_change_is_saved_and_in_force_from_the_next_turn
+GUARD config::Environment::from_process tui::worker::tests::a_write_that_fails_leaves_the_change_applied_and_says_so
+GUARD config::Environment::from_process tui::worker::tests::an_always_answered_in_the_band_is_recorded_where_a_resumed_session_will_read_it
+GUARD config::Environment::from_process tui::worker::tests::an_answer_before_the_conversation_opens_waits_for_it_and_is_shown_at_once
+GUARD config::Environment::from_process tui::worker::tests::an_effort_alone_moves_the_sessions_effort_and_writes_effort_and_nothing_else
+GUARD config::Environment::from_process tui::worker::tests::an_effort_given_before_a_held_pick_ends_on_the_picks_level
+GUARD config::Environment::from_process tui::worker::tests::an_effort_given_while_a_turn_runs_reaches_only_the_next_request
+GUARD config::Environment::from_process tui::worker::tests::an_effort_the_band_saved_after_a_model_change_held_behind_a_turn_is_still_the_files
+GUARD config::Environment::from_process tui::worker::tests::an_undo_put_aside_is_done_once_the_work_is_over_even_when_the_session_is
+GUARD config::Environment::from_process tui::worker::tests::an_undo_put_aside_takes_back_what_was_newest_when_it_was_typed
+GUARD config::Environment::from_process tui::worker::tests::an_undo_takes_back_the_conversations_newest_change_and_says_so
+GUARD config::Environment::from_process tui::worker::tests::between_turns_a_rename_is_written_into_the_session_it_was_typed_in
+GUARD config::Environment::from_process tui::worker::tests::every_pick_writes_upstreams_fields_and_a_row_with_levels_takes_the_sessions_effort
+GUARD config::Environment::from_process tui::worker::tests::fast_with_no_catalog_to_offer_it_is_dropped_and_said_only_when_the_catalog_is_down
+GUARD config::Environment::from_process tui::worker::tests::renames_put_aside_land_on_either_side_of_the_reset_they_were_typed_around
+GUARD config::Environment::from_process tui::worker::tests::resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once
+GUARD config::Environment::from_process tui::worker::tests::rules_held_before_the_first_prompt_are_its_sessions_and_decide_its_first_call
+GUARD config::Environment::from_process tui::worker::tests::rules_held_for_a_session_the_store_refuses_go_with_the_next_one
+GUARD config::Environment::from_process tui::worker::tests::rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held
+GUARD config::Environment::from_process tui::worker::tests::settings_chosen_before_the_first_prompt_are_written_with_its_first_save
+GUARD gateway::Endpoint::from_process tui::worker::tests::status_names_the_session_the_first_prompt_opens_before_the_store_holds_it
+GUARD config::Environment::from_process tui::worker::tests::the_acknowledgement_is_recorded_beside_whatever_else_the_profile_says
+GUARD config::Environment::from_process tui::worker::tests::the_authority_decides_with_the_profiles_table_and_with_what_the_ui_puts_in_force
+GUARD config::Environment::from_process tui::worker::tests::the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began
+GUARD config::Environment::from_process tui::worker::tests::the_desk_asks_nothing_when_no_provider_was_validly_chosen
+GUARD config::Environment::from_process tui::worker::tests::the_desk_asks_only_on_the_gateway_with_a_key
+GUARD permission::LinkBase::from_environment tui::worker::tests::the_history_notice_ledger_goes_with_its_conversation
+GUARD permission::LinkBase::from_environment tui::worker::tests::the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start
+GUARD config::Environment::from_process tui::worker::tests::the_image_route_waits_two_seconds_at_most_and_once_a_turn
+GUARD config::Environment::from_process tui::worker::tests::the_menu_over_a_held_catalog_reads_it_again_five_seconds_on_and_tells_the_new_rows
+GUARD config::Environment::from_process tui::worker::tests::the_permission_authority_a_turn_runs_under_can_ask_the_band
+GUARD config::Environment::from_process tui::worker::tests::the_runtime_publishes_what_it_is_the_moment_it_starts_publishing
+GUARD gateway::Endpoint::from_process tui::worker::tests::the_runtime_thread_is_started_with_every_owned_signal_blocked
+GUARD config::Environment::from_process tui::worker::tests::the_same_grant_is_not_written_down_twice
+GUARD config::Environment::from_process tui::worker::tests::the_same_model_again_records_nothing
+GUARD config::Environment::from_process tui::worker::tests::the_session_named_is_the_conversations_once_it_holds_a_turn
+GUARD gateway::Endpoint::from_process tui::worker::tests::the_session_spawn_names_at_launch_is_the_one_the_runtime_opens
+GUARD config::Environment::from_process tui::worker::tests::the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up
+GUARD config::Environment::from_process tui::worker::tests::trace_names_the_session_a_failed_question_was_about
+GUARD config::Environment::from_process tui::worker::tests::ultra_is_sent_only_through_the_gateway_to_an_openai_row_that_offers_it
+GUARD usage::clock::now_ms usage::clock::tests::anything_but_an_absolute_file_of_one_integer_is_the_system_clock
+
+## the three OTHER, first line of each panic
+---- process::tests::no_child_process_is_made_any_other_way stdout ----
+
+thread 'process::tests::no_child_process_is_made_any_other_way' (<tid>) panicked at src/process.rs:982:9:
+a child process made or started without crate::process: ["<work>/src/test_env/tests.rs:113"]
+
+---- process::tests::a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it stdout ----
+
+thread 'process::tests::a_child_is_never_handed_xfxs_own_credential_unless_a_caller_names_it' (<tid>) panicked at src/process.rs:860:13:
+AI_GATEWAY_API_KEY is not removed from a child's environment: []
+
+---- mcp::transport::tests::a_server_and_its_docker_cleanup_see_only_what_they_are_given stdout ----
+
+thread 'mcp::transport::tests::a_server_and_its_docker_cleanup_see_only_what_they_are_given' (<tid>) panicked at src/mcp/transport.rs:2645:9:
+
+running 2 tests

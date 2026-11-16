@@ -1,0 +1,121 @@
+# every merge redone by this folder's scripts in a clone (reproduce.sh), each resolver's lines under it
+b2d044c9 (bacb1052): resolve exit 0; against the merge commit's tree: no difference
+    scripts/fxcap/parity-ledger.toml:545: rewrite -- theirs taken (9 base lines -> 6); ours had moved only :3820-3837 -> :3828-3845, :3820-3837 -> :3828-3845
+    # scripts/fxcap/parity-ledger.toml: 1 blocks resolved
+    scripts/fxcap/scenarios/p5-panels-badsettings.cap:5: rewrite -- theirs taken (4 base lines -> 3); ours had moved only :3820-3837 -> :3828-3845
+    # scripts/fxcap/scenarios/p5-panels-badsettings.cap: 1 blocks resolved
+    tests/sessions.rs:3526: numbers, 1 line(s); line 3526: base :242 / ours :280 / theirs :247 -> :280 (both)
+    # tests/sessions.rs: 1 blocks resolved
+    tests/tui.rs:592: numbers, 1 line(s); line 592: base :269-270 / ours :759-760 / theirs :276-277 -> :759-760 (both)
+    tests/tui.rs:2721: ours -- ours kept (1 base lines -> 1); theirs had moved only :1191 -> :1305
+    # tests/tui.rs: 2 blocks resolved
+    # docs/parity.md: row '`status`': 1 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`doctor`': 0 edits of ours, 1 of theirs (theirs)
+    # docs/parity.md: row '`help`': 0 edits of ours, 0 of theirs (neither)
+    # docs/parity.md: row '`ask`': 0 edits of ours, 2 of theirs (theirs)
+    # docs/parity.md: row '`interactive`': 8 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/fork`': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/model`': 4 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/effort`': 2 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/provider`': 13 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/permissions`': 7 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`ask_user_question`': 53 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'tool permission modes': 2 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row 'environment overrides': 8 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: 4 blocks resolved
+e8b004a5 (32eb858f): resolve exit 0; against the merge commit's tree: no difference
+    src/tui/shell.rs:9754: by hand, args_doc_both (ours 7 lines, base 4, theirs 5 -> 8)
+    # src/tui/shell.rs: 1 blocks resolved by hand
+    scripts/fxcap/parity-ledger.toml:506: numbers, 1 line(s); line 506: base :3061 / ours :3125 / theirs :3061 -> :3125 (ours); line 506: base :13962 / ours :14529 / theirs :14035 -> :14529 (both)
+    scripts/fxcap/parity-ledger.toml:691: numbers, 1 line(s); line 691: base :16977 / ours :17565 / theirs :17054 -> :17565 (both)
+    scripts/fxcap/parity-ledger.toml:808: numbers, 1 line(s); line 808: base :42431 / ours :49895 / theirs :43070 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:831: numbers, 1 line(s); line 831: base :42431 / ours :49895 / theirs :43070 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:843: numbers, 1 line(s); line 843: base :42431 / ours :49895 / theirs :43070 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:854: numbers, 1 line(s); line 854: base :42431 / ours :49895 / theirs :43070 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:865: numbers, 1 line(s); line 865: base :42431 / ours :49895 / theirs :43070 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:877: numbers, 1 line(s); line 877: base :10558 / ours :11069 / theirs :10614 -> :11069 (both)
+    scripts/fxcap/parity-ledger.toml:879: ours -- ours kept (1 base lines -> 14); theirs had moved only :10558 -> :10614, :1929 -> :1930
+    scripts/fxcap/parity-ledger.toml:946: numbers, 1 line(s); line 946: base :42431 / ours :49895 / theirs :43070 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:982: numbers, 1 line(s); line 982: base :1854 / ours :1862 / theirs :1855 -> :1862 (both)
+    scripts/fxcap/parity-ledger.toml:1016: numbers, 1 line(s); line 1016: base :16977 / ours :17565 / theirs :17054 -> :17565 (both)
+    scripts/fxcap/parity-ledger.toml:1134: numbers, 1 line(s); line 1134: base :4557 / ours :4565 / theirs :4560 -> :4565 (both)
+    # scripts/fxcap/parity-ledger.toml: 13 blocks resolved
+    # docs/parity.md: row '`/fork`': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/model`': 4 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/effort`': 2 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/provider`': 6 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`/permissions`': 8 edits of ours, 1 of theirs (ours and theirs)
+    # docs/parity.md: row '`/allowlist`': 0 edits of ours, 1 of theirs (theirs)
+    # docs/parity.md: row '`/undo`': 0 edits of ours, 0 of theirs (neither)
+    # docs/parity.md: row '`/mcp`': 11 edits of ours, 2 of theirs (ours and theirs)
+    # docs/parity.md: row '`/skills`': 1 edits of ours, 5 of theirs (ours and theirs)
+    # docs/parity.md: row '`/sound`': 0 edits of ours, 1 of theirs (theirs)
+    # docs/parity.md: row '`/workspace`': 0 edits of ours, 1 of theirs (theirs)
+    # docs/parity.md: row '`/version`': 12 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'full-screen TUI': 209 edits of ours, 8 of theirs (ours and theirs)
+    # docs/parity.md: row 'full transcript (`C-o`)': 7 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`@` file picker': 32 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'notifications and status line': 21 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'terminal program status (OSC 7501)': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: 3 blocks resolved
+849f5017 (7c3f6c1e): resolve exit 0; against the merge commit's tree: no difference
+    CONTRIBUTING.md:62: by hand, four_script_tests (ours 6 lines, base 5, theirs 5 -> 6)
+    # CONTRIBUTING.md: 1 blocks resolved by hand
+    src/tui/worker.rs:10370: by hand, ours_env_read (ours 1 lines, base 1, theirs 1 -> 1)
+    # src/tui/worker.rs: 1 blocks resolved by hand
+    tests/support/mod.rs:19: by hand, theirs_then_ours (ours 3 lines, base 0, theirs 1 -> 4)
+    # tests/support/mod.rs: 1 blocks resolved by hand
+    merge 3: build fix: tests/cli.rs: 1 place(s), 3 lines -> 2: '#[cfg(unix)]' ...
+    merge 3: build fix: tests/support/profiles.rs: 1 place(s), 2 lines -> 2: 'let made = xfx::process::status(std::process::Command::new("mkfifo").arg(&file))' ...
+    merge 3: build fix: src/config.rs: 1 place(s), 3 lines -> 2: 'let made =' ...
+    merge 3: build fix: src/config.rs: 1 place(s), 1 lines -> 1: 'let made = crate::process::status(std::process::Command::new("mkfifo").arg(&file))' ...
+    merge 3: build fix: src/tui/file_index.rs: 1 place(s), 1 lines -> 1: 'let entries = match std::env::var_os("XFX_AT_BENCH_TREE") {' ...
+    merge 3: build fix: scripts/check-env-reads.py: 1 place(s), 1 lines -> 5: '# Every integration test binary, before main: the one it was started as' ...
+    merge 3: build fix: scripts/check-env-reads.py: 1 place(s), 2 lines -> 3: '"XFX_DRAWN_WIDER_OUT": "the drawn-wider sweep\'s own",' ...
+    merge 3: build fix: scripts/check-env-reads.py: 1 place(s), 2 lines -> 2: '"XFX_BUILD_REVISION": "build.rs\'s: the revision the binary is built from",' ...
+    merge 3: build fix: scripts/check-env-reads.py: 1 place(s), 3 lines -> 3: '# workflow set (XFX_BUILD_REVISION, XFX_BUILD_CHANNEL, PROFILE), drops' ...
+    # merge 3: 9 fixes
+dd2ac93d (dd9f5f0a): resolve exit 0; against the merge commit's tree: no difference
+    scripts/fxcap/roots.py:83: by hand, theirs_with_ours_run_name (ours 3 lines, base 3, theirs 22 -> 22)
+    # scripts/fxcap/roots.py: 1 blocks resolved by hand
+71787971 (ca496c10): resolve exit 0; against the merge commit's tree: no difference
+    src/tui/approval_amendment.rs:141: by hand, draft_edges_without_history (ours 4 lines, base 40, theirs 56 -> 17)
+    # src/tui/approval_amendment.rs: 1 blocks resolved by hand
+    scripts/fxcap/parity-ledger.toml:808: numbers, 1 line(s); line 808: base :43422 / ours :49895 / theirs :43544 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:831: numbers, 1 line(s); line 831: base :43422 / ours :49895 / theirs :43544 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:843: numbers, 1 line(s); line 843: base :43422 / ours :49895 / theirs :43544 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:854: numbers, 1 line(s); line 854: base :43422 / ours :49895 / theirs :43544 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:865: numbers, 1 line(s); line 865: base :43422 / ours :49895 / theirs :43544 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:970: numbers, 1 line(s); line 970: base :43422 / ours :49895 / theirs :43544 -> :49895 (both)
+    # scripts/fxcap/parity-ledger.toml: 6 blocks resolved
+    # docs/parity.md: row 'full-screen TUI': 94 edits of ours, 26 of theirs (ours and theirs)
+    # docs/parity.md: row 'full transcript (`C-o`)': 4 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`@` file picker': 32 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'notifications and status line': 21 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'terminal program status (OSC 7501)': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: 1 blocks resolved
+1bce5348 (6d94fbc0): resolve exit 0; against the merge commit's tree: no difference
+    scripts/fxcap/parity-ledger.toml:808: numbers, 1 line(s); line 808: base :43422 / ours :49895 / theirs :43562 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:831: numbers, 1 line(s); line 831: base :43422 / ours :49895 / theirs :43562 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:843: numbers, 1 line(s); line 843: base :43422 / ours :49895 / theirs :43562 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:854: numbers, 1 line(s); line 854: base :43422 / ours :49895 / theirs :43562 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:865: numbers, 1 line(s); line 865: base :43422 / ours :49895 / theirs :43562 -> :49895 (both)
+    scripts/fxcap/parity-ledger.toml:970: numbers, 1 line(s); line 970: base :43422 / ours :49895 / theirs :43562 -> :49895 (both)
+    # scripts/fxcap/parity-ledger.toml: 6 blocks resolved
+    # docs/parity.md: row '`ask_user_question`': ours' edit of base[3666:3667] dropped (--drop): '(queued),'
+    # docs/parity.md: row '`ask_user_question`': 1 edits of ours, 15 of theirs (ours and theirs)
+    # docs/parity.md: row 'tool permission modes': 3 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'full-screen TUI': ours' edit of base[28340:28341] dropped (--drop): 'queued:'
+    # docs/parity.md: row 'full-screen TUI': 119 edits of ours, 20 of theirs (ours and theirs)
+    # docs/parity.md: row 'full transcript (`C-o`)': 4 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row '`@` file picker': 32 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'notifications and status line': 21 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: row 'terminal program status (OSC 7501)': 1 edits of ours, 0 of theirs (ours)
+    # docs/parity.md: 2 blocks resolved
+75d1318c (e0aedbf6): resolve exit 0; against the merge commit's tree: no difference
+    .github/workflows/ci.yml:53: by hand, script_tests_both (ours 9 lines, base 7, theirs 8 -> 10)
+    # .github/workflows/ci.yml: 1 blocks resolved by hand
+    merge 7: name fix: .github/workflows/ci.yml: 1 place(s), 3 lines -> 3: '- name: Install the stable toolchain' ...
+    # merge 7: 1 fixes
+    the merge's own byhand.py and semantic.py, taken from it
+# exit 0

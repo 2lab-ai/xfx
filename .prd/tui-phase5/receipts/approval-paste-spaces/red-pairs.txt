@@ -1,0 +1,31 @@
+## p5-approval-paste-spaces-40x120: fx against red, cell by cell (cells.py, row 1 left out); scope rows: 19 21 22 23 24 25 
+DIFF   amend-letter           rows: 18 19 20 21 22 23 24 26 27 
+       fx:    ❯ 1  Apply once, ab cd ef gh ijz | refusals 0 | draft ends 'cd ef gh ijz'
+       red:   ❯ 1  Apply once, ab | refusals 0 | draft ends ' ef    ghijz'
+DIFF   amend-pasted           rows: 18 19 20 21 22 23 24 26 27 
+       fx:    ❯ 1  Apply once, ab cd ef gh ij | refusals 0 | draft ends ' cd ef gh ij'
+       red:   ❯ 1  Apply once, ab | refusals 0 | draft ends '  ef    ghij'
+DIFF   amend-super-left       rows: 18 19 20 21 22 23 24 26 27 
+       fx:    ❯ 1  Apply once, yab cd ef gh ijz | refusals 0 | draft ends 'cd ef gh ijz'
+       red:   ❯ 1  Apply once, ab | refusals 0 | draft ends ' yef   ghijz'
+DIFF   amend-terminal-paste   rows: 18 19 20 21 22 23 24 26 27 
+       fx:    ❯ 1  Apply once, yab cd ef gh ijz and the rest | refusals 0 | draft ends 'and the rest'
+       red:   ❯ 1  Apply once, ab | refusals 0 | draft ends '     therest'
+SCOPE  asked                  rows: 19 21 22 23 24 25 
+       fx:    ❯ 1  Apply once | refusals 0 | draft ends '  Apply once'
+       red:   ❯ 1  Apply once | refusals 0 | draft ends '  Apply once'
+DIFF   deny-fits              rows: 8 9 10 11 12 13 14 15 16 18 19 20 21 22 23 24 25 26 28 29 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxa b'
+       red:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 1 | draft ends 'xxxxxxxxxxxx'
+WINDOW deny-held              rows: 19 20 21 22 23 24 26 27 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxxxx'
+       red:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 0 | draft ends 'xxxxxxxxxxxx'
+DIFF   deny-letter-refused    rows: 21 22 23 24 25 26 28 29 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 1 | draft ends 'xxxxxxxxxa b'
+       red:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 1 | draft ends 'xxxxxxxxxxxc'
+DIFF   deny-paste-refused     rows: 10 11 12 13 14 15 16 17 18 20 21 22 23 24 25 26 27 28 29 
+       fx:    ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 2 | draft ends 'xxxxxxxxxa b'
+       red:   ❯ 3  Don't apply, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx | refusals 1 | draft ends 'xxxxxxxxxxxc'
+
+0 of 9 pairs identical, 1 more differing only in the scope rows, 1 more only in the draft's window
+banners (asked row 1): fx 𝒇x v0.0.16 · Run /help for commands / red x𝒇x v0.1.0-df45025 [debug] · Run /help for commands

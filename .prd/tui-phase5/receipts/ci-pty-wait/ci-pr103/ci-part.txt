@@ -1,0 +1,3 @@
+token 512 (K00005121) starts at byte 262157: part 64 (bytes 262144-266239)
+token 519 (K00005191) starts at byte 265741: part 64 (bytes 262144-266239)
+tokens 512-519: parts 64-64; part 64 holds tokens 512-519

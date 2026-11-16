@@ -1,0 +1,78 @@
+# Train 16's reruns (reruns.sh in one hold of the suite lock, on the two sweeps' own debug builds: sweep-rerun.sh 3 times a scenario on each tree; "main" in a name is the base 866747ff)
+# reruns.sh <head-clone 2b78aab6> <base-clone 866747ff> (the sweeps' own debug builds): p5-panels-badsettings p5-panels-sweep-b, 3 times each tree; then p5-slash-leading-ws on the head alone (the base has no such scenario)
+# head rerun 1 of p5-panels-badsettings (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.71
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 1 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 2 of p5-panels-badsettings (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.89
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 1 = 100.0%; unresolved 0, failed 0, timeout 0
+# head rerun 3 of p5-panels-badsettings (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 4.16
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 1 / 1 = 100.0%; unresolved 0, failed 0, timeout 0
+# main rerun 1 of p5-panels-badsettings (40x120) at 866747ff; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.08
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 1 = 0.0%; unresolved 1, failed 0, timeout 0
+# main rerun 2 of p5-panels-badsettings (40x120) at 866747ff; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 2.43
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 1 = 0.0%; unresolved 1, failed 0, timeout 0
+# main rerun 3 of p5-panels-badsettings (40x120) at 866747ff; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 3.97
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 0 / 1 = 0.0%; unresolved 1, failed 0, timeout 0
+# head rerun 1 of p5-panels-sweep-b (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 2.86
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 11 = 36.4%; unresolved 7, failed 0, timeout 0
+# head rerun 2 of p5-panels-sweep-b (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 2.73
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 11 = 36.4%; unresolved 7, failed 0, timeout 0
+# head rerun 3 of p5-panels-sweep-b (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 8.20
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 11 = 36.4%; unresolved 7, failed 0, timeout 0
+# main rerun 1 of p5-panels-sweep-b (40x120) at 866747ff; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 11.10
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 11 = 36.4%; unresolved 7, failed 0, timeout 0
+# main rerun 2 of p5-panels-sweep-b (40x120) at 866747ff; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 6.15
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 11 = 36.4%; unresolved 7, failed 0, timeout 0
+# main rerun 3 of p5-panels-sweep-b (40x120) at 866747ff; xfx sha256 4cc6ef8f2128e5065e785d48d380a0e110813eb41754da74da4e8b96d0333732; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 9.05
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 4 / 11 = 36.4%; unresolved 7, failed 0, timeout 0
+# head rerun 1 of p5-slash-leading-ws (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 31.89
+# rerun 1: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 8 / 10 = 80.0%; unresolved 2, failed 0, timeout 0
+# head rerun 2 of p5-slash-leading-ws (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 56.44
+# rerun 2: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 8 / 10 = 80.0%; unresolved 2, failed 0, timeout 0
+# head rerun 3 of p5-slash-leading-ws (40x120) at 2b78aab6; xfx sha256 45bb0fd8242c060228a5ec5d6969b6f749da9e55c1f1705051a548f5e8612f1a; fx sha256 before 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; load 73.22
+# rerun 3: exit 0; fx sha256 after 8e6cda2efddb1d116ccc291e678809b3dd0be342fdb84bbdf3c683d179a3c6a2; pass = 8 / 10 = 80.0%; unresolved 2, failed 0, timeout 0
+# (the reruns ended; exit 0 by the job, bru5hs5g0)
+## head-p5-panels-badsettings: 3 reruns
+    launch           NI NI NI  pass 3/3
+## main-p5-panels-badsettings: 3 reruns
+    launch           UD UD UD  pass 0/3
+## head-p5-panels-sweep-b: 3 reruns
+    answered         NI NI NI  pass 3/3
+    copy             NI NI NI  pass 3/3
+    stats            UD UD UD  pass 0/3
+    undo             UD UD UD  pass 0/3
+    trace            UD UD UD  pass 0/3
+    rename           UD UD UD  pass 0/3
+    compact          UD UD UD  pass 0/3
+    after-compact    UD UD UD  pass 0/3
+    resume           UD UD UD  pass 0/3
+    new              NI NI NI  pass 3/3
+    quit             NI NI NI  pass 3/3
+    rerun 1: the stats snap's row: fx * stats: ansi_bytes=5100; xfx * stats: ansi_bytes=4267
+    rerun 2: the stats snap's row: fx * stats: ansi_bytes=5100; xfx * stats: ansi_bytes=4267
+    rerun 3: the stats snap's row: fx * stats: ansi_bytes=5100; xfx * stats: ansi_bytes=4390
+## main-p5-panels-sweep-b: 3 reruns
+    answered         NI NI NI  pass 3/3
+    copy             NI NI NI  pass 3/3
+    stats            UD UD UD  pass 0/3
+    undo             UD UD UD  pass 0/3
+    trace            UD UD UD  pass 0/3
+    rename           UD UD UD  pass 0/3
+    compact          UD UD UD  pass 0/3
+    after-compact    UD UD UD  pass 0/3
+    resume           UD UD UD  pass 0/3
+    new              NI NI NI  pass 3/3
+    quit             NI NI NI  pass 3/3
+    rerun 1: the stats snap's row: fx * stats: ansi_bytes=5100; xfx * stats: ansi_bytes=4390
+    rerun 2: the stats snap's row: fx * stats: ansi_bytes=5100; xfx * stats: ansi_bytes=4390
+    rerun 3: the stats snap's row: fx * stats: ansi_bytes=4993; xfx * stats: ansi_bytes=4267
+## head-p5-slash-leading-ws: 3 reruns
+    spaces           NI NI NI  pass 3/3
+    spaces-esc-grow  NI NI NI  pass 3/3
+    esc-space        NI NI NI  pass 3/3
+    esc-space-back   NI NI NI  pass 3/3
+    newline          NI NI NI  pass 3/3
+    newline-tab      NI NI NI  pass 3/3
+    mid              NI NI NI  pass 3/3
+    tab              NI NI NI  pass 3/3
+    vers-run         UD UD UD  pass 0/3
+    vers-recall      UD UD UD  pass 0/3

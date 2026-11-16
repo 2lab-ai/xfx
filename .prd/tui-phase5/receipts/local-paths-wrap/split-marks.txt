@@ -1,0 +1,4 @@
+git ls-files -z | python3 -I split_marks.py scripts/fxcap, at d7e797a0's tree with round 5's receipt files staged
+self-check: the 2 split forms match, the 2 that are not split do not
+split marks, by their bytes: 12824 tracked files hold a rail, 0 of them a split rail-arrow, 0 occurrences
+the widened filter: 8466 files read, 173 with round 3's filter; rows behind a mark in them 213 and 213 -- it adds 0 marked rows

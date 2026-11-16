@@ -64,7 +64,7 @@ pub const TUI_ENV: &str = "XFX_TUI";
 /// ordinary command, unchanged.
 pub fn should_run(cli: &Cli) -> bool {
     matches!(cli.command, Command::Interactive { .. })
-        && std::env::var_os(TUI_ENV).is_none_or(|value| value != "0")
+        && process_env!("tui::should_run", var_os(TUI_ENV)).is_none_or(|value| value != "0")
         && io::stdin().is_terminal()
         && io::stdout().is_terminal()
 }
@@ -79,6 +79,13 @@ pub fn run_blocking(cli: Cli) -> ExitCode {
         Ok(config) => config,
         Err(err) => return fail(&format!("{err}")),
     };
+    // A profile fx refuses, before the terminal is taken and before a resume
+    // looks for its session: upstream loads it after its terminal check and
+    // before raw mode (`bootstrapInteractiveApp`,
+    // `app_lifecycle.zig:851-883@481104fd`) and exits 1 naming the error.
+    if let Some(refusal) = config.launch_refusal(crate::config::Launch::Interactive) {
+        return fail(refusal);
+    }
     match session(&config, resume.as_ref()) {
         Ok(code) => code,
         Err(err) => fail(&format!("{err}")),
@@ -396,7 +403,7 @@ fn hold(
     // whether the *question* is asked at all: a user who set `XFX_THEME` has
     // decided, and a decided session must not spend a deadline -- or put a
     // query on a terminal -- to be told something it will ignore.
-    let env_theme = std::env::var(theme::ENV).ok();
+    let env_theme = process_env!("tui::hold", var(theme::ENV)).ok();
     // The same answer twice over, which is why it is read once: a session the
     // user decided for asks the terminal nothing at launch **and** ignores what
     // the terminal volunteers afterwards. The second half travels to the shell
@@ -455,9 +462,15 @@ fn hold(
     // of the three sources and it is not in hand until the read is over. The
     // environment is read here rather than in `theme` so that every variable
     // this session consults is named on one screen.
-    let colorfgbg = std::env::var(theme::COLORFGBG).ok();
-    let colorterm = std::env::var(theme::COLORTERM).ok();
-    let term_program = std::env::var(theme::TERM_PROGRAM).ok();
+    // The variable some terminals export their foreground and background
+    // indices in (`theme_detection.zig:31`).
+    let colorfgbg = env_exception!(var("COLORFGBG")).ok();
+    // The variable a terminal claims 24-bit colour in
+    // (`theme_protocol.zig:44-48`), which reaches the Ultra mark alone
+    // (`theme::ultra_marker`).
+    let colorterm = env_exception!(var("COLORTERM")).ok();
+    // The variable a terminal names itself in (`theme_protocol.zig:49-51`).
+    let term_program = env_exception!(var("TERM_PROGRAM")).ok();
     let palette = theme::Palette {
         mode: theme::detect(
             env_theme.as_deref(),
@@ -772,6 +785,7 @@ mod approval_amendment;
 mod approval_readiness;
 mod approval_screen;
 pub(crate) mod approval_view;
+mod arg_lists;
 mod blocks;
 mod bridge;
 mod check;

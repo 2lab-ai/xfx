@@ -1,0 +1,37 @@
+== probe.sh fx <fx v0.0.16> <run> <round 3 fixtures, 5>
+binary sha256 before: 8e6cda2efddb
+== providers-32
+  permissions            exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=689B stderr= | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
+  interactive            still running after 6 s exit= tty=782B stderr= | touched: 
+== model-gateway-34
+  permissions            exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=680B stderr= | touched: 
+    stdout: [status] model=c/d|[status] model_origin=settings|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx login to sign
+  interactive            still running after 6 s exit= tty=775B stderr= | touched: 
+== models-union-35
+  permissions            exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=692B stderr= | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
+  interactive            still running after 6 s exit= tty=782B stderr= | touched: 
+== models-union-case
+  permissions            exit=0 stdout=100B stderr= | touched: 
+    stdout: [permissions] mode=auto|[permissions] configured rules: (none)|[permissions] session grants: (none)|
+  ask                    exit=1 stdout=0B stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.| | touched: 
+  status                 exit=0 stdout=681B stderr= | touched: 
+    stdout: [status] model=c/d|[status] model_origin=settings|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx login to sign
+  interactive            still running after 6 s exit= tty=775B stderr= | touched: 
+== drift-codex-merge
+  permissions            exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  ask                    exit=1 stdout=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=694B stderr=fx: config user: malformed_settings| | touched: 
+    stdout: [status] model=spacexai/grok-4.7|[status] model_origin=default|[status] effort=auto|[status] update_channel=stable|[status] build_channel=stable|[status] build_revision=481104fdbc24|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=fx needs access to Vercel AI Gateway. Run fx 
+  interactive            exited exit=1 tty=0B stderr=fx: InvalidProfileConfiguration| | touched: 
+binary sha256 after: 8e6cda2efddb

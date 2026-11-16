@@ -119,6 +119,10 @@ pub(crate) fn build_client(endpoint: &Endpoint) -> Result<reqwest::Client, Provi
 /// ([`may_use_a_proxy`]).
 pub(crate) fn bearer_rules(builder: reqwest::ClientBuilder, url: &str) -> reqwest::ClientBuilder {
     let builder = builder.redirect(reqwest::redirect::Policy::none());
+    // In a unit test, a proxy comes from the case's fake process, never from
+    // the process the suite runs in (`crate::test_env`); a build is unchanged.
+    #[cfg(test)]
+    let builder = crate::test_env::proxies(builder);
     if may_use_a_proxy(url) {
         builder
     } else {
@@ -355,7 +359,7 @@ impl Endpoint {
     /// A blank value is ignored rather than treated as an override, matching how
     /// every other xfx environment knob behaves.
     pub fn from_process() -> Result<Self, EndpointError> {
-        let raw = std::env::var(GATEWAY_URL_ENV).ok();
+        let raw = process_env!("gateway::Endpoint::from_process", var(GATEWAY_URL_ENV)).ok();
         let candidate = raw.as_deref().map(str::trim).filter(|s| !s.is_empty());
         Self::resolve(candidate)
     }

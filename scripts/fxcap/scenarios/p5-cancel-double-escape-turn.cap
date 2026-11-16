@@ -1,0 +1,40 @@
+# META-PREFIX-DECODE over a running turn. The fake gateway holds each answer
+# after six chunks (`held`), so a turn is running for the keys below it.
+# (a) `ESC ESC [ A`: fx's meta-prefixed Up, a paragraph move
+# (escape_parser.zig:552-555, :561-568, :83-89@481104fd), and no Escape: the
+# turn runs on, nothing is armed, nothing is recalled. (b) Two Escape bytes
+# in one burst: two Escapes, as fx's theme monitor delivers them
+# (theme_monitor.zig:82-93, :150-164; app_bootstrap_runtime.zig:481-483): the
+# first arms the interrupt and the second stops the turn
+# (app_input_runtime.zig:2740-2758). (c) The next turn, and a person's two
+# presses 0.3 s apart: the second stops it.
+gateway p5-cancel-double-escape-turns.json
+fx: env FX_AUTO_UPGRADE=0
+type stream please
+wait 1
+key Enter
+held
+wait 1
+snap mid
+key -H 1b 1b 5b 41
+wait 0.6
+snap a-meta-up
+key Escape Escape
+wait 1.5
+snap b-burst-cancelled
+release
+wait 1
+type stream again
+wait 1
+key Enter
+held
+wait 1
+snap mid2
+key Escape
+wait 0.3
+key Escape
+wait 2
+snap c-person-cancelled
+release
+wait 1
+gwlog

@@ -1,0 +1,5 @@
+Recipe 2 (ci_like.sh): one suite beside 36 busy python hogs, stopped after its first suite: the hogs did not load the PTY threads -- the scheduler runs blocked-and-woken threads ahead of CPU-bound ones -- and that suite's pastes paused 9-19 ms, none near 50. Its suite line and paste lines:
+1 before @suite 0 54
+the paste's longest pause: 18.880833ms (pauses of 12ms), between parts 191 and 192 of 256, across a planned 12ms pause that slept 18.764542ms; the write that ended it took 74.041µs, and the rest, 42.2
+the paste's longest pause: 8.619583ms (pauses of 0ns), inside part 216 of 256, at its write attempt 9 of 9, behind a full queue's 2ms poll that slept 5.021625ms; the write that ended it took 3.59675ms
+the paste's longest pause: 9.276416ms (pauses of 0ns), inside part 164 of 256, at its write attempt 7 of 9, behind a full queue's 2ms poll that slept 5.172834ms; the write that ended it took 4.10225ms

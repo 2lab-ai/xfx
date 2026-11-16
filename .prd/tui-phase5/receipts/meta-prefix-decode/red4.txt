@@ -1,0 +1,33 @@
+# Round 4 RED by forced mutant: each new pin appended as its own test to a --no-local clone at b34fac46, run under its mutant and then with it reverted, under the suite lock, 2026-11-16 (red4.py)
+## red4_ctrl_c_at_exactly_30_ms under the forced mutant: the pair's stage strict (quiet > PAIR_TIMEOUT)
+test tui::input::tests::red4_ctrl_c_at_exactly_30_ms ... FAILED
+thread 'tui::input::tests::red4_ctrl_c_at_exactly_30_ms'
+  left: [Action(Ignore)]
+ right: [Action(Escape), Action(Escape), Action(Cancel)]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 0.00s
+## red4_ctrl_c_at_exactly_30_ms at the head (the mutant reverted)
+test tui::input::tests::red4_ctrl_c_at_exactly_30_ms ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 0.00s
+
+## red4_a_third_esc_restarts_the_pairs_clock under the forced mutant: a third ESC keeps the pair's clock (0x1b if meta => {})
+test tui::input::tests::red4_a_third_esc_restarts_the_pairs_clock ... FAILED
+thread 'tui::input::tests::red4_a_third_esc_restarts_the_pairs_clock'
+  left: [Action(Escape), Action(Up)]
+ right: [Action(ParagraphUp)]
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 0.00s
+## red4_a_third_esc_restarts_the_pairs_clock at the head (the mutant reverted)
+test tui::input::tests::red4_a_third_esc_restarts_the_pairs_clock ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 0.00s
+
+## red4_the_kept_escs_expiry_staggered under the forced mutant: the kept ESC's clock restarts at the pair's stage (at: now)
+test tui::input::tests::red4_the_kept_escs_expiry_staggered ... FAILED
+thread 'tui::input::tests::red4_the_kept_escs_expiry_staggered'
+assertion `left == right` failed: at 70 ms: [Action(Escape)]
+  left: 1
+ right: 2
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 0.00s
+## red4_the_kept_escs_expiry_staggered at the head (the mutant reverted)
+test tui::input::tests::red4_the_kept_escs_expiry_staggered ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4818 filtered out; finished in 0.00s
+
+the clone's tree after the run: clean

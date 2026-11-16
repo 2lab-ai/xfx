@@ -1,0 +1,5 @@
+# the four check scripts at 8b79523a (the receipt and the parity wording fix committed)
+check-xfx-identity rc=0 check-xfx-identity: ok (20295 tracked file(s) scanned)
+check-no-stubs rc=0 check-no-stubs: ok
+check-no-secrets rc=0 check-no-secrets: ok (20295 tracked file(s) scanned)
+check-no-local-paths rc=0 check-no-local-paths: ok (20295 tracked file(s) scanned; 8 marked fixture line(s), 80 placeholder line(s))

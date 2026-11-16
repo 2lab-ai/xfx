@@ -151,6 +151,18 @@ impl AuthSnapshot {
     }
 }
 
+/// A recorded mode as a person reads it: fx's `permissionModeDisplayLabel`
+/// (`permissions.zig:109-115@481104fd`), `full access` for `yolo`, on the
+/// `[status]` and `[doctor]` lines and the `/status` rows
+/// (`output_contracts.zig:765`, `:839`, `:1806`). `--json` keeps the wire word
+/// (`:944-945`), as this snapshot does.
+fn display_mode(label: &str) -> String {
+    crate::config::PermissionMode::parse(label).map_or_else(
+        || label.to_string(),
+        |mode| mode.display_label().to_string(),
+    )
+}
+
 /// What `xfx status` reports.
 #[derive(Debug, Clone, Serialize)]
 pub struct StatusSnapshot {
@@ -318,13 +330,7 @@ impl StatusSnapshot {
                 }
             }
         }
-        rows.push((
-            "Permissions",
-            crate::config::PermissionMode::parse(&self.permission_mode).map_or_else(
-                || self.permission_mode.clone(),
-                |mode| mode.display_label().to_string(),
-            ),
-        ));
+        rows.push(("Permissions", display_mode(&self.permission_mode)));
         rows.push(("Sandbox", self.sandbox.clone()));
         rows.push(("Workspace", self.workspace.clone()));
         rows.push(("Turns", self.history_turns.to_string()));
@@ -405,7 +411,7 @@ impl StatusSnapshot {
         if let Some(help) = &self.auth_help {
             line("auth_help", help);
         }
-        line("permission_mode", &self.permission_mode);
+        line("permission_mode", &display_mode(&self.permission_mode));
         line("sandbox", &self.sandbox);
         line("workspace", &self.workspace);
         line("history_turns", &self.history_turns.to_string());
@@ -732,7 +738,7 @@ impl DoctorSnapshot {
         ));
         out.push_str(&format!(
             "[doctor] permission_mode={}\n",
-            self.permission_mode
+            display_mode(&self.permission_mode)
         ));
         out.push_str(&format!(
             "[doctor] agent_step_limit={}\n",

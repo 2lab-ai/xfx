@@ -1,0 +1,301 @@
+#### 1. The parse: any case, three spellings of the third, nothing trimmed
+== src/core/shared/types.zig:2370-2383@481104fd (4022 lines) -- PermissionMode.parse: eqlIgnoreCase against ask, auto, full-access, full access, yolo
+  2370	pub const PermissionMode = enum {
+  2371	    ask,
+  2372	    auto,
+  2373	    yolo,
+  2374	
+  2375	    pub fn parse(raw: []const u8) ?PermissionMode {
+  2376	        if (std.ascii.eqlIgnoreCase(raw, "ask")) return .ask;
+  2377	        if (std.ascii.eqlIgnoreCase(raw, "auto")) return .auto;
+  2378	        if (std.ascii.eqlIgnoreCase(raw, "full-access") or
+  2379	            std.ascii.eqlIgnoreCase(raw, "full access") or
+  2380	            std.ascii.eqlIgnoreCase(raw, "yolo")) return .yolo;
+  2381	        return null;
+  2382	    }
+  2383	};
+== src/core/config/config_runtime.zig:1057-1059@481104fd (4718 lines) -- parsePermissionMode: the one wrapper every reader calls
+  1057	pub fn parsePermissionMode(raw: []const u8) ?types.PermissionMode {
+  1058	    return types.PermissionMode.parse(raw);
+  1059	}
+== src/core/config/config_runtime.zig:3149-3162@481104fd (4718 lines) -- fx's own table: ASK, Auto, YOLO, Full Access read; full, padded words, danger do not
+  3149	test "parsePermissionMode accepts only exact case-insensitive labels" {
+  3150	    try std.testing.expectEqual(types.PermissionMode.ask, parsePermissionMode("ask").?);
+  3151	    try std.testing.expectEqual(types.PermissionMode.ask, parsePermissionMode("ASK").?);
+  3152	    try std.testing.expectEqual(types.PermissionMode.auto, parsePermissionMode("auto").?);
+  3153	    try std.testing.expectEqual(types.PermissionMode.auto, parsePermissionMode("Auto").?);
+  3154	    try std.testing.expectEqual(types.PermissionMode.yolo, parsePermissionMode("yolo").?);
+  3155	    try std.testing.expectEqual(types.PermissionMode.yolo, parsePermissionMode("YOLO").?);
+  3156	    try std.testing.expectEqual(types.PermissionMode.yolo, parsePermissionMode("full-access").?);
+  3157	    try std.testing.expectEqual(types.PermissionMode.yolo, parsePermissionMode("Full Access").?);
+  3158	    try std.testing.expect(parsePermissionMode("full") == null);
+  3159	    try std.testing.expect(parsePermissionMode(" full-access") == null);
+  3160	    try std.testing.expect(parsePermissionMode("full-access ") == null);
+  3161	    try std.testing.expect(parsePermissionMode(" default") == null);
+  3162	    try std.testing.expect(parsePermissionMode("danger") == null);
+== src/core/config/config_runtime.zig:20-20@481104fd (4718 lines) -- the compiled default: auto
+    20	pub const default_permission_mode: types.PermissionMode = .auto;
+#### 2. Every reader of a mode a person wrote
+== src/core/config/config_runtime.zig:1688-1692@481104fd (4718 lines) -- the settings key (profile and workspace entry): InvalidPermissionMode when it does not parse
+  1688	    if (root.object.get("permission_mode")) |permission_mode_value| {
+  1689	        const value = permission_mode_value;
+  1690	        if (value != .string) return error.InvalidPermissionModeType;
+  1691	        settings.permission_mode = parsePermissionMode(value.string) orelse return error.InvalidPermissionMode;
+  1692	    }
+== src/core/config/config_runtime.zig:1497-1500@481104fd (4718 lines) -- the startup status record reads the profile's key ...
+  1497	                } else if (layer == .profile and std.mem.eql(u8, key.text, "model")) {
+  1498	                    try readStartupStatusModel(scanner, alloc, &settings);
+  1499	                } else if (layer == .profile and std.mem.eql(u8, key.text, "permission_mode")) {
+  1500	                    settings.permission_mode = try readStartupStatusPermissionMode(scanner);
+== src/core/config/config_runtime.zig:1563-1569@481104fd (4718 lines) -- ... with the same parse (readStartupStatusPermissionMode)
+  1563	fn readStartupStatusPermissionMode(scanner: *std.json.Scanner) !types.PermissionMode {
+  1564	    const token = try scanner.next();
+  1565	    switch (token) {
+  1566	        .string => |value| return parsePermissionMode(value) orelse error.InvalidPermissionMode,
+  1567	        else => return error.InvalidPermissionModeType,
+  1568	    }
+  1569	}
+== src/core/app/app_lifecycle.zig:1556-1560@481104fd (2901 lines) -- FX_PERMISSION_MODE: getenv, untrimmed, parsePermissionMode, else the configured mode
+  1556	fn loadPermissionMode(configured: ?PermissionMode) PermissionMode {
+  1557	    const fallback = configured orelse default_permission_mode;
+  1558	    const mode = io_mod.getenv("FX_PERMISSION_MODE") orelse return fallback;
+  1559	    return config_runtime.parsePermissionMode(mode) orelse fallback;
+  1560	}
+== src/core/app/app_lifecycle.zig:579-579@481104fd (2901 lines) -- startup (status snapshot) resolves through loadPermissionMode
+   579	        .permission_mode = loadPermissionMode(settings.permission_mode),
+== src/core/app/app_lifecycle.zig:768-768@481104fd (2901 lines) -- the interactive launch resolves through loadPermissionMode
+   768	    state.permission_mode = loadPermissionMode(settings.permission_mode);
+== src/core/cli/doctor_runtime.zig:366-370@481104fd (739 lines) -- doctor: the same override, the same parse, the same fallback
+   366	fn resolvePermissionMode(configured: ?types.PermissionMode) !types.PermissionMode {
+   367	    const fallback = configured orelse config_runtime.default_permission_mode;
+   368	    const raw = io_mod.getenv("FX_PERMISSION_MODE") orelse return fallback;
+   369	    return config_runtime.parsePermissionMode(raw) orelse fallback;
+   370	}
+== src/core/cli/doctor_runtime.zig:223-223@481104fd (739 lines) -- doctor resolves through it
+   223	    snapshot.permission_mode = try resolvePermissionMode(settings.permission_mode);
+== src/core/config/settings_store.zig:1932-1936@481104fd (4166 lines) -- the settings validator before a write: the same parse
+  1932	    if (object.get("permission_mode")) |value| {
+  1933	        if (value != .string or types.PermissionMode.parse(value.string) == null) {
+  1934	            return error.InvalidSettingsFormat;
+  1935	        }
+  1936	    }
+== src/core/config/settings_store.zig:536-539@481104fd (4166 lines) -- ... run on the candidate every settings write would leave
+   536	            const candidate = try serializeJson(alloc, root);
+   537	            defer alloc.free(candidate);
+   538	            if (candidate.len > max_settings_bytes) return error.SettingsTooLarge;
+   539	            try validateCandidate(alloc, candidate, mutation);
+== src/core/config/settings_store.zig:1849-1859@481104fd (4166 lines) -- ... validateCandidate: the whole object through validateKnownSettingsObject
+  1849	fn validateCandidate(
+  1850	    alloc: Allocator,
+  1851	    bytes: []const u8,
+  1852	    mutation: SettingsMutation,
+  1853	) !void {
+  1854	    var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch {
+  1855	        return error.InvalidSettingsFormat;
+  1856	    };
+  1857	    defer parsed.deinit();
+  1858	    if (parsed.value != .object) return error.InvalidSettingsFormat;
+  1859	    try validateKnownSettingsObject(parsed.value.object, false);
+== src/core/slash_commands/command_router.zig:92-94@481104fd (643 lines) -- (round 2) the router trims space and tab only -- xfx's str::trim takes every Unicode blank
+    92	fn command_payload(cmd: []const u8, prefix: []const u8) []const u8 {
+    93	    return std.mem.trim(u8, cmd[prefix.len..], " \t");
+    94	}
+#### 3. /permissions: the same parse, after the router trims spaces and tabs
+== src/core/slash_commands/command_router.zig:92-94@481104fd (643 lines) -- command_payload: the rest of the line trimmed of space and tab
+    92	fn command_payload(cmd: []const u8, prefix: []const u8) []const u8 {
+    93	    return std.mem.trim(u8, cmd[prefix.len..], " \t");
+    94	}
+== src/core/slash_commands/command_router.zig:114-114@481104fd (643 lines) -- /permissions takes that payload
+   114	        .permissions => .{ .permissions = payload },
+== src/core/app/app_commands.zig:586-596@481104fd (4595 lines) -- commandHandlePermissions: blank opens the panel; remember/revoke; else handlePermissions
+   586	        /// Bare `/permissions` opens its panel and writes nothing to the
+   587	        /// transcript; a subcommand changes the mode or a saved-session rule.
+   588	        fn commandHandlePermissions(ctx: *anyopaque, rest: []const u8) !void {
+   589	            const app: *App = @ptrCast(@alignCast(ctx));
+   590	            if (std.mem.trim(u8, rest, " \t").len == 0) {
+   591	                openInfoPanel(app, try session_commands.Commands(App).openPermissionsSnapshot(app));
+   592	                return;
+   593	            }
+   594	            if (try handlePermissionRuleManagement(app, rest)) return;
+   595	            try session_commands.Commands(App).handlePermissions(app, rest);
+   596	        }
+== src/core/session/session_commands.zig:464-489@481104fd (3531 lines) -- handlePermissions: parsePermissionMode(rest), then reset, else the usage
+   464	        /// `/permissions` with a mode or `reset`. Bare `/permissions` opens its
+   465	        /// panel instead (`openPermissionsSnapshot`), and anything else gets
+   466	        /// the usage.
+   467	        pub fn handlePermissions(app: *App, rest: []const u8) !void {
+   468	            if (config_runtime.parsePermissionMode(rest)) |mode| {
+   469	                try app_permission_runtime.Runtime(App).selectMode(app, mode);
+   470	                try app.writeDomainNotice(.{
+   471	                    .topic = "permissions",
+   472	                    .tone = if (mode == .yolo) .warning else .neutral,
+   473	                    .body = switch (mode) {
+   474	                        .ask => "mode set to ask",
+   475	                        .auto => "mode set to auto",
+   476	                        .yolo => "mode set to full access",
+   477	                    },
+   478	                }, true);
+   479	                return;
+   480	            }
+   481	
+   482	            if (std.ascii.eqlIgnoreCase(rest, "reset")) {
+   483	                try app_permission_runtime.Runtime(App).reset(app);
+   484	                try app.writeDomainNotice(.{ .topic = "permissions", .tone = .neutral, .body = "permissions reset to ask, session grants cleared" }, true);
+   485	                return;
+   486	            }
+   487	
+   488	            try app.writeDomainNotice(.{ .topic = "", .tone = .@"error", .body = permissions_usage }, true);
+   489	        }
+== src/core/app/app_commands.zig:3394-3394@481104fd (4595 lines) -- the settings menu's mode goes through handlePermissions too
+  3394	        .permission_mode => try session_commands.Commands(@TypeOf(app.*)).handlePermissions(app, change.value),
+#### 4. The CLI flag: its own grammar, exact
+== src/core/cli/cli_ask.zig:3579-3584@481104fd (8825 lines) -- ask: --auto, --full-access or --yolo (std.mem.eql); a second mode flag is InvalidAskArgs
+  3579	        } else if (std.mem.eql(u8, arg, "--auto")) {
+  3580	            if (opts.permission_override != null) return error.InvalidAskArgs;
+  3581	            opts.permission_override = .auto;
+  3582	        } else if (std.mem.eql(u8, arg, "--full-access") or std.mem.eql(u8, arg, "--yolo")) {
+  3583	            if (opts.permission_override != null) return error.InvalidAskArgs;
+  3584	            opts.permission_override = .yolo;
+== src/builtins/commands.zig:35-37@481104fd (630 lines) -- ask's help: --auto, --full-access, and --yolo as its alias
+    35	            .{ .flag = "--auto", .description = "Automatically review unresolved permission requests" },
+    36	            .{ .flag = "--full-access", .description = "Disable fx permission checks" },
+    37	            .{ .flag = "--yolo", .description = "Alias for --full-access" },
+== src/core/cli/cli_ask.zig:4994-5012@481104fd (8825 lines) -- fx's test: both spellings are yolo; any two mode flags are refused
+  4994	test "parse options accepts full access aliases and rejects permission flag conflicts" {
+  4995	    const alloc = std.testing.allocator;
+  4996	    const aliases = [_][:0]const u8{ "--full-access", "--yolo" };
+  4997	    for (aliases) |alias| {
+  4998	        var options = try parseOptionsWithStdin(alloc, &.{ alias, "hello" }, .tty);
+  4999	        defer options.deinit(alloc);
+  5000	        try std.testing.expectEqual(@as(?PermissionMode, .yolo), options.permission_override);
+  5001	        try std.testing.expectEqualStrings("hello", options.prompt);
+  5002	    }
+  5003	
+  5004	    const permission_flags = [_][:0]const u8{ "--auto", "--full-access", "--yolo" };
+  5005	    for (permission_flags) |first| {
+  5006	        for (permission_flags) |second| {
+  5007	            try std.testing.expectError(
+  5008	                error.InvalidAskArgs,
+  5009	                parseOptionsWithStdin(alloc, &.{ first, second, "hello" }, .tty),
+  5010	            );
+  5011	        }
+  5012	    }
+== src/core/cli/cli_ask.zig:1482-1488@481104fd (8825 lines) -- the flag wins over the configured mode; full access not yet acknowledged prints the warning ...
+  1482	    var permission_mode = toCorePermissionMode(startup.permission_mode);
+  1483	    const mode_id: []const u8 = cfg.mode_registry.default_mode_id;
+  1484	    if (permission_override) |explicit| permission_mode = explicit;
+  1485	
+  1486	    if (permission_mode == .yolo and !startup.yolo_acknowledged) {
+  1487	        try emitHeadlessYoloWarning(alloc, options);
+  1488	    }
+== src/core/cli/cli_ask.zig:3675-3699@481104fd (8825 lines) -- ... fx's sentence, then yolo_acknowledged saved (once per person, not per run)
+  3675	fn emitHeadlessYoloWarning(alloc: Allocator, options: RunOptions) !void {
+  3676	    if (options.color_enabled and options.deps.stderr_is_tty(options.deps.stderr_ctx)) {
+  3677	        try options.deps.write_stderr(
+  3678	            options.deps.stderr_ctx,
+  3679	            "\x1b[38;5;252m" ++ permissions.yolo_warning_text ++ "\x1b[0m\n",
+  3680	        );
+  3681	    } else {
+  3682	        try options.deps.write_stderr(options.deps.stderr_ctx, permissions.yolo_warning_text ++ "\n");
+  3683	    }
+  3684	
+  3685	    var attempt = options.deps.persist_yolo_acknowledgment(alloc);
+  3686	    defer attempt.deinit(alloc);
+  3687	    switch (attempt) {
+  3688	        .outcome => {},
+  3689	        .failure => |failure| {
+  3690	            var message: std.Io.Writer.Allocating = .init(alloc);
+  3691	            defer message.deinit();
+  3692	            try message.writer.print(
+  3693	                "fx ask: failed to save full access acknowledgment: {s}\n",
+  3694	                .{@errorName(failure.err)},
+  3695	            );
+  3696	            try options.deps.write_stderr(options.deps.stderr_ctx, message.written());
+  3697	        },
+  3698	    }
+  3699	}
+== src/core/permissions/permissions.zig:90-90@481104fd (3375 lines) -- the sentence
+    90	pub const yolo_warning_text = "Full access enabled: fx permission checks disabled";
+#### 5. No parse of a mode: Shift-Tab and the approval surface
+== src/core/app/app_permission_runtime.zig:127-142@481104fd (508 lines) -- selectMode/toggleMode: a mode value, cycled ask -> auto -> yolo; no text read
+   127	        pub fn selectMode(app: *App, mode: types.PermissionMode) !void {
+   128	            setMode(app, mode);
+   129	            if (comptime @hasDecl(App, "persistAcceptedPermissionMode")) {
+   130	                try app.persistAcceptedPermissionMode(mode);
+   131	            }
+   132	            try finalizeModePreference(app);
+   133	        }
+   134	
+   135	        pub fn toggleMode(app: *App) !void {
+   136	            if (comptime !@hasField(App, "permission_engine")) return;
+   137	            try selectMode(app, switch (app.permission_engine.mode) {
+   138	                .ask => .auto,
+   139	                .auto => .yolo,
+   140	                .yolo => .ask,
+   141	            });
+   142	        }
+== the approval files: lines naming PermissionMode, parsePermissionMode or toggleMode
+src/core/app/input_approval_runtime.zig@481104fd: 0
+src/core/permissions/approval_amendment.zig@481104fd: 0
+src/core/permissions/approval_decision.zig@481104fd: 0
+src/core/permissions/approval_prompt.zig@481104fd: 0
+src/ui/approval_screen.zig@481104fd: 0
+src/ui/footer/approval_ui.zig@481104fd: 0
+#### 6. What fx writes back
+== src/core/config/settings_store.zig:1053-1053@481104fd (4166 lines) -- a saved mode is @tagName: ask, auto, yolo -- never the spelling read
+  1053	    if (patch.permission_mode) |value| application.changed = try putString(arena, &root.object, "permission_mode", @tagName(value)) or application.changed;
+== src/core/app/app_permission_runtime.zig:233-243@481104fd (508 lines) -- the interactive selection saves the mode value
+   233	        fn persistModePreference(app: *App) !void {
+   234	            const mode = app.permission_engine.mode;
+   235	            if (comptime @hasDecl(App, "persistPermissionModePreference")) {
+   236	                try app.persistPermissionModePreference(mode);
+   237	                return;
+   238	            }
+   239	
+   240	            var attempt = config_runtime.attemptUserPreferences(
+   241	                app.alloc,
+   242	                .{ .permission_mode = mode },
+   243	            );
+== src/core/permissions/permissions.zig:100-115@481104fd (3375 lines) -- permissionModeLabel (the wire word) and permissionModeDisplayLabel (full access)
+   100	pub fn permissionModeLabel(mode: PermissionMode) []const u8 {
+   101	    return switch (mode) {
+   102	        .ask => "ask",
+   103	        .auto => "auto",
+   104	        .yolo => "yolo",
+   105	    };
+   106	}
+   107	
+   108	/// Human-readable name; permissionModeLabel retains the persisted and wire value.
+   109	pub fn permissionModeDisplayLabel(mode: PermissionMode) []const u8 {
+   110	    return switch (mode) {
+   111	        .ask => "ask",
+   112	        .auto => "auto",
+   113	        .yolo => "full access",
+   114	    };
+   115	}
+== src/core/output/output_contracts.zig:765-765@481104fd (3890 lines) -- /status panel row: the display word
+   765	        try rows.append(alloc, .{ .label = "Permissions", .value = permissions.permissionModeDisplayLabel(self.permission_mode) });
+== src/core/output/output_contracts.zig:839-839@481104fd (3890 lines) -- [status] permission_mode=: the display word
+   839	        try out.writer.print("[status] permission_mode={s}\n", .{permissions.permissionModeDisplayLabel(self.permission_mode)});
+== src/core/output/output_contracts.zig:944-945@481104fd (3890 lines) -- status --json: the wire word
+   944	        try writer.writeAll(",\"permission_mode\":");
+   945	        try std.json.Stringify.value(permissionModeLabel(self.permission_mode), .{}, writer);
+== src/core/output/output_contracts.zig:1806-1806@481104fd (3890 lines) -- [doctor] permission_mode=: the display word
+  1806	        try out.writer.print("[doctor] permission_mode={s}\n", .{permissions.permissionModeDisplayLabel(self.permission_mode)});
+== src/core/output/output_contracts.zig:1851-1852@481104fd (3890 lines) -- doctor --json: the wire word
+  1851	        try writer.writeAll(",\"permission_mode\":");
+  1852	        try std.json.Stringify.value(permissionModeLabel(self.permission_mode), .{}, writer);
+== src/core/cli/doctor_runtime.zig:237-240@481104fd (739 lines) -- doctor's startup check ...
+   237	    const detail = try alloc.print(
+   238	        "resolved model={s}, permission_mode={s}, agent_step_limit={d}",
+   239	        .{ snapshot.model, permissionModeLabel(snapshot.permission_mode), snapshot.agent_step_limit },
+   240	    );
+== src/core/cli/doctor_runtime.zig:529-535@481104fd (739 lines) -- ... with doctor's own label: full access
+   529	fn permissionModeLabel(mode: types.PermissionMode) []const u8 {
+   530	    return switch (mode) {
+   531	        .ask => "ask",
+   532	        .auto => "auto",
+   533	        .yolo => "full access",
+   534	    };
+   535	}
+== 0 range(s) out of bounds

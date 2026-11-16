@@ -1,0 +1,10 @@
+paced case runs (single = its own process, suite = inside a whole parallel tui suite):
+  single green: 10
+  suite green: 10
+single runs, sessions with pauses of 0ns: 23, accepted 20, rejected 3 (13.0% rejected); accepted longest pauses: min 16.5 ms, median 24.4 ms, max 46.7 ms; rejected pauses: 66 ms, 81 ms, 106 ms
+single runs, sessions with pauses of 12ms: 13, accepted 10, rejected 3 (23.1% rejected); accepted longest pauses: min 22.3 ms, median 29.8 ms, max 47.1 ms; rejected pauses: 53 ms, 57 ms, 108 ms
+suite runs, sessions with pauses of 0ns: 22, accepted 20, rejected 2 (9.1% rejected); accepted longest pauses: min 8.8 ms, median 23.9 ms, max 47.7 ms; rejected pauses: 50 ms, 55 ms
+suite runs, sessions with pauses of 12ms: 11, accepted 10, rejected 1 (9.1% rejected); accepted longest pauses: min 20.1 ms, median 30.7 ms, max 43.2 ms; rejected pauses: 56 ms
+diagnostic lines another test's output cut (not counted above): 0
+paced reds: none
+other tests failed in suite runs: none

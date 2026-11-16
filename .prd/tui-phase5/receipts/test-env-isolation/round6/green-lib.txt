@@ -1,0 +1,16 @@
+# lib unit tests at 3b6cac51 under ../sentinel-run.sh (--test-threads=8); every line but the per-case ok lines
+running 4645 tests
+[shell] sound: on; the full-screen shell rings the terminal bell, and this line-oriented one rings none
+[shell] sound: off; the full-screen shell rings the terminal bell, and this line-oriented one rings none
+xfx: usage: /sound [on|off]
+xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+test mcp::transport::tests::sentinel_runner_a_docker_cleanup_runs_with_the_servers_environment ... ignored, run by a_server_and_its_docker_cleanup_see_only_what_they_are_given
+test mcp::transport::tests::sentinel_runner_a_stdio_server_sees_six_names_and_its_own_env ... ignored, run by a_server_and_its_docker_cleanup_see_only_what_they_are_given
+test tui::drawn_wider::tests::xfx_counts ... ignored, run by scripts/drawn-wider/sweep.sh
+test tui::editor::tests::an_edit_and_a_submit_stay_inside_the_ceiling_on_this_machine ... ignored, timing receipt: release only, see the task report
+test tui::event_loop::tests::the_near_cap_tick_breaks_down_into_enqueue_prepare_append_and_band ... ignored, P3-WRAP diagnostic: release only, see xfx-painter-cost.log
+test tui::event_loop::tests::the_shipped_painter_stays_measured_against_the_re_deferred_wrap_thresholds ... ignored, P3-WRAP timing receipt: release only, see xfx-painter-cost.log
+test tui::frame::tests::append_document_costs_split_into_seed_render_append_preflight_and_sink ... ignored, P3-WRAP diagnostic: release only, see xfx-append-breakdown.log
+test result: ok. 4638 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 85.62s
+sentinel-run: exit 0
+# sentinel values in output: 0
