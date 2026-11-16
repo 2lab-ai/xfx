@@ -1,0 +1,13 @@
+$ which -a bash
+/bin/bash
+$ env bash -c 'echo $BASH_VERSION'
+3.2.57(1)-release
+$ /bin/bash -c 'echo $BASH_VERSION'
+3.2.57(1)-release
+$ docker image inspect --format {{.Id}} bash:5 ruby:3.4-trixie
+sha256:61962062d969cb46dfc2bad061d36342406fa485f64f246aa7e95693ca07df1f
+sha256:3acb7705baee45c4815270dbedf953e95c34e25d5440babadf5ae451a706d012
+$ docker run --rm --network none ruby:3.4-trixie bash -c 'echo $BASH_VERSION; ruby -v; git --version'
+5.2.37(1)-release
+ruby 3.4.12 (2026-10-23 revision 366f5fdc00) +PRISM [aarch64-linux]
+git version 2.47.3

@@ -1,0 +1,8 @@
+# mutants-r2.py <clone at 401b3fb2> E1 E4 E5 E6 C1 C2, under the suite lock, /bin/bash 3.2.57
+E1 scripts/test-early-stop.sh: its original trap back: killed (test-gate-env.sh exit 1, failing test-early-stop-stopped-unset)
+E4 scripts/test-early-stop.sh: the status not kept (exit 1): killed (test-gate-env.sh exit 1, failing test-early-stop-stopped-exit7, test-early-stop-stopped-subshell)
+E5 scripts/test-early-stop.sh: finished=0 dropped: killed (test-gate-env.sh exit 1, failing test-early-stop-stopped-exit7, test-early-stop-stopped-hup, test-early-stop-stopped-int, test-early-stop-stopped-int-group, test-early-stop-stopped-subshell, test-early-stop-stopped-term)
+E6 scripts/test-early-stop.sh: finished=1 dropped: killed (test-gate-env.sh exit 0; test-early-stop.sh exit 1)
+C1 .github/workflows/ci.yml: the macOS row's bash32 dropped: killed (test-gate-env.sh exit 1, failing ci-bash32)
+C2 .github/workflows/ci.yml: /bin/bash not put on PATH: killed (test-gate-env.sh exit 1, failing ci-bash32)
+# clone clean after: yes

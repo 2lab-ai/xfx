@@ -1,0 +1,20 @@
+# head 401b3fb2; /bin/bash 3.2.57(1)-release
+scripts/check-no-secrets.sh at 967581c9: test-check-no-secrets.sh exit 1 (109s), test-check-no-secrets: 2 problem(s), 21 case(s) passed
+    test-check-no-secrets: skipped-listing: the check exited 0, expected 1; its output lacks 'check-no-secrets: the listing did not finish'; it ran on past the stop; the first lines it printed:
+    test-check-no-secrets: skipped-scan: the check exited 0, expected 1; its output lacks 'check-no-secrets: the scan did not finish'; it ran on past the stop; the first lines it printed:
+.github/workflows/ci.yml at 967581c9: test-gate-env.sh exit 1 (260s), test-gate-env: 1 problem(s), 92 case(s) passed
+    test-gate-env: ci-bash32: the macOS script-test rows are not held to /bin/bash:
+      the macos-15 script-test row has no bash32
+      no step under matrix.bash32 puts /bin/bash first on GITHUB_PATH
+      no step on the script-test rows prints the bash #!/usr/bin/env bash runs
+# tree clean after: yes
+
+# what the check at 967581c9 printed in each case (from the raw log, paths written <path>); the listing tree tracks 4 files, the scan tree 3
+    early stop: trap -- 'on_exit' EXIT
+    early stop: arith
+    <path>: line 5: 1 <path> 0: division by 0 (error token is "0")
+    check-no-secrets: ok (1 tracked file(s) scanned)
+    early stop: trap -- 'on_exit' EXIT
+    early stop: arith
+    <path>: line 5: 1 <path> 0: division by 0 (error token is "0")
+    check-no-secrets: ok (3 tracked file(s) scanned)

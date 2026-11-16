@@ -1,0 +1,54 @@
+# normal.sh <clone at 401b3fb2> ef4e74ea <logs> <the round-2 gate's release binary>, in one hold of the suite lock (after-gate-r2.sh). A first run was cut off by the handoff stop; this is the rerun.
+# head 401b3fb2, base ef4e74ea; /bin/bash 3.2.57(1)-release
+check-no-secrets.sh: base exit 0, head exit 0; 0 line(s) only in base, 0 only in head
+check-xfx-identity.sh: base exit 0, head exit 0; 0 line(s) only in base, 0 only in head
+check-preview-contract.sh: base exit 0, head exit 0; 0 line(s) only in base, 0 only in head
+test-check-no-secrets.sh: base exit 0, head exit 0; 2 line(s) only in base, 8 only in head
+    < test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): scripts<path>: line 201: <path>: Argument list too long
+    > test-check-no-secrets: 3473 tracked names overflow ARG_MAX (1048576): scripts<path>: line 203: <path>: Argument list too long
+    > test-check-no-secrets: ok stopped-subshell   exit 5
+    > test-check-no-secrets: ok stopped-hup        exit 129
+    > test-check-no-secrets: ok stopped-int        exit 130
+    > test-check-no-secrets: ok stopped-int-group  exit 130
+    < test-check-no-secrets: ok (17 cases; 3473 tracked names past ARG_MAX 1048576)
+    > test-check-no-secrets: ok skipped-listing    exit 1
+    > test-check-no-secrets: ok skipped-scan       exit 1
+    > test-check-no-secrets: ok (23 cases; 3473 tracked names past ARG_MAX 1048576)
+test-preview-contract.sh: base exit 0, head exit 0; 1 line(s) only in base, 5 only in head
+    > test-preview-contract: caught stopped-subshell             exit 5
+    < test-preview-contract: ok (31 mutants caught; the unbroken copy passes)
+    > test-preview-contract: caught stopped-hup                  exit 129
+    > test-preview-contract: caught stopped-int                  exit 130
+    > test-preview-contract: caught stopped-int-group            exit 130
+    > test-preview-contract: ok (35 mutants caught; the unbroken copy passes)
+test-gate-env.sh: base exit 0, head exit 0; 3 line(s) only in base, 23 only in head
+    > test-gate-env: ok ci-bash32                      the macOS script-test rows run <path>, and the log says which bash
+    < test-gate-env: ok build-script                   stamps the checkout's HEAD (2026-11-11-1005-f2c0c938effa)
+    < test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (2026-11-11-1005-c6606450951d), watches its HEAD and ref
+    > test-gate-env: ok build-script                   stamps the checkout's HEAD (2026-11-11-1000-84dd526e28e2)
+    > test-gate-env: ok build-script-linked-worktree   stamps the worktree's HEAD (2026-11-11-1000-2d6572f7b055), watches its HEAD and ref
+    > test-gate-env: ok check-xfx-identity-stopped-subshell exit 5
+    > test-gate-env: ok check-xfx-identity-stopped-hup exit 129
+    > test-gate-env: ok check-xfx-identity-stopped-int exit 130
+    > test-gate-env: ok check-xfx-identity-stopped-int-group exit 130
+    > test-gate-env: ok test-check-no-secrets-stopped-subshell exit 5
+    > test-gate-env: ok test-check-no-secrets-stopped-hup exit 129
+    > test-gate-env: ok test-check-no-secrets-stopped-int exit 130
+    > test-gate-env: ok test-check-no-secrets-stopped-int-group exit 130
+    > test-gate-env: ok test-preview-contract-stopped-subshell exit 5
+    < test-gate-env: ok (73 cases)
+    > test-gate-env: ok test-preview-contract-stopped-hup exit 129
+    > test-gate-env: ok test-preview-contract-stopped-int exit 130
+    > test-gate-env: ok test-preview-contract-stopped-int-group exit 130
+    > test-gate-env: ok test-early-stop-stopped-unset  exit 1
+    > test-gate-env: ok test-early-stop-stopped-exit7  exit 7
+    > test-gate-env: ok test-early-stop-stopped-subshell exit 5
+    > test-gate-env: ok test-early-stop-stopped-term   exit 143
+    > test-gate-env: ok test-early-stop-stopped-hup    exit 129
+    > test-gate-env: ok test-early-stop-stopped-int    exit 130
+    > test-gate-env: ok test-early-stop-stopped-int-group exit 130
+    > test-gate-env: ok (93 cases)
+smoke.sh: base exit 0, head exit 0; 1 line(s) only in base, 1 only in head
+    <   ok    the turn was recorded as session 1794391680463-a0f49a75a4c2cfca
+    >   ok    the turn was recorded as session 1794391679447-e5235692d1dcb9c2
+# tree clean after: yes

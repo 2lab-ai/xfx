@@ -407,8 +407,16 @@ stop_gateway() {
 	fi
 }
 
+# A run that stops before its last line fails: under bash 3.2 a script
+# stopped by an error of its own (an unset variable under `set -u`) leaves
+# through its EXIT trap with the trap's status, 0 here, and would read as a
+# pass. Any exit before `finished=1` keeps the status bash gives it, or is 1
+# where bash gives 0.
+finished=0
 cleanup() {
+	local stopped=$?
 	stop_gateway
+	[ "$finished" = 1 ] || exit "$((stopped == 0 ? 1 : stopped))"
 }
 trap cleanup EXIT
 
@@ -911,3 +919,4 @@ printf '\n%d check(s), %d failure(s)\nevidence: %s\n' "$checks" "$failures" "$ev
 if [ "$failures" -ne 0 ]; then
 	exit 1
 fi
+finished=1

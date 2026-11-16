@@ -1,0 +1,8 @@
+# scripts/check-at-search-cost.sh, the CI step main added (#93) that gates.sh does not list, at 03cd1e67, after the gate, one hold of the suite lock
+exit 0
+every keystroke: 1460 searches p50 223.708µs p95 1.608208ms p99 3.280084ms max 3.532291ms
+whole queries (fx's gate): 160 searches p50 304.166µs p95 1.7125ms
+slowest: 3.532291ms at "src/", pass 5 of 23
+first search, cold: 2.190209ms at "s" (pass 0, not counted)
+check-at-search-cost: ok
+# clone clean after: yes

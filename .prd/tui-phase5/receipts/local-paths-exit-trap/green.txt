@@ -1,0 +1,28 @@
+# head 6071c6f8, base dcfa5146; /bin/bash 3.2.57(1)-release
+green-test-check-no-secrets.sh: test-check-no-secrets.sh exit 0 (92s), test-check-no-secrets: ok (17 cases; 3473 tracked names past ARG_MAX 1048576)
+    test-check-no-secrets: ok stopped-unset      exit 1
+    test-check-no-secrets: ok stopped-exit7      exit 7
+    test-check-no-secrets: ok stopped-term       exit 143
+    test-check-no-secrets: ok stopped-late       exit 1
+green-test-preview-contract.sh: test-preview-contract.sh exit 0 (94s), test-preview-contract: ok (31 mutants caught; the unbroken copy passes)
+    test-preview-contract: caught stopped-unset                exit 1
+    test-preview-contract: caught stopped-exit7                exit 7
+    test-preview-contract: caught stopped-term                 exit 143
+green-test-gate-env.sh: test-gate-env.sh exit 0 (320s), test-gate-env: ok (73 cases)
+    test-gate-env: ok check-xfx-identity-stopped-unset exit 1
+    test-gate-env: ok check-xfx-identity-stopped-exit7 exit 7
+    test-gate-env: ok check-xfx-identity-stopped-term exit 143
+    test-gate-env: ok test-check-no-secrets-stopped-unset exit 1
+    test-gate-env: ok test-check-no-secrets-stopped-exit7 exit 7
+    test-gate-env: ok test-check-no-secrets-stopped-term exit 143
+    test-gate-env: ok test-preview-contract-stopped-unset exit 1
+    test-gate-env: ok test-preview-contract-stopped-exit7 exit 7
+    test-gate-env: ok test-preview-contract-stopped-term exit 143
+green-test-early-stop.sh: test-early-stop.sh exit 0 (1s), test-early-stop: ok (6 cases)
+    test-early-stop: ok test-gate-env-stopped-unset  exit 1
+    test-early-stop: ok test-gate-env-stopped-exit7  exit 7
+    test-early-stop: ok test-gate-env-stopped-term   exit 143
+    test-early-stop: ok smoke-stopped-unset          exit 1
+    test-early-stop: ok smoke-stopped-exit7          exit 7
+    test-early-stop: ok smoke-stopped-term           exit 143
+# tree clean after: yes

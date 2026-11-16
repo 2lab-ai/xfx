@@ -1,0 +1,22 @@
+# head 704c489b, main e2fc7e94; the control sample counts 1 under each rule
+29fb83bd added long=0 short=0, message 0  refactor(check-no-secrets): the markers are listing_done and
+3ed3d5f3 added long=0 short=0, message 0  test(scripts): an unset stop must show bash's own unbound-va
+1fad3ed6 added long=0 short=0, message 0  receipts(local-paths-exit-trap): the second merge, the two g
+9e88f9ce added long=0 short=0, message 0  receipts(local-paths-exit-trap): round 2's README, gate, RED
+f529be91 added long=0 short=0, message 0  docs(ci): rewrap the script_tests comment
+1a121f8e added long=0 short=0, message 0  receipts(local-paths-exit-trap): round 2's runs so far
+81248004 added long=0 short=0, message 0  ci: print bash's first version line with sed, not head
+401b3fb2 added long=0 short=0, message 0  test(check-no-secrets): the listing case's tree holds nothin
+de48bb6d added long=0 short=0, message 0  test(early-stop): the generator stops on the EXIT trap, not 
+f910b4b2 added long=0 short=0, message 0  ci: the macOS script-test row runs the gate scripts under /b
+0a9a3ba1 added long=0 short=0, message 0  fix(check-no-secrets): a listing or a scan an error cut shor
+967581c9 added long=0 short=0, message 0  test(scripts): one BASH_ENV generator, stops on the EXIT tra
+ef4e74ea added long=0 short=0, message 0  receipts(local-paths-exit-trap): the verdicts, RED/GREEN, mu
+5b20b9d6 added long=0 short=0, message 0  docs(scripts): say what bash 3.2 does, not which bash CI ran
+6071c6f8 added long=0 short=0, message 0  test(scripts): pin the status an early stop keeps, and the s
+47837c3c added long=0 short=0, message 0  fix(scripts): a gate script that stops early fails, under ba
+704c489b merge, vs first parent long=0 short=0, message 0  merge: main e2fc7e94 (PR #97, the fxcap reaped-pane fix) int
+03cd1e67 merge, vs first parent long=0 short=0, message 0  merge: main 35cb4c7a (PR #95, release v0.2.0) into LOCAL-PAT
+3f03a1ef merge, vs first parent long=0 short=0, message 0  merge: main 753b0a72 (train 14, PR #94) into LOCAL-PATHS-EXI
+origin/main..HEAD long=0 short=0
+total: 0
