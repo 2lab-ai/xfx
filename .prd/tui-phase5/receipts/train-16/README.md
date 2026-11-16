@@ -894,7 +894,10 @@ items, tests and the check only, on top of `a3f8ee26`:
 **1. The reviewer's NTH: `toolchain_first` when the parent has no `PATH`**
 (`bbb2c109`, doc only). It returns nothing and the copy gets no `PATH`, so
 a command xfx runs gets `minimal_environment`'s system default, which holds
-no rustup toolchain. Kept, and the module doc now says so. A `PATH` of the
+no rustup toolchain (read from the code, not run: `minimal_environment`
+takes an absent or empty `PATH` to that literal,
+`src/permission/authority.rs:1469-1472`). Kept, and the module doc now says
+so. A `PATH` of the
 toolchain directory alone would be worse: that function would take it as
 given, and every other program a case starts would be missing. Sharing the
 system default would mean a product line: it is a literal inside
@@ -922,6 +925,14 @@ is OK, with 75 compile-time reads of 7 names, as in round 5.
 
 **Product lines: 0** (`round6-numstat.txt`: the env check +47/-4, the test
 support's doc +9). The sweeps stand.
+
+**Line references into the two files.** `content.sh` gives the same counts
+as at `a3f8ee26` (WRONG 8, unread 1, `gates-files.txt`). The only numbered
+references into either file are in TEST-ENV-ISOLATION's round 8 and round 9
+READMEs (`scripts/check-env-reads.py:377`, `:385`, `:912`;
+`tests/support/isolated.rs:91`). They cite that unit's own commit
+`7c3f6c1e`, where each lands, and `content.sh` leaves `.prd/` out by
+design. Round 6's lines move them at the head, and they stay as written.
 
 **Linux clippy** at `23819f7a` (`linux-clippy.sh`): 0 of 4 runs failed, both Linux targets, plain and with fault-injection (`round5-linux-clippy.txt`, its round-6 lines).
 
