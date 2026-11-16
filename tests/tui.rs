@@ -3846,7 +3846,7 @@ fn the_harness_measures_a_pause_between_two_writes_of_one_paste() {
     // without a byte, across the calls that write one paste. The child reads
     // nothing, so each write is one attempt the queue takes at once.
     let pty = Pty::open();
-    let mut command = Command::new("/bin/sh");
+    let mut command = support::command("/bin/sh");
     command.args(["-c", "sleep 30"]);
     let session = Session::spawn_without_taking_the_terminal(&pty, command);
     let mut previous = None;
