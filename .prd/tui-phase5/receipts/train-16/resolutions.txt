@@ -112,4 +112,10 @@ dd2ac93d (dd9f5f0a): resolve exit 0; against the merge commit's tree: no differe
     # docs/parity.md: row 'notifications and status line': 21 edits of ours, 0 of theirs (ours)
     # docs/parity.md: row 'terminal program status (OSC 7501)': 1 edits of ours, 0 of theirs (ours)
     # docs/parity.md: 2 blocks resolved
+75d1318c (e0aedbf6): resolve exit 0; against the merge commit's tree: no difference
+    .github/workflows/ci.yml:53: by hand, script_tests_both (ours 9 lines, base 7, theirs 8 -> 10)
+    # .github/workflows/ci.yml: 1 blocks resolved by hand
+    merge 7: name fix: .github/workflows/ci.yml: 1 place(s), 3 lines -> 3: '- name: Install the stable toolchain' ...
+    # merge 7: 1 fixes
+    the merge's own byhand.py and semantic.py, taken from it
 # exit 0

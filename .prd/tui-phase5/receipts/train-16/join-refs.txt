@@ -1,0 +1,32 @@
+# the join's references: content.sh at the joined code head a4452753, at main e0aedbf6 and (content-head.txt) at the train's code head 6137bd3d; the five scans at a4452753 against its two sides, train=ac0b0ff5 main=e0aedbf6 (outside the historical plans)
+## content.sh at a4452753: # all 54 files: SAME 256; SAME-ROW 43; SAME-LINES 3; WRONG 8; other product 556; unread 1; refs 867
+  WRONG scripts/smoke-tui.sh:251 ,65
+  WRONG scripts/smoke-tui.sh:1568 ,65
+  WRONG src/tools/question.rs:303 Cargo.toml:42
+  WRONG src/tui/event_loop.rs:8409 ,1156
+  WRONG src/tui/event_loop.rs:8409 ,1626
+  WRONG src/tui/event_loop.rs:8409 ,1696
+  WRONG src/tui/event_loop.rs:8409 ,1758
+  WRONG tests/session_compat.rs:57 src/session/event.rs:98-192
+## content.sh at e0aedbf6 (main): # all 55 files: SAME 257; SAME-ROW 43; SAME-LINES 3; WRONG 8; other product 540; unread 1; refs 852
+  WRONG scripts/smoke-tui.sh:251 ,65
+  WRONG scripts/smoke-tui.sh:1568 ,65
+  WRONG src/tools/question.rs:303 Cargo.toml:42
+  WRONG src/tui/event_loop.rs:8409 ,1156
+  WRONG src/tui/event_loop.rs:8409 ,1626
+  WRONG src/tui/event_loop.rs:8409 ,1696
+  WRONG src/tui/event_loop.rs:8409 ,1758
+  WRONG tests/session_compat.rs:57 src/session/event.rs:98-192
+## content.sh at 6137bd3d: # all 54 files: SAME 256; SAME-ROW 43; SAME-LINES 3; WRONG 8; other product 556; unread 1; refs 867
+## the WRONG lists at a4452753 and 6137bd3d the same: yes
+# the five scans: a reading the join made is one where the train's side (`train`, the branch before the join) maps a reference elsewhere; `main MOVED` is a reference the train itself moved since main's base (main is train 15), and `train* =` one standing where the train's own text has it
+## refs: # 90 references; 1 (side, reference) pairs MOVED; * = the side's own text cites it
+   the train's side MOVED or CHANGED: 0
+## refs_all: # 198 references in 651 files; 20 moved or changed on some side that cites them
+   the train's side MOVED or CHANGED: 0
+## refs_short: # 61 short references into changed files; 33 moved or changed on some side that cites them
+   the train's side MOVED or CHANGED: 0
+## refs_bare: # 74 bare continuations after a reference into a changed file; 42 moved or changed on some side that holds them
+   the train's side MOVED or CHANGED: 0
+## refs_prd: # 29 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it
+   the train's side MOVED or CHANGED: 0

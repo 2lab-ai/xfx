@@ -11,6 +11,11 @@
 # semantic fixes (semantic.py) are applied after its conflicts, as they were
 # made. Each resolver's own lines (one per block, row or fix) are printed
 # under its merge.
+# Round 3: merge 7, main `e0aedbf6` into the train (`75d1318c`): ci.yml's
+# one block by byhand.py 7, its step name by semantic.py 7. That commit also
+# holds the two scripts' merge-7 entries (byhand.py, semantic.py), which a
+# redo at its first parent does not have; they are taken from it, by name,
+# before the trees are compared.
 # usage: reproduce.sh <repo> <scratch-dir>
 set -u
 repo=$1 dir=$2
@@ -54,10 +59,16 @@ m6() {
   base=df45025c && $P/blocks.py scripts/fxcap/parity-ledger.toml \
     && rows --drop '`ask_user_question`=ours@3666-3667' --drop 'full-screen TUI=ours@28340-28341'
 }
+m7() {
+  $P/byhand.py 7 .github/workflows/ci.yml && $P/semantic.py 7 "$PWD" \
+    && git checkout 75d1318c -- .prd/tui-phase5/receipts/train-16/byhand.py .prd/tui-phase5/receipts/train-16/semantic.py \
+    && echo "the merge's own byhand.py and semantic.py, taken from it"
+}
 one b2d044c9 bacb1052 m1
 one e8b004a5 32eb858f m2
 one 849f5017 7c3f6c1e m3
 one dd2ac93d dd9f5f0a m4
 one 71787971 ca496c10 m5
 one 1bce5348 6d94fbc0 m6
+one 75d1318c e0aedbf6 m7
 cd / && rm -rf "$dir/repro"

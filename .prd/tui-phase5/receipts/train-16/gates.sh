@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+# Train 16, round 3 (the join of main e0aedbf6): ci.yml's gate job at the
+# joined head has four steps more, each mirrored where ci.yml runs it on the
+# macos-15 row (script_tests and bash32 both, the row this machine is):
+# #101's pinned toolchain (here: the cargo and rustc this gate runs must be
+# 1.99.1; nothing is installed), and #99's "The gate scripts run /bin/bash"
+# (/bin/bash must be 3.2, and a directory holding a `bash` link to it goes
+# first on PATH for every step after it, as GITHUB_PATH does), "Which bash
+# the gate scripts run" (printed by a script that starts so) and "A gate
+# script that stops early fails" (test-early-stop.sh, after the preview
+# contract's test). Nothing else changed.
 # Train 16: train 15's gates.sh with TEST-ENV-ISOLATION's two CI steps added
 # where ci.yml runs them, after the lints: `check-env-reads.py` (every read
 # of the environment clippy lets through is listed) and its `--self-test`
@@ -42,6 +52,36 @@ step() {
   [ "$rc" -eq 0 ] || failed=$((failed + 1))
 }
 echo "# head $(git rev-parse --short HEAD); tree clean: $([ -z "$(git status --porcelain)" ] && echo yes || echo no)"
+pinned() { # ci.yml's "Install the pinned toolchain": 1.99.1
+  rustc --version && cargo --version && cargo clippy --version && rustfmt --version || return 1
+  rustc --version | grep -q '^rustc 1\.99\.1 ' && cargo --version | grep -q '^cargo 1\.99\.1 '
+}
+step pinned-toolchain pinned
+bash32() { # ci.yml's "The gate scripts run /bin/bash" (matrix.bash32)
+  local version
+  version="$(/bin/bash -c 'printf %s "$BASH_VERSION"')"
+  case "$version" in
+  3.2.*) echo "/bin/bash is bash $version" ;;
+  *)
+    echo "/bin/bash is bash $version, not 3.2" >&2
+    return 1
+    ;;
+  esac
+  mkdir -p "$logs/bash32" && ln -sf /bin/bash "$logs/bash32/bash"
+}
+step bash32 bash32
+PATH="$logs/bash32:$PATH"
+export PATH
+which_bash() { # ci.yml's "Which bash the gate scripts run" (matrix.script_tests)
+  # shellcheck disable=SC2016 # the script's own expansions
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'printf "#!/usr/bin/env bash runs %s, bash %s\n" "$BASH" "$BASH_VERSION"' >"$logs/which-bash"
+  chmod 755 "$logs/which-bash"
+  "$logs/which-bash"
+  printf 'command -v bash: %s\n' "$(command -v bash)"
+  bash --version | sed -n 1p
+}
+step which-bash which_bash
 step fmt cargo fmt --check
 step clippy cargo clippy --locked --all-targets -- -D warnings
 step clippy-fault cargo clippy --locked --all-targets --features fault-injection -- -D warnings
@@ -61,6 +101,7 @@ step check-usage-clock ./scripts/check-usage-clock.sh
 step test-check-no-secrets ./scripts/test-check-no-secrets.sh
 step test-gate-env ./scripts/test-gate-env.sh
 step test-preview-contract ./scripts/test-preview-contract.sh
+step test-early-stop ./scripts/test-early-stop.sh
 step fxcap-test-sweep ./scripts/fxcap/test-sweep.sh
 step fxcap-test-capture ./scripts/fxcap/test-capture.sh
 step build-release cargo build --locked --release

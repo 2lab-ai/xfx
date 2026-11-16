@@ -6,8 +6,14 @@ tags: [xfx, phase5, fx-0.0.16, train]
 
 # P5 train 16: eleven closed units, six merges, one branch
 
+**Round 3** (the join of main, "The join of main" below): main moved to
+`e0aedbf6` (#101, #99, #100; no `src/`, no `tests/`), merged in `75d1318c`
+with one conflict in ci.yml, and a docs-only join commit `a4452753`, now
+**the code head**; the gate ran again there, every CI step of the joined
+ci.yml on the macos-15 row's terms.
+
 **Round 2** (the reviews of round 1's head `7d63b764`: `gpt6-merges-1-3`,
-`gpt6-merges-4-6-joins`, `opus`): the code head is now **`6137bd3d`**,
+`gpt6-merges-4-6-joins`, `opus`): round 2's code head was **`6137bd3d`**,
 three commits on `2b78aab6`, every one tests or comments
 (`round2-numstat.txt`: product code 0 lines out, 0 in). Opus's MUST (a comma
 list's ten stale numbers) is re-pointed in `adb809f5` and the scans read
@@ -80,7 +86,9 @@ After the merges, in order (`git log --first-parent 866747ff..`):
 | `2b78aab6` | one of `c637ed4c`'s 42, a pinned reference, put back: round 1's code head, where the sweeps ran |
 | `adb809f5` | round 2: the ten numbers after the first in `tests/tui.rs:2721`'s comma list, re-pointed, numbers only (opus's MUST 1) |
 | `1ddeda00` | round 2: two join rows, tests only -- the prefixed C-j at choice 2, and the meta prefix split across the pair's flush in an amendment -- put in the middle of `src/tui/shell.rs`' tests, which moved a cited line (`content-1ddeda00.txt`) |
-| `6137bd3d` | round 2: the same two cases moved to the end of the tests module, so `src/tui/shell.rs` is one insertion before its last line against `2b78aab6` and no cited line moves; the choice-2 row its own case: **the code head** the gate, the mutants and the network job ran at |
+| `6137bd3d` | round 2: the same two cases moved to the end of the tests module, so `src/tui/shell.rs` is one insertion before its last line against `2b78aab6` and no cited line moves; the choice-2 row its own case: round 2's code head, where the mutants and the network job ran |
+| `75d1318c` | round 3: **the join of main** `e0aedbf6` (#101 CI-TOOLCHAIN-PIN, #99 LOCAL-PATHS-EXIT-TRAP, #100 train 15), `--no-ff`; ci.yml's one conflict by `byhand.py 7`, its toolchain step's name by `semantic.py 7` (The join of main) |
+| `a4452753` | round 3: CONTRIBUTING.md's and README.md's gate lists name the five script tests, docs only: **the code head** the round-3 gate ran at |
 | the receipt's commits | this folder only (`final-scan.txt` part 4) |
 
 ## The units' own commits, before any merge (`prescan.sh`, `prescan.txt`)
@@ -715,7 +723,136 @@ refuses settings, the slash line completes arguments, TEST-ENV-ISOLATION
 isolates tests, LOCAL-PATHS-WRAP is the capture harness's, and
 APPROVAL-PASTE-SPACES and META-PREFIX-DECODE route keys.
 
+## The join of main (round 3)
+
+Main moved to **`e0aedbf6`** while the train was reviewed: four commits on
+the train's base `866747ff` (`git log 866747ff..e0aedbf6`) -- #98's
+preview epoch (`afeaea7c`), **#101 CI-TOOLCHAIN-PIN** (`a196722b`: the
+gate installs and defaults to Rust 1.99.1), **#99 LOCAL-PATHS-EXIT-TRAP**
+(`e78b556c`, a squash: a `bash32` matrix key on the macOS script-test row,
+three steps -- "The gate scripts run /bin/bash", "Which bash the gate
+scripts run", "A gate script that stops early fails" -- and nine gate
+scripts, `test-early-stop.sh` and `early-stop-env.sh` among them) and
+**#100**, train 15 itself, as a merge (`e0aedbf6`). No `src/` and no
+`tests/` (`join-numstat.txt`: main's side is 651 lines in and 22 out of
+gate scripts and CI, the epoch file's one line, **product code 0 out, 0
+in**). The mid-branch scan over the four (`join-prescan.txt`,
+`midbranch_scan.py` as `prescan.sh` runs it): 0 lines hit, NAME 0,
+CREDENTIAL 0, no message holding the pattern.
+
+**The merge, `75d1318c`** ("Merge main (e0aedbf6: #101, #99, #100) into
+train 16", `--no-ff`): `ci.yml` the one file both sides changed, and in it
+one conflict block -- the `script_tests` comment, which both rewrote. Ours
+(TEST-ENV-ISOLATION) added `check-env-reads.py --self-test` and what it
+exercises; theirs (EXIT-TRAP) made the list one sentence with
+`test-early-stop.sh` and dropped "bash 3.2" (macOS runs the scripts under
+3.2 through `bash32` now). Merged by `byhand.py 7`: theirs' sentence with
+the five scripts, ours' "own tools" clause with theirs' grep words, ours'
+"no build of xfx". And one line git merged clean that was wrong: ours had
+renamed the toolchain step "Install the stable toolchain", theirs makes it
+install and default to 1.99.1 -- a step named stable that installs the pin;
+**the name is "Install the pinned toolchain" again** (`semantic.py 7`).
+`reproduce.sh` redoes it to the merge commit's tree, as the six before
+(`resolutions.txt`: seven "no difference"; that commit also holds the two
+scripts' merge-7 entries, taken from it by name).
+
+**Every step of both sides is in it** (`join_steps.py`, `join-steps.txt`,
+read with Ruby's YAML, as `test-gate-env.sh` reads it): ours' 27 and
+theirs' 28 steps all stand with their `if`, `run` and `uses`, each side's
+in its own order; the checkout's `with` holds theirs' keys and ours'
+`persist-credentials: false`; the five matrix rows hold both sides' keys
+(`bash32` on `macos-15`). The comment lines not kept whole are the
+conflict block's alone. The order around the new steps (30 in all):
+
+| # | step | if |
+|---|---|---|
+| 2 | Install the pinned toolchain (1.99.1) | |
+| 3 | Confirm the runner really is this target | |
+| 4 | The gate scripts run /bin/bash | `matrix.bash32` |
+| 5 | Which bash the gate scripts run | `matrix.script_tests` |
+| 6, 7 | Formatting, Lints | `matrix.part != 'release'` |
+| 8 | Every read of the environment clippy lets through is listed | `matrix.part != 'release'` |
+| 9 | The environment check refuses every way round it | `matrix.script_tests` |
+| 10-19 | Tests ... The preview contract catches every mutant it exists for | as on each side |
+| 20 | A gate script that stops early fails | `matrix.script_tests` |
+
+So the `/bin/bash` step and the which-bash step come before the first
+script test (step 15), which `test-gate-env.sh`'s `ci-bash32` case
+requires, and TEST-ENV-ISOLATION's two env steps sit after the lints, as on
+its side; they run python, not a `./scripts/test-*.sh`, so the case's
+"first script test" is unchanged by them.
+
+**The join commit, `a4452753`, docs only**: CONTRIBUTING.md's gate says it
+is exactly what CI runs and named four script tests, README.md's three; at
+the join CI runs five (TEST-ENV-ISOLATION's self-test and #99's
+`test-early-stop.sh`, the macOS row under `/bin/bash`). Both name the five,
+each gives `test-early-stop.sh` its line, and README's gate gains the two
+env-check lines CONTRIBUTING's had since merge 3. Main changed no doc, no
+`docs/parity.md` row and no ledger entry (`git diff --name-only 866747ff
+e0aedbf6`), so the token check has no block of the join to read.
+
+**References** (`join-refs.txt`): the content check at the joined code head
+reads the same 8 WRONG as at the train's code head and at main, each left
+by name (join check 4); the five scans against the join's two sides read 0
+references the train's side had and the join moved (`train MOVED` or
+`CHANGED`: 0 in each); their `main MOVED` readings are the train's own
+re-points since main's base. **0 moved by the join**; nothing to re-point.
+`actionlint` 1.7.12 over ci.yml and every workflow: exit 0
+(`join-actionlint.txt`). `check-env-reads.py` reads no workflow, and #99's
+one new variable, `BASH_ENV`, is a shell script's (`early-stop-env.sh`):
+nothing in `src/` or `tests/` reads it, so the check needs no line.
+
+**The readers, at the joined code head** (`join-readers.txt`, from the
+gate's own logs; `join-readers.sh`): - **`test-gate-env.sh`** (main's, 95 cases, exit 0): `workflow-steps` (all 10
+  steps that run git drop `GIT_*` first: the checkout comment and
+  `persist-credentials` add no git line), `ci-script-tests-per-os` (all five
+  scripts on a macOS and a Linux row), **`ci-bash32`** (the macOS
+  script-test rows run `/bin/bash`; the pin and the which-bash step before
+  the first script test, TEST-ENV-ISOLATION's two steps between them
+  reading nothing it counts), `ci-checkout-assertion`. Its one other line
+  is its note that this grep reads `GREP_OPTIONS`, as on main.
+- **`test-early-stop.sh`** (#99's): ok, 15 cases, under `/bin/bash` 3.2.57.
+- `test-check-no-secrets.sh` 23 cases, `test-preview-contract.sh` 35 mutants
+  caught, `check-preview-contract.sh` ok, `test-check-no-local-paths.sh` 31
+  cases, `check-no-secrets.sh` and `check-xfx-identity.sh` ok over 25840
+  tracked files, `smoke.sh` 47 checks, 0 failures (main changed each).
+- **`check-env-reads.py`** OK (40 `env_exception!` invocations in 27 files,
+  74 compile-time reads of 6 names: the same as at `6137bd3d`), and its
+  `--self-test` 66 fixtures, 0 not as expected: main brings no read to list.
+- The three new steps' own output: rustc, cargo, clippy and rustfmt 1.99.1
+  (0.1.99, 1.10.0); `/bin/bash is bash 3.2.57(1)-release`; and
+  `#!/usr/bin/env bash` runs the `bash` link the step put first, bash
+  3.2.57.
+- actionlint, exit 0 (above).
+
+**The gate at `a4452753`** (`gates.sh`, which now mirrors the joined
+ci.yml on the macos-15 row, the row this machine is: the pinned toolchain
+-- the cargo and rustc it runs must be 1.99.1, as they were for rounds 1
+and 2 -- the `/bin/bash` step putting a `bash` link first on PATH for every
+step after it, the which-bash step, and `test-early-stop.sh` after the
+preview contract's test; `ci-steps.txt` at the joined head): **29 steps, 0 failed, none run again**
+(`gates.txt`, `gate-counts.txt`; a fresh `git clone --no-local`, one hold of
+the suite lock, load 11.7 to 51.1 at the steps' starts): `cargo test`
+**6062 passed, 0 failed, 8 ignored**, with fault injection **6099 passed,
+0 failed, 8 ignored** -- `6137bd3d`'s, binary by binary (the join brings no
+test; `test-lists.txt` stands); smoke-tui 37 scenarios and the oracle,
+1167 checks, 0 failures; `fxcap/test-capture.sh` 145 OK. Each unit's tests
+on the head (`unit-tests.txt`, `unit-tests-notes.txt`, `run-absent.txt`,
+`gate-derived.sh`, which now finds the two `cargo test` logs by name: they
+are steps 09 and 10 now): the same as at `6137bd3d`. A first gate at the
+merge `75d1318c` was stopped by me in its seventh step, its six before
+exit 0, when the gate lists' docs were found short; nothing of it is used.
+`gates-files.txt` holds the file checks with the receipt in its final form.
+
+**The sweeps stand**: the join brings no product line (`join-numstat.txt`:
+over `6137bd3d..a4452753`, product code 0 out, 0 in; gate scripts and CI,
+the epoch file and the two docs), no scenario, ledger or harness file.
+
 ## Gate (`gates.sh`, `gates.txt`, `gate-counts.txt`, `gate-files.sh`, `ci-steps.sh`, `ci-steps.txt`)
+
+**Round 3: the gate below is round 2's, at `6137bd3d`; the gate at the
+joined code head `a4452753`, 29 steps with the join's four, is in "The join
+of main" above, with the same test counts.**
 
 `gates.sh` is train 15's with TEST-ENV-ISOLATION's two CI steps added where
 `ci.yml` runs them, after the lints: `check-env-reads.py` and its
@@ -984,6 +1121,19 @@ Each with its revert.
   train supersedes one (PERMISSION-MODE-CASE's section 8, QUESTION-CTRL-J's
   `probe-meta-prefix.txt` reading), this receipt says so. **Revert**: none
   needed.
+- **The join of main's ci.yml** (round 3, `75d1318c`): the `script_tests`
+  comment names all five script tests in theirs' sentence, and the
+  toolchain step is "Install the pinned toolchain" again, as main has it,
+  since it installs 1.99.1. **Revert**: the comment either side's way
+  (`byhand.py 7`), the name ours' (`semantic.py 7`) -- a step called stable
+  that installs the pin.
+- **The gate lists name five script tests** (round 3, `a4452753`, docs
+  only): CONTRIBUTING.md and README.md, with `test-early-stop.sh`'s line and
+  README's two env-check lines. **Revert**: `git revert a4452753`.
+- **`gates.sh` mirrors the macos-15 row** (round 3): the row with
+  `script_tests` and `bash32`, the one this machine is, so its three new
+  steps run here as there, `/bin/bash` first on PATH for the rest; the
+  Linux row's bash is not run. **Revert**: drop the bash32 step's PATH line.
 - **`check-merge.sh` without the suite lock**, as trains 13 to 15 (cargo
   check, fmt and clippy are not the heavy jobs the lock is for); every test
   run, the env checks, the mutants, the captures, the gate, the sweeps and
@@ -1081,12 +1231,13 @@ time, never written; no hit printed but its kind and file):
   1, by file): hand-written fixture names under placeholder roots
   (`/tmp/fxt/...`, the test's own `d`), as the unit committed them.
 - "No code after the code head": `final-scan.txt` part 4 reads every commit
-  after the code head `6137bd3d` -- round 1's receipt commits sit before
-  round 2's three code commits, so the part reads from `6137bd3d` on, the
-  round-2 receipt's -- and finds no file touched outside this folder; the
+  after the code head `a4452753` (round 3's; round 1's and round 2's
+  receipt commits sit before the later code commits, so the part reads from
+  the last code commit on) and finds no file touched outside this folder; the
   last commit stores `final-scan.txt` alone (`git show --stat` of it).
-  Round 1's receipt commits (`37b292a8`, `f2cb84d6`, `7d63b764`) touched
-  this folder alone too (`round2-numstat.txt`'s last lines).
+  Round 1's receipt commits (`37b292a8`, `f2cb84d6`, `7d63b764`) and round
+  2's (`34c97078`, `1b3fbdc2`, `ac0b0ff5`) touched this folder alone too
+  (`round2-numstat.txt`'s and `join-numstat.txt`'s last lines).
 
 ## Redaction
 
@@ -1169,6 +1320,12 @@ end, and the file checks run with the receipt in its final form
   `compare-units.txt`, `uncovered.py` / `uncovered.txt`; `sweep-rerun.sh`, `reruns.sh`,
   `rerun_verdicts.py`, `reruns_txt.sh`, `reruns.txt`.
 - `final-scan.sh`, `midbranch_scan.py`, `final-scan.txt`; `redacted.py`.
+- Round 3, the join of main: `join-prescan.txt` (main's four commits),
+  `join_steps.py` / `join-steps.txt` (every step of both sides kept),
+  `join-actionlint.txt`, `join-refs.txt`, `join-numstat.txt` (by
+  `round2_numstat.py`, its classes widened), `join-readers.sh` /
+  `join-readers.txt`; `byhand.py`, `semantic.py` and `reproduce.sh` carry
+  merge 7; `gates.sh` mirrors the joined ci.yml.
 - Round 2: `round2_numstat.py` / `round2-numstat.txt` (what round 2 changed
   outside this folder, by class); `test_lists.sh` (`REUSE_BASE`),
   `test_lists_txt.sh` / `test-lists.txt`; `gate_counts.sh`'s test-log glob

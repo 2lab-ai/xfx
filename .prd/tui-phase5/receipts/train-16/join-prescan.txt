@@ -1,0 +1,9 @@
+# the mid-branch scan over main's new commits, 866747ff..e0aedbf6 (midbranch_scan.py, as prescan.sh runs it per unit; the documented homes read at e0aedbf6), and every message by the brief's pattern
+## main: 866747ff..e0aedbf6, 4 commits (1 merge): e0aedbf6 e78b556c a196722b afeaea7c 
+# the check's documented homes at e0aedbf6: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 4 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff 866747ff..e0aedbf6
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+# commit messages: 0 line(s) holding the brief's pattern

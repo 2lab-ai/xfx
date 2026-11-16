@@ -6,6 +6,12 @@ a file under `tests/` is a test file's; a line of a `src/` file is test code
 when it sits inside that file's `#[cfg(test)] mod tests {` (at or after the
 line that opens it, at <old> for a removed line and <new> for an added one),
 else a comment when its text, stripped, starts with `//`, else product code.
+Round 3 (the join of main): a file under `scripts/` or `.github/` is the
+gate's or CI's (not built into the binary), a `.md` outside `src/` a doc,
+`.github/preview-epoch` the preview's epoch file; product code is what the
+binary is built from -- `src/` outside its test modules and comments,
+`build.rs`, `Cargo.toml`, `Cargo.lock` -- and anything else is named
+"other" (none so far).
 Prints `git diff --numstat`, then each class's lines out and in.
 
     python3 -I -B round2_numstat.py <repo> <old> <new>
@@ -45,7 +51,15 @@ for path in git("diff", "--name-only", old, new, "--", ".", ":!.prd").split():
             else:
                 c += 1
             commit = old if side == "-" else new
-            if path.startswith("tests/"):
+            if path.startswith(("scripts/", ".github/workflows/")):
+                cls = "gate scripts and CI (scripts/, .github/workflows/)"
+            elif path == ".github/preview-epoch":
+                cls = "the preview epoch file"
+            elif path.endswith(".md") and not path.startswith("src/"):
+                cls = "docs (.md)"
+            elif not (path.startswith(("src/", "tests/")) or path in ("build.rs", "Cargo.toml", "Cargo.lock")):
+                cls = "other"
+            elif path.startswith("tests/"):
                 cls = "test file (tests/)" + (", a comment" if text.strip().startswith("//") else "")
             elif start[commit] and at >= start[commit]:
                 cls = f"test code ({path}'s mod tests, from :{start[commit]})"
