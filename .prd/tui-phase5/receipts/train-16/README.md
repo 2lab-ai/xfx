@@ -6,6 +6,17 @@ tags: [xfx, phase5, fx-0.0.16, train]
 
 # P5 train 16: eleven closed units, six merges, one branch
 
+**Round 2** (the reviews of round 1's head `7d63b764`: `gpt6-merges-1-3`,
+`gpt6-merges-4-6-joins`, `opus`): the code head is now **`6137bd3d`**,
+three commits on `2b78aab6`, every one tests or comments
+(`round2-numstat.txt`: product code 0 lines out, 0 in). Opus's MUST (a comma
+list's ten stale numbers) is re-pointed in `adb809f5` and the scans read
+comma lists now (join check 4); opus's S1 and gpt6's SHOULD are two join
+cases (join check 2); opus's S2 is the network section's code path and two
+new controls (join check 5); the NITs and NTHs are fixed where they stand.
+The gate, the mutants, the network job and the merge checks ran again at
+`6137bd3d`; the sweeps stand (Sweeps).
+
 Branch `train/p5-1116`, from **train 15's head `866747ff`** (`train/p5-1111b`,
 reviewed and gated, waiting only for its PR), as the brief set it: train 16
 stacks on train 15 because APPROVAL-PASTE-SPACES and META-PREFIX-DECODE sit on
@@ -66,7 +77,10 @@ After the merges, in order (`git log --first-parent 866747ff..`):
 | `c637ed4c` | the 42 references the merges and TEST-ENV-ISOLATION moved, re-pointed, numbers only (join check 4) |
 | `15c9744b` | four more the content check reads SAME, read by hand (refs.py, refs_bare.py) |
 | `3d1376b2` | `ci.yml`'s `script_tests` comment, comment only |
-| `2b78aab6` | one of `c637ed4c`'s 42, a pinned reference, put back: **the code head** the gate, the sweeps and the jobs ran at |
+| `2b78aab6` | one of `c637ed4c`'s 42, a pinned reference, put back: round 1's code head, where the sweeps ran |
+| `adb809f5` | round 2: the ten numbers after the first in `tests/tui.rs:2721`'s comma list, re-pointed, numbers only (opus's MUST 1) |
+| `1ddeda00` | round 2: two join rows, tests only -- the prefixed C-j at choice 2, and the meta prefix split across the pair's flush in an amendment -- put in the middle of `src/tui/shell.rs`' tests, which moved a cited line (`content-1ddeda00.txt`) |
+| `6137bd3d` | round 2: the same two cases moved to the end of the tests module, so `src/tui/shell.rs` is one insertion before its last line against `2b78aab6` and no cited line moves; the choice-2 row its own case: **the code head** the gate, the mutants and the network job ran at |
 | the receipt's commits | this folder only (`final-scan.txt` part 4) |
 
 ## The units' own commits, before any merge (`prescan.sh`, `prescan.txt`)
@@ -146,7 +160,7 @@ train's: merge 3).
     `XFX_AT_BENCH_TREE` with `std::env::var_os`: now `env_exception!`, the
     unit's way for a named variable a test is handed, the name allowed
     (ALLOWED_NAMES) and listed for that file (EXCEPTIONS). The check refused
-    it with the second missing (`envreads.txt`, run 1). Through
+    it with ALLOWED_NAMES missing (`envreads.txt`, run 1). Through
     `process_env!` a unit test reads its case's fake process, where the
     person's tree would never be.
   - **Join MUST 1**: `src/lib.rs` reads `env!("XFX_BUILD_ID")` (#96), which
@@ -227,9 +241,15 @@ here** (merges 1, 3, 4 and 5 OK):
   `token_check.py`'s): **288 of 288 planted cases found** (51, 56, 42, 42, 47 and 50; no row skipped). `token_control.py` (train 13's)
   plants its two cases on the merged text of every row both sides changed:
   **38 of 38 found**. `word_control.py` plants a word in `why` of every
-  ledger entry both sides changed in numbers alone: **20 of 20 found** (10,
+  cause entry both sides changed in numbers alone: **20 of 20 found** (10,
   5 and 5 at merges 2, 5 and 6; merges 1, 3 and 4 have no such entry, and
-  the script exits 1 on "0 of 0", by its rule).
+  the script exits 1 on "0 of 0", by its rule). A divergence entry has no
+  `why` (it carries `reason`), and the script skips it without counting it
+  (`word_control.py`'s `planted == m`): at merge 2 the divergence
+  `answer-drawn-wider-named` (`token-check.txt`) got no word from it.
+  `token_check16.py`'s self-test plants one in that same entry, and finds
+  it (`token-self-test.txt`, "a numbers-only entry
+  (answer-drawn-wider-named) with a word changed: found").
 - **`merge_keep.py`** (the dispatcher's, from train 14's review): every unit
   (a cell, a sentence, a ledger line; 25 characters or more) new on either
   side, looked for in the merge. As written 23 are not there, 17 of them
@@ -256,12 +276,15 @@ here** (merges 1, 3, 4 and 5 OK):
 - **The join commit's and the re-points' `docs/parity.md` edits, word by
   word** (`parity-join.sh`, `parity-join.txt`: `git diff --word-diff=plain`
   of each commit, the rows each changed, and the join's sentences as they
-  stand).
+  stand: 5 of 5 found -- round 1's file ended in a Python `SyntaxError`
+  there, gpt6's NTH, its code now `parity_sentences.py`).
 
 ## Join checks
 
 Each with its evidence. **Three join tests are added** (join check 2, in
-`622b2865`), where no unit's tests reach the meeting; every other meeting is
+`622b2865`), where no unit's tests reach the meeting, and **two more in
+round 2** (`6137bd3d`: the prefixed C-j at choice 2, the prefix split
+across the pair's flush in a draft); every other meeting is
 reached by the units' own tests, run in the gate (`unit-tests.txt`), and the
 one join check 1 needs, `/permissions full`, by SLASH-ARG-SKILLS' own.
 
@@ -332,15 +355,54 @@ the word moves as its own, a paragraph move as nothing.
   **`a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte`**
   (`CTRL_J`'s ten reports behind the prefix, at a choice and in a draft, on
   both planes); the matrix doc and the two rows say so (`parity-join.txt`).
-- **Mutants** (`mutants.sh`, a `git clone --no-local` at `622b2865`, 900 s
-  each, the three join tests and their five neighbours each time): the
-  unmutated run passes all 8; MA (the second `ESC` no longer sets the
-  prefix) and MB (the prefix not read as Alt's bit) fail the amendment test
-  alone; MC (the Ctrl+letter rule refuses a report behind the prefix) fails
-  the two C-j join tests alone; MD (End in a draft to its start,
-  APPROVAL-PASTE-SPACES' mapping as the merge made it) fails the amendment
-  test and its two amendment neighbours. **4 of 4 killed**, the clone clean
-  after.
+- **Round 2, choice 2** (opus's S1), **new test
+  `a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte`**:
+  the same ten reports behind the prefix, after Down and the frame, on both
+  planes, each answering choice 2, the session's `Always`, as Enter and a
+  bare C-j there (`.submit` is `selectedDecision()`,
+  `approval_decision.zig:141@481104fd`).
+- **Round 2: the meta prefix split across the pair's flush in an amendment**
+  (gpt6's SHOULD), **new test
+  `a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs`**.
+  From `ab cd |ef`, `ESC ESC` and `[ D` in two reads, the clock the case's
+  own (each read fed at a given instant and settled first, as the loop
+  does). At 29 ms the pair is still the prefix: the prefixed Left, a word
+  left, and the answer `Apply once` with "ab zcd ef". At 30 ms the pair's
+  flush is one Escape and the pair one lone ESC
+  (`terminal_action_decoder.zig:174-183`, `main.zig:187@481104fd`;
+  `Decoder::flush`); with the turn running, fx's Escape at an approval,
+  amending or not, is `resolveEscape`'s cancel (`cancel_pending` is
+  `hasActiveOperation`, `app_input_runtime.zig:575`; `:2689`,
+  `:2712-2716`), and `cancelApprovalOperation` cancels the turn and clears
+  the question (`input_approval_runtime.zig:401-430`). The case checks the
+  same three things in xfx: **the turn's message is the cancel**
+  (`TurnControl::Cancel`, one message, no answer after it), **no sentence
+  is sent** (the draft goes with the question), and **the composer owns the
+  prompt again**: `[ D` at 40 ms reads behind the lone ESC as Left there and
+  `z` is its text. xfx agrees with fx at each step.
+- **Where round 2's cases sit.** `1ddeda00` first put them in the middle of
+  `src/tui/shell.rs`' tests module, and the content check there read 7 WRONG
+  more: the ledger's `src/tui/shell.rs:50939`, cited seven times, moved +96
+  (`content-1ddeda00.txt`). `6137bd3d` moves both to the module's end,
+  which closes the file, and leaves the C-j join test as round 1 had it:
+  against `2b78aab6` the file is one insertion of 116 lines before its last
+  (`round2-numstat.txt`), so every line a reference names is where round 1
+  checked it, and nothing is re-pointed for them.
+- **Mutants** (`mutants.sh`, round 2: a `git clone --no-local` at the code
+  head `6137bd3d`, 900 s each, the five join tests and their five
+  neighbours each time; `mutants.txt`): the unmutated run passes all 10.
+  MA (the second `ESC` no longer sets the prefix) and MB (the prefix not
+  read as Alt's bit) fail the amendment test and the split case's 29 ms
+  half. MC (the Ctrl+letter rule refuses a report behind the prefix)
+  fails the three C-j join tests alone. MD fails the amendment test and its
+  two amendment neighbours (MD: End in a draft to its start,
+  APPROVAL-PASTE-SPACES' mapping as the merge made it). The two new mutants
+  fail the split case alone,
+  each at "the pair's Escape left the turn running": ME (the pair resolves
+  only at the lone ESC's 50 ms, not at `PAIR_TIMEOUT`, so `[ D` at 40 ms is
+  the prefixed Left) and MF (an Escape in an open draft no longer reaches
+  the question, which stays up with its draft). **6 of 6 killed**, the
+  clone clean after. (Round 1's run, at `622b2865`: MA to MD, 4 of 4.)
 - `docs/parity.md`: the draft's keys are fx's with no difference left
   (APPROVAL-PASTE-SPACES closed the one train 15 left it, "a paste's line
   breaks and tabs kept"), and a meta-prefixed key in a draft is its Alt
@@ -350,16 +412,13 @@ the word moves as its own, a paragraph move as nothing.
   `the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50`, in
   `src/tui/input.rs`); no surface reads a byte or a clock, the amendment
   takes the decoded actions alone (`Draft::apply`, `approval::edits`). The
-  join test feeds each prefixed key in one read, inside the stage; **a
-  split pair in a draft -- `ESC ESC`, the stage's flush, then a key -- is
-  driven by no test** (META-PREFIX-DECODE's own approval test,
-  `a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape`,
-  is at a choice, one read each). By the decoder's pins it is Escape, then
-  the key, as fx's (its README's timing table); named for round 2, the head
-  unchanged for it.
+  first join test feeds each prefixed key in one read, inside the stage;
+  round 1 named the split pair in a draft as driven by no test, and **round
+  2's split case drives it** (above), at the shell, across the flush.
 - **A grant path the join opens** (a decision, below): `ESC ESC [106;5u` at
   a permission prompt cancelled the turn before (the Escape first) and now
-  answers it -- `Apply once` at choice 1 -- as fx does. Neither unit alone
+  answers the marked choice, as fx does: choice 1's `Apply once`, or
+  choice 2's `Always` for the session (round 2's choice-2 case). Neither unit alone
   does this.
 
 ### 3. The profile line x the slash line x the rest: the shared files (`merge-ends.txt`, `shared.txt`, `functions.txt`, `moved-edits.txt`, `unit-tests.txt`)
@@ -368,7 +427,12 @@ the word moves as its own, a paragraph move as nothing.
   both sides changed against the merge base: the lines ours -> merged
   removes and adds must be exactly base -> theirs', and theirs -> merged
   base -> ours'). 53 files both sides changed over the six merges (13, 4,
-  26, 2, 4, 4); 13 disagree once every `:N` is masked, and **each is a block
+  26, 2, 4, 4); **11 of them disagree once every `:N` is masked, and so do
+  2 files one side alone changed** (merge 3's `tests/support/profiles.rs`
+  and `scripts/check-env-reads.py`, the semantic fixes' files:
+  `merge-ends.txt`'s "one side's file differs from that side"), 13 in all
+  (`merge_ends.py`'s per-merge "disagreeing with numbers masked", 1, 1, 7,
+  1, 2 and 1, counts both kinds), and **each is a block
   this receipt resolves by hand, by row or by a semantic fix** -- merge 1's
   and merge 2's `docs/parity.md` (rows merged token by token make lines
   neither side has), merge 3's `CONTRIBUTING.md` and `src/tui/worker.rs`
@@ -406,8 +470,9 @@ the word moves as its own, a paragraph move as nothing.
   why `shared.py` reads `decide` "not kept both ways".
 - **Each unit's own tests on the head** (`unit-tests.sh`, `unit_tests.py`:
   each unit's tests added or changed in its range, read in the gate's two
-  `cargo test` runs): **238 (unit, test) pairs, 233 ok in both runs, 0
-  gone, 0 lost**. The other 5 are TEST-ENV-ISOLATION's and have no `ok` in a
+  `cargo test` runs): **241 (unit, test) pairs, 236 ok in both runs, 0
+  gone, 0 lost** (round 1: 238 and 233; round 2's `round2` range adds its
+  two cases and the C-j join test it touched, all ok). The other 5 are TEST-ENV-ISOLATION's and have no `ok` in a
   run by design, each read (`unit-tests-notes.txt`): three `#[ignore]` roles
   a re-run binary plays (`sentinel_runner_*` twice, `a_case_marks_where_it_runs`),
   whose runners passed in both runs; `xfx_counts`, ignored, run by
@@ -429,11 +494,24 @@ the word moves as its own, a paragraph move as nothing.
 
 ### 4. References (`refs*.py`, `content.sh`, `refs_content.py`, `repoint.py`, `repointed.py`)
 
+**Round 2: the scans read comma lists** (opus's MUST). Round 1's "0 moved"
+was false: `tests/tui.rs:2721` cites
+`tests/tui.rs:1930,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412`, the
+merges moved all eleven, and `c637ed4c` moved the first alone, because
+`refs_content.py` and `refs_bare.py` read `path:N` and `:N` and not a
+list's `,M`. Both now read each `,M` (and `,M-K`) straight after a ref as a
+ref into the same file (kind `list`; a list whose last number has `@` after
+it is pinned and skipped), and `NUMS` masks a number with its list. Every
+file below was made again with them, by `merge-checks.sh` at the code head
+`6137bd3d`; round 1's figures, where they differ, are in brackets.
+
 **Before any re-point**, at the join commit `622b2865` (`refs-*-pre.txt`,
 seven sides: the base `866747ff` and the six tips): `refs.py` 17 (side,
 reference) pairs MOVED; `refs_all.py` 55, `refs_short.py` 75,
-`refs_bare.py` 78 moved or changed on some side, of them 22, 5 and 7
-outside the historical plans (`docs/superpowers/plans/`); `refs_prd.py` 0.
+`refs_bare.py` 99 [78] moved or changed on some side, of them 22, 5 and 20
+[7] outside the historical plans (`docs/superpowers/plans/`); `refs_prd.py`
+0. refs_bare's 13 more are the list's ten (each `base MOVED`, onto the head
+numbers `adb809f5` wrote) and `event_loop.rs:8409`'s three (below).
 
 **The content check over every reference** (`content.sh`, train 14's; each
 reference read against the commit that wrote its numbers, the cited line and
@@ -441,30 +519,35 @@ two either side):
 
 | at | WRONG | `content-*.txt` |
 |---|---|---|
-| the base `866747ff` | 2 | `content-866747ff.txt` |
-| the profile line `bacb1052` / the slash line `32eb858f` / TEST-ENV-ISOLATION `7c3f6c1e` / LOCAL-PATHS-WRAP `dd9f5f0a` / APPROVAL-PASTE-SPACES `ca496c10` / META-PREFIX-DECODE `6d94fbc0` | 32 / 38 / 63 / 35 / 36 / 36 | `content-<tip>.txt` |
-| the join commit `622b2865`, before the re-points | **44** | `content-622b2865.txt` |
-| the first re-point `c637ed4c` | 2 | `content-c637ed4c.txt` |
-| the code head `2b78aab6`, as it is | **2** | `content-head.txt` |
-| the same, blame ignoring the two re-points | 3: the same two, and docs/parity.md's `src/gateway/mod.rs:1009-1010`, read against the join commit, whose tree had it moved already (the blind spot `15c9744b` fixed by hand, below) | `content-head-ignoring.txt` |
+| the base `866747ff` | 8 [2]: train 14's two, and six list numbers wrong before this train (below) | `content-866747ff.txt` |
+| the profile line `bacb1052` / the slash line `32eb858f` / TEST-ENV-ISOLATION `7c3f6c1e` / LOCAL-PATHS-WRAP `dd9f5f0a` / APPROVAL-PASTE-SPACES `ca496c10` / META-PREFIX-DECODE `6d94fbc0` | 43 / 49 / 74 / 46 / 47 / 47 [32 / 38 / 63 / 35 / 36 / 36] | `content-<tip>.txt` |
+| the join commit `622b2865`, before the re-points | **60** [44] | `content-622b2865.txt` |
+| the first re-point `c637ed4c` | 18 [2]: the base's 8 and the list's ten | `content-c637ed4c.txt` |
+| round 2's first placing of its cases, `1ddeda00` | 15: the base's 8 and the ledger's `src/tui/shell.rs:50939` seven times (join check 2) | `content-1ddeda00.txt` |
+| the code head `6137bd3d`, as it is | **8** [2 at `2b78aab6`]: the base's 8 | `content-head.txt` |
+| the same, blame ignoring the three re-points | 9 [3]: the same 8, and docs/parity.md's `src/gateway/mod.rs:1009-1010`, read against the join commit, whose tree had it moved already (the blind spot `15c9744b` fixed by hand, below) | `content-head-ignoring.txt` |
 
-The tips read 32 to 63 WRONG because each was built on an older base -- #88
+The tips read 43 to 74 WRONG because each was built on an older base -- #88
 `32afd307` (TEST-ENV-ISOLATION), train 12's CI rounds `3943d667` and
 `71d3e02b` (the profile line, LOCAL-PATHS-WRAP), train 13's head `afd891af`
 (the slash line), the decoder line `df45025c` (APPROVAL-PASTE-SPACES,
 META-PREFIX-DECODE): what decides is the head.
 
-**Where the 44 came from** (`repoint-plan.txt`, `repoint.py --derive` at
-`622b2865`; a ref is a side's when that side's content check reads it WRONG
-with the same citing file, frame and numbers): **36 moved by the merges, 6
-WRONG on TEST-ENV-ISOLATION's tip already** (its own moves of
+**Where the 60 came from** (`repoint-plan.txt`, `repoint.py --derive` at
+`622b2865` with today's tables; a ref is a side's when that side's content
+check reads it WRONG with the same citing file, frame and numbers): **46
+moved by the merges** -- 36 round 1 found and the list's ten -- **6 WRONG
+on TEST-ENV-ISOLATION's tip already** (its own moves of
 `src/tui/theme.rs`, five `scripts/smoke-tui.sh` refs, and of
-`src/mcp/transport.rs`), **2 WRONG at the base**, train 14's two. All 42
-`auto`: the frame's cited lines and two either side stand at one place of
-the head's file. Applied in `c637ed4c` (`repoint-plan-applied.txt`,
-`repoint-apply-1.txt`, as run): 36 lines out, 36 in, the same once numbers
-are masked, holding 42 references; each of the 44 plan lines checked at
-`c637ed4c`, 44 ok (`repointed.txt`).
+`src/mcp/transport.rs`), **8 WRONG at the base** (train 14's two and the six
+list numbers). By how: 41 `auto` (the frame's cited lines and two either
+side stand at one place of the head's file), 10 `text` (the list, TEXT's
+span), 9 `left` (train 14's two, the pinned one, the six), and EXTRA's
+four. **Round 1's plan, as applied** (it saw no list, so 44): 42 `auto`,
+applied in `c637ed4c` (`repoint-plan-applied.txt`, `repoint-apply-1.txt`,
+as run): 36 lines out, 36 in, the same once numbers are masked, holding 42
+references; each of the 44 plan lines checked at `c637ed4c`, 44 ok
+(`repointed.txt`).
 
 **One of the 42 was wrong to move** (found reading the re-points word by
 word, `parity-join.txt`): docs/parity.md's MCP client runtime row cites
@@ -472,8 +555,7 @@ word, `parity-join.txt`): docs/parity.md's MCP client runtime row cites
 1318-1320 are `is_answer`, as the sentence says. The content check reads the
 path against the head, where TEST-ENV-ISOLATION moved those lines, so it
 called the ref WRONG on the unit's tip. **`2b78aab6` puts it back**, and
-`repoint.py` now leaves it, with why (its LEAVE table; `repoint-plan.txt`
-derived again with today's tables reads 41 `auto`, 3 `left` and EXTRA's four).
+`repoint.py` now leaves it, with why (its LEAVE table).
 
 **At the first re-point, the scans read four more** the content check
 calls SAME (`refs-*-repoint1.txt`; outside the historical plans), each read
@@ -500,9 +582,33 @@ mut repaint = false;`, the number as applied):
   keep it wrong. Re-pointed to the line it names, `turn_loop`'s
   `queue.outstanding.fetch_sub(1, Ordering::Release)`.
 
-**At the code head `2b78aab6`** (`refs-*-head.txt`, against the base and
+**Round 2, the list re-pointed** (`adb809f5`; repoint.py's TEXT, applied by
+`--apply-spans`, `repoint-apply-3.txt`): the ten numbers after the first,
+each the base's number mapped through `git diff -U0 866747ff` of
+`tests/tui.rs` (+121 through 7722, +115 after), 2312, 2887, 3234, 3357,
+4049, 7769, 7843, 8630, 9331 and 9527. Numbers only: 1 line out and 1 in,
+the same once numbers and lists are masked (`repointed.txt`).
+`extra_check.py --text` at `adb809f5` and at the head (`extra-check.txt`):
+the new span once and the old nowhere, and for each of the eleven the
+base's number mapped to the one written, and the head's line the base's
+line, `session.type_bytes(&[0x15, 0x04]);` (3234's `&[0x05, 0x15, 0x04]`):
+11 of 11.
+
+**Round 2, the lists left** (`repoint.py`'s LEAVE, with why; read WRONG at
+the base already): `src/tui/event_loop.rs:8409`'s
+`frame.rs:2631,1156,1626,1696,1758` (four numbers; `frame.rs` is one blob
+at the base and the head; train 14's `04e4491d` moved the first alone, the
+same blind spot) and `scripts/smoke-tui.sh`'s `src/tui/term.rs:56,65` at
+:251 and :1568 (`:65` was `RESTORE` when `3dd16a11` wrote it; `RESTORE` is
+at :97-98 at the base and the head). A third `term.rs:56,65`, at :2613,
+is as wrong and reads SAME: its frame `ff736932` wrote `:65` when the line
+was already a doc comment, the check's blind spot. The other list sites at
+the head read right (`src/tui/permissions.rs:30,34` in
+`scripts/fxcap/capfile.py`) or cite another product's or a `.prd` file.
+
+**At the code head `6137bd3d`** (`refs-*-head.txt`, against the base and
 the six tips): `refs_prd.py` 0 MOVED; `refs_short.py` 0 outside the
-historical plans; and three readings left, each by name:
+historical plans; and four readings left, each by name:
 - `refs.py` 6 pairs and `refs_all.py`'s first entry: **one reference, the
   pinned `58b463c8:` one above**, which these scans also read against the
   head; its pinned lines are right.
@@ -514,12 +620,18 @@ historical plans; and three readings left, each by name:
 - `refs_bare.py`: `scripts/fxcap/parity-ledger.toml`'s `:116` after
   `docs/parity.md`, a row reference: row 116 is `/sound`'s at the base and
   at the head, its text changed by the slash line (the scan's `CHANGED`).
+- `refs_bare.py`: `event_loop.rs:8409`'s `,1626`, `,1696` and `,1758`,
+  MOVED on the six tips alone, each built before the base; the base holds
+  them as the head does (the list left, above).
 
-**The content check at the head: 2 WRONG, the two left on purpose and
-named** (train 14's, `content-head.txt`): `src/tools/question.rs:303`'s
+**The content check at the head: 8 WRONG, each left on purpose and named**
+(`content-head.txt`; `repoint-plan-head.txt`: **8 WRONG, all 8 from the
+base, 0 from the merges**): train 14's two (`src/tools/question.rs:303`'s
 `Cargo.toml:42` and `tests/session_compat.rs:57`'s
-`src/session/event.rs:98-192`, both TRAIN14-FOLLOWUPS'. **0 moved**: every
-other reference the merges moved is re-pointed. The same scans and the
+`src/session/event.rs:98-192`, both TRAIN14-FOLLOWUPS') and the six list
+numbers above. **0 moved**: every reference the merges moved is
+re-pointed, comma lists included, and round 2's cases move none (join
+check 2). The same scans and the
 content check run again with the receipt in its final form
 (`gates-files.txt`, which names the commit it read).
 
@@ -530,42 +642,73 @@ reach changed with TEST-ENV-ISOLATION**: every integration test binary now
 re-runs its cases in a copy whose environment is `PATH`, `TMPDIR`, an empty
 `HOME` and a few cargo names (`tests/support/isolated.rs`'s module doc; its
 cases in the gate), so no proxy variable reaches the tui and sessions runs'
-xfx -- the loopback logger is blind there by construction, and a 0 from it
-shows nothing. And the lib run, where trains 6 to 15 logged the known MCP
-probe's two `CONNECT w.example:443`, logged none here: the logger's one
-positive control is gone too (not traced which of the unit's changes took
-it; `src/mcp/command/tests.rs`' `https://w.example/mcp` cases ran and
-passed). So part 1 is kept for its method and its counts, and part 2 is the
-evidence.
+xfx -- the loopback logger is blind there by construction. **And the lib
+run is blind by construction too** (round 2, opus's S2; round 1 said "not
+traced"): every client xfx builds for an endpoint with a bearer goes
+through `crate::gateway::bearer_rules` (the MCP client too,
+`src/mcp/transport.rs:1792`), which under `cfg(test)` calls
+`crate::test_env::proxies` (`src/gateway/mod.rs:125`), and that starts from
+`builder.no_proxy()` and adds only the case's fake process's proxies
+(`src/test_env.rs:277-303`: `fake.vars`, never the process) -- the process's own proxy variables never
+reach it, except in a case's own copy that names
+`XFX_TEST_PROXY_CASE_SERVER` (`:274-276`, `src/test_net.rs:39-41`), whose
+environment the case builds. TEST-ENV-ISOLATION pins it
+(`an_https_client_takes_no_proxy_from_the_process`,
+`src/test_env/tests.rs:248`). That is why the known MCP probe's two
+`CONNECT w.example:443`, logged by trains 6 to 15, are gone. So part 1 is
+kept for its method and its counts, and part 2 is the evidence.
 
-Part 1 (`net.py`, train 15's): a `git clone --no-local` at `2b78aab6`, one
-hold of the suite lock; FLAKE-CATALOG-EVENT's `connect_logger.py` (a
-loopback logger that answers 403 and forwards nothing) with the four proxy
-variables at it and `NO_PROXY`, `no_proxy`, `ALL_PROXY`, `all_proxy` unset:
+Part 1 (`net.py`, train 15's): a `git clone --no-local` at the code head
+`6137bd3d`, one hold of the suite lock; FLAKE-CATALOG-EVENT's
+`connect_logger.py` (a loopback logger that answers 403 and forwards
+nothing) with the four proxy variables at it and `NO_PROXY`, `no_proxy`,
+`ALL_PROXY`, `all_proxy` unset:
 
 | run | result | CONNECTs logged during it |
 |---|---|---|
-| `cargo test --locked --lib --no-fail-fast` | 5118 passed, 0 failed, 7 ignored | 0 |
+| `cargo test --locked --lib --no-fail-fast` | 5120 passed, 0 failed, 7 ignored | 0 |
 | `cargo test --locked --test tui --no-fail-fast` | 192 passed, 0 failed | 0 |
 | `cargo test --locked --test sessions --no-fail-fast` | 67 passed, 0 failed | 0 |
 
 Part 2: **every test binary** -- `cargo test --locked --all-targets
 --no-fail-fast` -- under `sandbox-exec` with a profile that refuses every
 outbound connection but loopback (unix sockets untouched), so a test that
-needed a non-loopback connection would fail; and the profile's own
-controls: `curl` to `192.0.2.1` (TEST-NET-1, RFC 5737) refused at once under
-it, the same `curl` outside it timing out at 3 s.
+needed a non-loopback connection would fail. **Round 2 adds the attempts**
+(opus's S2): the kernel reports each connection the profile refuses in the
+unified log (`Sandbox: <name>(<pid>) deny(1) network-outbound
+remote:*:<port>`, the address withheld), and `log stream`, net.py's own
+child, records every such report from before the first control to after
+the last. The controls are planted connections, each a `curl` in its own
+`sandbox-exec` under the same profile, beside the run (not inside cargo's
+process tree), its pid matched to its report:
 
-| run | result |
-|---|---|
-| control: `curl http://192.0.2.1/` under the profile | exit 7 at once ("Couldn't connect to server") |
-| control: the same outside it | exit 28 after 3.0 s (timed out) |
-| `cargo test --locked --all-targets --no-fail-fast` under the profile | exit 0; 15 binaries, **6060 passed, 0 failed** -- the gate's plain run's 6060 |
+| control | result | its denial report |
+|---|---|---|
+| IPv4 `curl http://192.0.2.1/` (TEST-NET-1, RFC 5737), under the profile | exit 7 at once | reported |
+| the same, outside it | exit 28 after 3.0 s (timed out) | none |
+| IPv6 `curl http://[2001:db8::1]/` (RFC 3849), under the profile | exit 7 at once | reported |
+| the same, outside it | exit 7 at once (no IPv6 route here) | none |
+| IPv4 and IPv6 again, 60 s into the run, under it (the run still going after both) | exit 7, exit 7 | both reported |
+| IPv4 after the run, under it | exit 7 | reported |
 
-So **no test of the head needs a connection off this machine**; a test that
-had needed one would have failed at once, as the control's `curl` did. The
-job ran in one hold of the suite lock (`jobs-net.txt`, its start at load
-17.3), beside the two sweeps.
+For IPv6 curl's exit tells nothing (7 inside and out); **the report is the
+IPv6 control**. The run: `cargo test --locked --all-targets --no-fail-fast`
+under the profile, exit 0, 15 binaries, **6062 passed, 0 failed** -- the
+gate's plain run's 6062 -- in 119 s. **The reports: 5, every one a planted
+pid's; 0 from any other process during the run or around it**
+(`jobs-net.txt`; the raw stream stays in the scratch root, since it holds
+local paths).
+
+So what part 2 shows, and no more: **no test of the head needs a
+connection off this machine** (one would have failed, as the controls'
+`curl` did), and **no test made a TCP or UDP connection to a non-loopback
+address that the profile refused and the kernel reported**, IPv4 or IPv6,
+while the reports were being read (the planted ones, inside the run, were
+seen). Not shown: a name lookup (it goes to the system resolver through a
+unix socket the profile leaves open, so a lookup with no connection after it
+is invisible here), and a count of repeated refusals from one process,
+which the kernel may fold into one report. The job ran in one hold of the
+suite lock (`jobs-net.txt`, its start at load 27.0), beside the gate.
 
 No unit of this train adds a network path: the profile line reads and
 refuses settings, the slash line completes arguments, TEST-ENV-ISOLATION
@@ -581,28 +724,34 @@ gate job and `sweep.yml`, each step as `name | if | run`, at the base
 `866747ff` and at the head, and the lines that differ -- `ci.yml` 4 (the
 toolchain step renamed, its commands the same, and the two new steps),
 `sweep.yml` 0 -- then gates.sh's 25 steps. Every step, in a fresh `git
-clone --no-local` at **`2b78aab6`**, one after another, **the whole script
-inside one hold of the suite lock** (one normal slot), each step's exit
-taken from `$?` on the line right after its command, the tree clean before
-and after, TMPDIR the harness scratch root. **25 steps, 0 failed, none run
-again** (`gates.txt`), at a load of 7.7 to 38.3 at the steps' starts. With
+clone --no-local` at the code head **`6137bd3d`** (round 2; round 1's at
+`2b78aab6` was the same 25 steps, 0 failed, 6060 and 6097 passed), one
+after another, **the whole script inside one hold of the suite lock** (one
+normal slot), each step's exit taken from `$?` on the line right after its
+command, the tree clean before and after, TMPDIR the harness scratch root.
+**25 steps, 0 failed, none run again** (`gates.txt`), at a load of 13.2 to
+43.7 at the steps' starts (the network job and the merge checks beside
+it). With
 CATALOG-WAIT-CLOCK in the base, a catalog-wait failure would have been a
 finding: there was none.
 
 (A first gate at `3d1376b2` was stopped by me during its sixth step, its
 five before exit 0, when the pinned reference was found (join check 4);
-nothing of it is used here. Its scratch copy is not kept.)
+nothing of it is used here. Its scratch copy is not kept. In round 2 a
+gate at `1ddeda00` was stopped by me during its seventh step, its six
+before exit 0, when that commit's cases were found to move a cited line;
+nothing of it is used either.)
 
-| step | at `2b78aab6` |
+| step | at `6137bd3d` |
 |---|---|
 | `cargo fmt --check`; clippy; clippy `--features fault-injection` | ok; ok; ok |
 | `check-env-reads.py` / its `--self-test` | OK (40 `env_exception!` invocations in 27 files, 74 compile-time reads of 6 names, 52 test binaries started with a marker no parent makes) / 66 fixtures, 0 not as expected |
-| `cargo test --locked --no-fail-fast` | **6060 passed, 0 failed, 8 ignored** |
-| the same `--features fault-injection` | **6097 passed, 0 failed, 8 ignored** |
+| `cargo test --locked --no-fail-fast` | **6062 passed, 0 failed, 8 ignored** (round 1: 6060; round 2's two cases) |
+| the same `--features fault-injection` | **6099 passed, 0 failed, 8 ignored** (round 1: 6097) |
 | `check-xfx-identity` / `check-no-stubs` / `check-no-secrets` | ok / ok / ok |
-| `check-no-local-paths` / `test-check-no-local-paths` | ok (25566 tracked files; 8 marked fixture lines, 84 placeholder lines) / ok (31 cases) |
-| `check-preview-contract` / `check-tui-preflight-cost` | ok / ok (200x300 full replay 1.06 ms mean; budget 32) |
-| `check-at-search-cost` / `check-usage-clock` | ok (every keystroke, 1460 searches: p50 0.27 ms, p95 1.95 ms) / ok |
+| `check-no-local-paths` / `test-check-no-local-paths` | ok (25749 tracked files, round 1's receipt among them; 8 marked fixture lines, 84 placeholder lines) / ok (31 cases) |
+| `check-preview-contract` / `check-tui-preflight-cost` | ok / ok (200x300 full replay 1.21 ms mean; budget 32) |
+| `check-at-search-cost` / `check-usage-clock` | ok (every keystroke, 1460 searches: p50 0.35 ms, p95 2.50 ms) / ok |
 | `test-check-no-secrets` / `test-gate-env` / `test-preview-contract` | ok (13 cases) / ok (66 cases) / ok (28 mutants) |
 | `fxcap/test-sweep.sh` / `fxcap/test-capture.sh` | 79 + 28 OK / 145 OK |
 | release build; `fault-injection` release build | ok; ok |
@@ -612,23 +761,35 @@ The counts are `gate-counts.txt`'s (each binary's `test result` line and
 their sums). **Every side's tests are in** (`test-lists.txt`: every test
 each binary lists, `cargo test --all-targets -- --list`, at the base and the
 head; `test-counts.txt`: the `#[test]` lines and `tests_kept.py`): the head
-lists **6068, the base 5949: +119 -- 120 tests the head lists that the base
-does not, one the base lists that the head does not**
+`6137bd3d` lists **6070, the base 5949: +121 -- 122 tests the head lists
+that the base does not, one the base lists that the head does not**
 (`process::tests::no_child_process_is_made_any_other_way`, which
-TEST-ENV-ISOLATION deleted); the same +119 with fault injection (6105 against
-5986), and the `#[test]` lines' 5855 -> 5974. The 120 are the units' and the
+TEST-ENV-ISOLATION deleted); the same +121 with fault injection (6107 against
+5986), and the `#[test]` lines' 5855 -> 5976. The 122 are the units' and the
 join's (`tests_kept.py`: profile line 36, slash line 32, TEST-ENV-ISOLATION
-27, APPROVAL-PASTE-SPACES 9, META-PREFIX-DECODE 13, the join 3), and **0
-tests any side added are missing at the head**. The gate's 6060 passed and
-8 ignored are those 6068, binary by binary. Train 15's gate at `2c575f52`
+27, APPROVAL-PASTE-SPACES 9, META-PREFIX-DECODE 13, the join 3) and round
+2's two cases -- exactly the two the head lists that round 1's head
+`2b78aab6` did not, and none the other way (`test-lists.txt`'s last
+lines) -- and **0 tests any side added are missing at the head**. The
+gate's 6062 passed and 8 ignored are those 6070, binary by binary (round
+1: 6060 of 6068). Train 15's gate at `2c575f52`
 passed 5942 with 7 ignored, its one doc test among the passed
 (`../train-15/gate-counts.txt`), and its round 2 added one lib test: so the
 base runs 5943 passed and 7 ignored, its 5949 listed and the doc test. The
-+117 passed since is the +119, less one newly ignored test
++119 passed since is the +121, less one newly ignored test
 (`a_case_marks_where_it_runs`) and the doc test, which TEST-ENV-ISOLATION's
 `doctest = false` no longer runs (`test-lists.txt`'s last lines).
 
 ## Sweeps
+
+**Round 2: the sweeps stand, run at `2b78aab6`.** What round 2 changed
+outside this folder (`round2-numstat.txt`, `round2_numstat.py`: every line
+of `git diff -U0 2b78aab6 6137bd3d`, by class): `src/tui/shell.rs` +116
+inside its `#[cfg(test)] mod tests` (the two join cases), `tests/tui.rs`
+one comment line out and one in (the list's numbers); **product code 0
+out, 0 in**. No scenario, ledger entry or harness file changed, so the
+debug build a sweep drives and the scoring it gets are `2b78aab6`'s; the
+one thing that differs is the banner's build id. Not swept again.
 
 **Builds** (debug, as trains 4 to 15), each in its own `git clone
 --no-local`, each swept with its own tree's harness, scenarios and ledger
@@ -710,10 +871,12 @@ the train: 0"):
   fx's 5100 or 4993 -- a byte count the run decides, not the build.
 
 **The screens** (`screen-partition.txt` ties the counts together):
-compare.py finds fx's `.ansi` moved in 142 shared snaps and xfx's in 298;
-by class (`screen-classes.txt`), fx's 103 in clock-like or run-local text
-alone, 39 beyond it, 2 in colour or attributes alone; xfx's 99, 200 and 0
-(1 a `.txt` move whose `.ansi` did not). Of the moves beyond run-local
+compare.py finds fx's `.ansi` moved in 142 shared snaps and xfx's in 298.
+The classes read the `.txt` too (`screen-classes.txt`), so they hold 144 of
+fx's and 299 of xfx's: fx's 103 in clock-like or run-local text alone, 39
+beyond it, 2 in colour or attributes alone (2 of the 144 a `.txt` move
+whose `.ansi` did not: 142 + 2); xfx's 99, 200 and 0 (1 such move: 298 +
+1). Of the moves beyond run-local
 text, `screen-moves-base.txt` lists 225 such lines (`screen-classes.txt`): 206 a saved session's id
 (`--resume` ids, `/status`'s Session row), and 19 others -- 17 the `*
 version:` line's build id (`...-0615-866747ff7feb` / `...-0759-2b78aab658dd`;
@@ -770,23 +933,50 @@ Each with its revert.
   `xfx: wait 1` back; its `full` pair is then unresolved again, on the
   notice row alone.
 - **A meta-prefixed Ctrl+J at a permission prompt now answers it** -- `ESC
-  ESC [106;5u` grants `Apply once` at choice 1, where the base read the
-  Escape first, which cancels the turn there. It is fx v0.0.16's (the
+  ESC [106;5u` answers the **marked** choice, as Enter and a bare C-j do
+  (`Action::ControlJ` -> `approval::Action::Submit`, `Shell::approval_action`;
+  Submit answers the selected choice, `approval.rs`'s `Action::Submit`):
+  `Apply once` at choice 1, and **at choice 2 the session's `Always`**, which
+  stops asking for the rest of the session (the C-j join test pins choice
+  1, round 2's choice-2 case choice 2, on both planes). The base read the Escape first, which cancels the turn
+  there. It is fx v0.0.16's (the
   report carries the prefix and the Ctrl+letter rule ignores it,
   `escape_parser.zig:552-555`, `:686-691`, `:255-258@481104fd`), and it is
   the same decision as train 15's stray C-j (its README's "A stray C-j at a
   permission prompt now grants `Apply once`", before the user since
   2026-11-10): a C-j answers a permission question as Enter does. **The same
-  one-line revert covers both**: in `Shell::approval_action`
+  one-line revert stops both granting**: in `Shell::approval_action`
   (`src/tui/shell.rs`), drop `| Action::ControlJ` from
   `Input::Action(Action::Submit | Action::ControlJ) => approval::Action::Submit`
-  -- the decoder hands both spellings over as `Action::ControlJ`.
-- **Three join tests** (`622b2865`), where no unit's tests reach the
-  meeting. **Revert**: drop them; the meetings then have no case.
-- **Every reference the merges moved re-pointed** (`c637ed4c`, `15c9744b`),
-  and one pre-existing wrong one with them (`:3535` -> `:3594`, read by
-  hand); the pinned one put back (`2b78aab6`). **Revert**: `git revert
-  2b78aab6 15c9744b c637ed4c`.
+  -- the decoder hands both spellings over as `Action::ControlJ`. What the
+  revert does, exactly: both spellings are then **swallowed** -- with no
+  draft open by the `Input::Action(_) => return None` arm, in a draft by the
+  editing arm, C-j being none of a draft's keys (`approval::edits`) -- so
+  the prefixed spelling does **not** go back to the base's Escape and cancel
+  (that came from the decoder reading the pair as Escape, which
+  META-PREFIX-DECODE fixed). And it **reaches rule confirmations too**: a
+  `/permissions` rule change is confirmed in the same prompt and reads its
+  keys through the same function (its doc comment), so C-j stops confirming
+  one, as train 15's entry says ("the permission question and the rule
+  confirmation alike then swallow C-j again").
+- **Five join tests** (three in `622b2865`, where no unit's tests reach
+  the meeting; round 2's choice-2 and split cases, `6137bd3d`). **Revert**:
+  drop them; the meetings then have no case.
+- **Every reference the merges moved re-pointed** (`c637ed4c`, `15c9744b`,
+  and round 2's `adb809f5`: the comma list's ten), and one pre-existing
+  wrong one with them (`:3535` -> `:3594`, read by hand); the pinned one put
+  back (`2b78aab6`). **Revert**: `git revert adb809f5 2b78aab6 15c9744b
+  c637ed4c`.
+- **Two comma lists wrong before this train are named, not re-pointed**
+  (round 2; `repoint.py`'s LEAVE, with why): `src/tui/event_loop.rs:8409`'s
+  `frame.rs:2631,1156,1626,1696,1758` (four numbers; train 14's re-point
+  moved the first alone) and `scripts/smoke-tui.sh`'s
+  `src/tui/term.rs:56,65` at :251, :1568 and :2613 (`:65` was `RESTORE`,
+  now at :97-98). The merges moved neither: `frame.rs` is the same blob at
+  the base and the head, and the base's content check reads them WRONG
+  already (but :2613, its blind spot). Queued with train 14's two.
+  **Revert** (to fix them here instead): their numbers, by hand, in one
+  commit, re-gated.
 - **`ci.yml`'s `script_tests` comment** names the env self-test and what it
   exercises (`622b2865`, `3d1376b2`), comment only. **Revert**: `git revert
   3d1376b2` and the comment hunk of `622b2865`.
@@ -812,6 +1002,14 @@ Changed here:
   and `git_build_id` (merge 3).
 - `ci.yml`'s `script_tests` comment did not name the env self-test
   TEST-ENV-ISOLATION put on those rows (`622b2865`, `3d1376b2`).
+- **No reference scan read a comma list's later numbers** (round 2, opus's
+  MUST): `refs_content.py` and `refs_bare.py` matched `path:N` and `:N`
+  alone, so `tests/tui.rs:1930,2191,...` had its first number re-pointed and
+  ten left. Both now read each `,M` as a ref into the same file (join check
+  4); train 14's re-point had left `event_loop.rs:8409`'s list the same way.
+- `parity-join.sh`'s last section ended in a Python `SyntaxError` (gpt6's
+  NTH): its inline `-c` quoting; the code is `parity_sentences.py` now, 5
+  of 5 sentences found.
 - **train 7's `token_check.py --self-test` could not plant two of its cases
   on this train's texts** (`token-self-test.txt`): at merge 1 its first
   changed row is one both sides changed, so its "a token a side added,
@@ -835,6 +1033,13 @@ Not changed here:
   too-small test (`shell.rs:6217`, `:6423` now, at `:28019-28020`), whose
   numbers name no too-small assertion -- kept on their frame's text, as
   train 15 kept them.
+- **Two comma lists wrong before this train** (round 2; `repoint.py`'s
+  LEAVE): `src/tui/event_loop.rs:8409`'s `frame.rs:2631,1156,1626,1696,1758`
+  (the head's lines for d3f61f5e's text: `place(...)` :1682, `fn row_text`
+  :2874, `fn clip` :2970, the call in `place` rewritten) and
+  `scripts/smoke-tui.sh`'s `src/tui/term.rs:56,65` at :251, :1568 and
+  :2613 (`RESTORE` is at :97-98). Named for their owner, with train 14's
+  two.
 - `refs_content.py` reads a commit-pinned reference
   (`<commit>:path:N`) against the head: the one such ref it moved is put
   back (join check 4), and `repoint.py` leaves it by name. A rule for the
@@ -876,9 +1081,12 @@ time, never written; no hit printed but its kind and file):
   1, by file): hand-written fixture names under placeholder roots
   (`/tmp/fxt/...`, the test's own `d`), as the unit committed them.
 - "No code after the code head": `final-scan.txt` part 4 reads every commit
-  after the code head `2b78aab6` -- the receipt's -- and finds no file
-  touched outside this folder; the last commit stores `final-scan.txt`
-  alone (`git show --stat` of it).
+  after the code head `6137bd3d` -- round 1's receipt commits sit before
+  round 2's three code commits, so the part reads from `6137bd3d` on, the
+  round-2 receipt's -- and finds no file touched outside this folder; the
+  last commit stores `final-scan.txt` alone (`git show --stat` of it).
+  Round 1's receipt commits (`37b292a8`, `f2cb84d6`, `7d63b764`) touched
+  this folder alone too (`round2-numstat.txt`'s last lines).
 
 ## Redaction
 
@@ -924,19 +1132,24 @@ end, and the file checks run with the receipt in its final form
 - The token check: `token_check.py` (train 7's, byte for byte),
   `token_check16.py` (its self-test's two plants fixed), `token_control.py`,
   `word_control.py`, `token-check.txt`, `token-self-test.txt`; `owners.py` /
-  `owners.txt`; `parity-join.sh` / `parity-join.txt`.
+  `owners.txt`; `parity-join.sh`, `parity_sentences.py` / `parity-join.txt`.
 - References: `refs.py`, `refs_all.py`, `refs_short.py`, `refs_bare.py`,
   `refs_prd.py`; `refs-*-pre.txt` (at `622b2865`), `refs-*-repoint1.txt` (at
   `c637ed4c`), `refs-*-head.txt` (at the code head); `refs_content.py`,
-  `content.sh` and `content-*.txt`; `repoint.py`, `repoint-plan.txt` and
-  `repoint-plan-2.txt` (derived again with today's tables),
-  `repoint-plan-applied.txt`, `repoint-apply-1.txt` and
-  `repoint-plan-2-applied.txt` (as run before `c637ed4c` and `15c9744b`),
-  `repointed.py`, `repointed.txt`.
+  `content.sh` and `content-*.txt` (`content-1ddeda00.txt`: round 2's
+  first placing of its cases); `repoint.py`, `repoint-plan.txt`,
+  `repoint-plan-2.txt` and `repoint-plan-head.txt` (derived again with
+  today's tables, at `622b2865`, `c637ed4c` and the code head),
+  `repoint-plan-applied.txt`, `repoint-apply-1.txt`,
+  `repoint-plan-2-applied.txt` and `repoint-apply-3.txt` (as run before
+  `c637ed4c`, `15c9744b` and `adb809f5`), `repointed.py`, `repointed.txt`,
+  `extra_check.py` / `extra-check.txt` (EXTRA's four and TEXT's span).
 - Join checks: `mode-case-full.txt` (join check 1); `mutants.sh` /
   `mutants.txt` (join check 2); `shared.py` / `shared.txt`, `functions.py`
   / `functions.txt`, `moved_edits.py` / `moved-edits.txt`, `unit_tests.py`,
-  `unit-tests.sh` / `unit-tests.txt`, `unit-tests-notes.txt`, `tests_kept.py`
+  `unit-tests.sh` / `unit-tests.txt`, `unit-tests-notes.txt`,
+  `gate-derived.sh` (round 2: those two and `run-absent.txt` from the gate's
+  logs), `tests_kept.py`
   and `test_counts.sh` (in `test-counts.txt`), `run_absent.py` /
   `run-absent.txt` (join check 3); `scenarios.sh`, `scenarios.py` /
   `scenarios.txt` (the join checks in the sweeps); `jobs.sh`, `net.py`,
@@ -956,3 +1169,9 @@ end, and the file checks run with the receipt in its final form
   `compare-units.txt`, `uncovered.py` / `uncovered.txt`; `sweep-rerun.sh`, `reruns.sh`,
   `rerun_verdicts.py`, `reruns_txt.sh`, `reruns.txt`.
 - `final-scan.sh`, `midbranch_scan.py`, `final-scan.txt`; `redacted.py`.
+- Round 2: `round2_numstat.py` / `round2-numstat.txt` (what round 2 changed
+  outside this folder, by class); `test_lists.sh` (`REUSE_BASE`),
+  `test_lists_txt.sh` / `test-lists.txt`; `gate_counts.sh`'s test-log glob
+  fixed (round 1's `gate-counts.txt` had an empty block for the env
+  self-test's log). The reviews it answers are the dispatcher's, outside the
+  repository.

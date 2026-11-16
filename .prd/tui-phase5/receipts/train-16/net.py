@@ -12,6 +12,16 @@
 # `curl` to 192.0.2.1 (TEST-NET-1, RFC 5737: nobody's) refused at once under
 # it, and the same curl outside it timing out (3 s), so the refusal is the
 # profile's. A test that needed a non-loopback connection fails there.
+# Round 2 (opus's S2): the attempts too. The kernel reports each connection
+# the profile refuses in the unified log (`Sandbox: <name>(<pid>) deny(1)
+# network-outbound remote:*:<port>`, the address withheld), and `log stream`
+# (this script's own child) records every such report for the whole of part
+# 2. Planted under the profile: a connection to 192.0.2.1 and one to
+# 2001:db8::1 (RFC 3849's documentation prefix) before the run, the same two
+# 60 s into it while it runs, and the IPv4 one after it; each planted pid
+# must have its report, and every other report is listed by name, port and
+# time into the run. The IPv6 control is the report: outside the profile a
+# curl to 2001:db8::1 fails at once too (no route here), with no report.
 """Join check 5 (train 10's to 12's net.py, with one change: the `sessions`
 test binary too, which HISTORY-NOTICES-COPY-FX changed): the lib tests, the
 tui tests and the sessions tests at the train head with every
@@ -22,7 +32,10 @@ own child, started with Popen and ended by it.
 
     suite-lock.sh python3 -I net.py <clone> <connect_logger.py> <out-dir>
 """
+import datetime
+import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -67,20 +80,88 @@ finally:
 PROFILE = ('(version 1)(allow default)(deny network-outbound (remote ip "*:*"))'
            '(allow network-outbound (remote ip "localhost:*"))')
 print(f"# part 2: sandbox-exec -p '{PROFILE}'", flush=True)
-for name, cmd in (("control, under it", ["sandbox-exec", "-p", PROFILE, "/usr/bin/curl", "-sS", "-m", "3", "http://192.0.2.1/"]),
-                  ("control, outside it", ["/usr/bin/curl", "-sS", "-m", "3", "http://192.0.2.1/"])):
+reports = os.path.join(out, "deny-reports.ndjson")
+stream = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--predicate",
+                           'eventMessage CONTAINS "network-outbound"'],
+                          stdout=open(reports, "w"), stderr=subprocess.DEVNULL)
+for _ in range(100):
+    if "Filtering" in open(reports).read():
+        break
+    time.sleep(0.1)
+print(f"# log stream pid {stream.pid}: every report whose message names network-outbound, from here", flush=True)
+V4, V6 = "http://192.0.2.1/", "http://[2001:db8::1]/"
+planted = []  # (name, pid, under the profile, seconds since part 2's start)
+part2 = time.monotonic()
+
+
+def curl(name, url, sandboxed):
+    cmd = (["sandbox-exec", "-p", PROFILE] if sandboxed else []) + ["/usr/bin/curl", "-sS", "-m", "3", url]
     started = time.monotonic()
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    print(f"## {name}: curl exit {r.returncode}, {time.monotonic() - started:.1f} s: {r.stderr.strip()[:120]}", flush=True)
+    child = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    err = child.communicate()[1]
+    planted.append((name, child.pid, sandboxed, started - part2))
+    print(f"## {name}: curl exit {child.returncode}, {time.monotonic() - started:.1f} s: {err.strip()[:120]}", flush=True)
+
+
+curl("control, IPv4, under it", V4, True)
+curl("control, IPv4, outside it", V4, False)
+curl("control, IPv6, under it", V6, True)
+curl("control, IPv6, outside it", V6, False)
 args = ["sandbox-exec", "-p", PROFILE, "cargo", "test", "--locked", "--all-targets", "--no-fail-fast"]
-started = time.monotonic()
+run_from, run_from_wall = time.monotonic(), time.time()
 with open(os.path.join(out, "net-sandboxed.log"), "w") as f:
-    rc = subprocess.run(args, cwd=clone, stdout=f, stderr=subprocess.STDOUT).returncode
+    run = subprocess.Popen(args, cwd=clone, stdout=f, stderr=subprocess.STDOUT)
+    while run.poll() is None and time.monotonic() - run_from < 60:
+        time.sleep(0.5)
+    if run.poll() is None:
+        curl("planted 60 s into the run, IPv4, under it", V4, True)
+        curl("planted 60 s into the run, IPv6, under it", V6, True)
+        print(f"   the run still going after both: {run.poll() is None}", flush=True)
+    else:
+        print("   the run ended before 60 s: nothing planted inside it", flush=True)
+    rc = run.wait()
+run_to, run_to_wall = time.monotonic(), time.time()
+curl("planted after the run, IPv4, under it", V4, True)
+time.sleep(5)
+stream.terminate()
+stream.wait(timeout=10)
+print(f"# log stream {stream.pid} ended ({stream.returncode})")
 results = [l for l in open(os.path.join(out, "net-sandboxed.log")) if l.startswith("test result:")]
 print(f"## every test binary under the profile: `cargo test --locked --all-targets --no-fail-fast` exit {rc}, "
-      f"{time.monotonic() - started:.0f} s; {len(results)} binaries", flush=True)
+      f"{run_to - run_from:.0f} s; {len(results)} binaries", flush=True)
 for r in results:
     print("   " + r.strip())
 passed = sum(int(r.split()[3]) for r in results)
 failed = sum(int(r.split()[5]) for r in results)
 print(f"   summed: {passed} passed, {failed} failed")
+REPORT = re.compile(r"^Sandbox: (.+?)\((\d+)\) deny\((\d+)\) network-outbound (.*)$")
+seen, other, unparsed = {}, [], 0
+for line in open(reports):
+    try:
+        event = json.loads(line)
+    except ValueError:
+        continue  # the stream's own first line
+    m = REPORT.match(event.get("eventMessage", ""))
+    if not m:
+        unparsed += 1
+        continue
+    name, pid, count, what = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
+    if not what.startswith("remote:"):
+        unparsed += 1  # another process's own sandbox, about a socket file: not this profile's
+        continue
+    at = datetime.datetime.strptime(event["timestamp"], "%Y-%m-%d %H:%M:%S.%f%z").timestamp()
+    seen.setdefault(pid, []).append((name, count, what))
+    other.append((at, name, pid, count, what))
+planted_pids = {pid for _, pid, _, _ in planted}
+print(f"## the denial reports: {sum(len(v) for v in seen.values())} naming a remote address; "
+      f"{unparsed} others (no `remote:`, or not a deny line) not counted")
+for name, pid, sandboxed, at in planted:
+    got = seen.get(pid, [])
+    print(f"   {name} (at {at:.0f} s): {'reported: ' + '; '.join(f'{n} deny({c}) {w}' for n, c, w in got) if got else 'no report'}"
+          f"{'' if sandboxed == bool(got) else '   <-- NOT AS EXPECTED'}")
+rest = [o for o in other if o[2] not in planted_pids]
+inside = [o for o in rest if run_from_wall <= o[0] <= run_to_wall]
+print(f"   reports from any other process: {len(rest)}, {len(inside)} of them during the run "
+      f"({run_to_wall - run_from_wall:.0f} s)")
+for at, name, pid, count, what in sorted(rest):
+    print(f"     {name} deny({count}) {what} ({at - run_from_wall:.0f} s from the run's start)")

@@ -1,4 +1,4 @@
-# head 2b78aab6; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+# head 6137bd3d; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
 docs/parity.md:63	[scripts/fxcap/parity-ledger.toml:959]
     base* = row | profile* = row | slash* = row | test-env* = row | lpw* = row | aps* = row | mpd* = row
 docs/parity.md:95	[scripts/fxcap/parity-ledger.toml:197]
@@ -160,7 +160,7 @@ src/tui/shell.rs:14604	[scripts/fxcap/parity-ledger.toml:506]
 src/tui/shell.rs:17644	[scripts/fxcap/parity-ledger.toml:691, scripts/fxcap/parity-ledger.toml:1040]
     base -> 17723 | profile -> 18460 | slash -> 18246 | test-env -> 19147 | lpw -> 18460 | aps -> 18267 | mpd -> 18267
 src/tui/shell.rs:50939	[scripts/fxcap/parity-ledger.toml:808, scripts/fxcap/parity-ledger.toml:820, scripts/fxcap/parity-ledger.toml:831, scripts/fxcap/parity-ledger.toml:843, scripts/fxcap/parity-ledger.toml:854, scripts/fxcap/parity-ledger.toml:865, scripts/fxcap/parity-ledger.toml:970]
-    base -> 51985 | profile -> 61473 | slash -> 59217 | test-env -> 63795 | lpw -> 61473 | aps -> 58881 | mpd -> 58865
+    base -> 51985 | profile -> 61473 | slash -> 59217 | test-env -> 63911 | lpw -> 61473 | aps -> 58881 | mpd -> 58865
 src/tui/toolgroup.rs:940	[scripts/fxcap/parity-ledger.toml:378, scripts/fxcap/parity-ledger.toml:925]
     base* = | profile* = | slash* = | test-env* = | lpw* = | aps* = | mpd* =
 src/tui/toolgroup.rs:1017	[scripts/fxcap/parity-ledger.toml:392]

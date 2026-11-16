@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Train 16: train 15's refs_bare.py, unchanged but for this line.
+# Train 16: train 15's refs_bare.py; round 2 adds the comma-list form (opus's
+# MUST 1): each `,M` straight after a `path:N` or a bare `:N` is read as a
+# bare continuation of the same anchor, unless the list ends in `@` (pinned).
 # Train 14: train 13's refs_bare.py (train 12's), unchanged but for this line.
 """Bare continuations, `:N` or `:N-M` with no path of their own, that follow
 a `path:N` reference on the same line or one of the four lines after it
@@ -26,6 +28,20 @@ from refs_all import git, show, hunks, mapped  # noqa: E402
 # this repository (by its path, or by a basename one tracked file has) is read.
 PATHED = re.compile(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z]{1,5}):(\d+)")
 BARE = re.compile(r"(?<![A-Za-z0-9_./`-])(?<!\d)`?:(\d+)(?:-(\d+))?(?![\d@]|-\d)")
+LIST = re.compile(r",(\d+)(?:-(\d+))?(?!\d|-\d)")
+
+
+def tail(row, end):
+    """The `,M` items of a comma list straight after a match ending at `end`;
+    none when the list's last number has `@` after it (pinned)."""
+    out, pos = [], end
+    while True:
+        m = LIST.match(row, pos)
+        if not m:
+            break
+        out.append((m.start(), "bare", m))
+        pos = m.end()
+    return [] if row[pos:pos + 1] == "@" else out
 
 
 def main():
@@ -46,8 +62,8 @@ def main():
         anchor, anchor_at = None, -10
         seen = set()
         for number, row in enumerate(lines, 1):
-            events = sorted([(m.start(), "path", m) for m in PATHED.finditer(row)]
-                            + [(m.start(), "bare", m) for m in BARE.finditer(row)], key=lambda e: e[0])
+            events = [(m.start(), "path", m) for m in PATHED.finditer(row)] + [(m.start(), "bare", m) for m in BARE.finditer(row)]
+            events = sorted(events + [t for _p, _k, m in events for t in tail(row, m.end())], key=lambda e: e[0])
             for _pos, kind, m in events:
                 if kind == "path":
                     name = m.group(1)

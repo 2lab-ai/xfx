@@ -18,7 +18,7 @@ dd2ac93d Merge LOCAL-PATHS-WRAP into train 16 (fix/p5-local-paths-wra rust  5949
 71787971 Merge APPROVAL-PASTE-SPACES into train 16 (fix/p5-approval-p rust  5958  fxcap 252
 1bce5348 Merge META-PREFIX-DECODE into train 16 (fix/p5-meta-prefix-d rust  5971  fxcap 252
 622b2865 train 16: the join MUSTs and the decoder's meetings, three j rust  5974  fxcap 252
-2b78aab6 train 16: a pinned reference the first re-point moved, put b rust  5974  fxcap 252
+6137bd3d train 16: round 2's two cases at the end of shell.rs' tests, rust  5976  fxcap 252
 
 profile (3943d667..bacb1052): 36 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
 slash (afd891af..32eb858f): 32 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
@@ -27,5 +27,5 @@ lpw (71d3e02b..dd9f5f0a): 0 tests added, 0 deleted; added and missing at the hea
 aps (df45025c..ca496c10): 9 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
 mpd (df45025c..6d94fbc0): 13 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
 join (1bce5348..622b2865): 3 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
-# head 2b78aab6: 6105 tests; 0 added tests missing
+# head 6137bd3d: 6107 tests; 0 added tests missing
 # exit 0

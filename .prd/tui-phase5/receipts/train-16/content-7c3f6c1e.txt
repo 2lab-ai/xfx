@@ -14,12 +14,12 @@ WRONG docs/parity.md:221 src/mcp/transport.rs:1318-1320 (path; written by 8ea201
 WRONG docs/parity.md:237 src/gateway/mod.rs:994-995 (path; written by fd67ed2d as :994-995): the head's line holds '}'; 'pub(crate) fn is_retryable_status(status: u16) -> ' -- its text is at :998-999
 WRONG docs/parity.md:241 worker.rs:3917 (short; written by 589248ac as :3917): the head's line holds '// quiet without hanging up never lets the body fi'; 'bridge::send_terminal(events, UiEvent::TurnEnded {' -- its text is at :3950
 WRONG docs/parity.md:241 :3556 (bare; written by 589248ac as :3556): the head's line holds 'TurnWork::Fork { before_turn } => {'; 'queue.outstanding.fetch_sub(1, Ordering::Release);' -- its text is at :3589
-# SAME 15; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 91; unread 0; refs 110
+# SAME 15; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 96; unread 0; refs 115
 # exit 1
 ## scripts/fxcap/capfile.py
 # scripts/fxcap/capfile.py at 7c3f6c1e; blame ignoring nothing
 WRONG scripts/fxcap/capfile.py:165 src/tui/shell.rs:14687-14712 (path; written by 589248ac as :14687-14712): the head's line holds '}'; "fn warning_shown(&self) -> Option<&'static str> {" -- its text is at :14689-14714
-# SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 1; unread 0; refs 6
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 1; unread 0; refs 7
 # exit 1
 ## scripts/fxcap/capture.sh
 # scripts/fxcap/capture.sh at 7c3f6c1e; blame ignoring nothing
@@ -73,10 +73,12 @@ UNREAD scripts/fxcap/test_sweep.py:395 scripts/fxcap/cells.py:100000 (path): out
 ## scripts/smoke-tui.sh
 # scripts/smoke-tui.sh at 7c3f6c1e; blame ignoring nothing
 WRONG scripts/smoke-tui.sh:194 term.rs:32-52 (short; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
+WRONG scripts/smoke-tui.sh:251 ,65 (list; written by 3dd16a11 as :65): the head's line holds '/// It opens by **clearing** the window title -- u'; '"\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004l\\x1b[?2031l' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.60)
 WRONG scripts/smoke-tui.sh:260 src/tui/theme.rs:67 (path; written by 16101f19 as :67): the head's line holds '/// the window, a `10` reporting the foreground --'; '/// `theme_monitor.zig:181-183`); here the cursor ' -- its text is at :55
 WRONG scripts/smoke-tui.sh:291 src/tui/term.rs:32-52 (path; written by fe38df53 as :32-52): the head's line holds '/// (`terminal.zig:4-13`), the theme-change subscr'; 'pub(crate) const MODE_SET: &str = "\\x1b[>4;2m\\x1b[' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.88)
 WRONG scripts/smoke-tui.sh:293 src/tui/theme.rs:105 (path; written by 16101f19 as :105): the head's line holds '/// sends, so reading them as a theme change would'; '/// does not implement 2031 answers neither this n' -- its text is at :93
 WRONG scripts/smoke-tui.sh:1137 src/tui/theme.rs:67 (path; written by 16101f19 as :67): the head's line holds '/// the window, a `10` reporting the foreground --'; '/// `theme_monitor.zig:181-183`); here the cursor ' -- its text is at :55
+WRONG scripts/smoke-tui.sh:1568 ,65 (list; written by 3dd16a11 as :65): the head's line holds '/// It opens by **clearing** the window title -- u'; '"\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004l\\x1b[?2031l' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.60)
 WRONG scripts/smoke-tui.sh:1568 src/tui/theme.rs:105 (path; written by 16101f19 as :105): the head's line holds '/// sends, so reading them as a theme change would'; '/// does not implement 2031 answers neither this n' -- its text is at :93
 WRONG scripts/smoke-tui.sh:4687 src/main.rs:44-49 (path; written by 9fdf7596 as :44-49): the head's line holds 'Ok(code) => code,'; 'fn fail(message: &str) -> ExitCode {' -- its text is at :50-55
 WRONG scripts/smoke-tui.sh:4956 src/tui/check.rs:1084 (path; written by 9acf15d1 as :1084): the head's line holds ''; 'pub(crate) const RECOVERY_CLEANUP: &str = "\\x18\\x1' -- its text is at :1683
@@ -85,7 +87,7 @@ SAME-LINES scripts/smoke-tui.sh:5819 process.rs:24-43 (short; written by 878186b
 WRONG scripts/smoke-tui.sh:11187 editor.rs:351 (short; written by 060e2a4b as :351): the head's line holds '}'; 'Action::KillToStart => self.delete(self.line_start' -- its text is at :521
 WRONG scripts/smoke-tui.sh:11191 shell.rs:2607 (short; written by 589248ac as :2607): the head's line holds 'model_draft: None,'; 'pending_cut: None,' -- its text is at :2609
 WRONG scripts/smoke-tui.sh:11579 src/tui/theme.rs:109-127 (path; written by 16101f19 as :109-127): the head's line holds '/// Two values and no third: `1` is dark and `2` i'; "/// What a `CSI ? 997 ; N n` says the terminal's b" -- its text is at :97-115
-# SAME 8; SAME-ROW 0; SAME-LINES 2; WRONG 11; other product 4; unread 0; refs 25
+# SAME 9; SAME-ROW 0; SAME-LINES 2; WRONG 13; other product 4; unread 0; refs 28
 # exit 1
 ## src/app.rs
 # src/app.rs at 7c3f6c1e; blame ignoring nothing
@@ -137,7 +139,7 @@ WRONG scripts/smoke-tui.sh:11579 src/tui/theme.rs:109-127 (path; written by 1610
 # exit 0
 ## src/provider/model.rs
 # src/provider/model.rs at 7c3f6c1e; blame ignoring nothing
-# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 24; unread 0; refs 24
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 25; unread 0; refs 25
 # exit 0
 ## src/session/store/fork.rs
 # src/session/store/fork.rs at 7c3f6c1e; blame ignoring nothing
@@ -180,13 +182,17 @@ WRONG src/tui/edit_history.rs:129 entity.rs:91-96 (short; written by a03d08fb as
 ## src/tui/event_loop.rs
 # src/tui/event_loop.rs at 7c3f6c1e; blame ignoring nothing
 WRONG src/tui/event_loop.rs:8115 frame.rs:1533 (short; written by d3f61f5e as :1533): the head's line holds '// written side by side rather than in two functio'; 'pub(crate) fn append_document(' -- its text is at :2623
+WRONG src/tui/event_loop.rs:8115 ,1156 (list; written by d3f61f5e as :1156): the head's line holds 'let released = self.top(geometry);'; 'place(&mut self.buffer, line, row, geometry);' -- its text is at :1674
+WRONG src/tui/event_loop.rs:8115 ,1626 (list; written by d3f61f5e as :1626): the head's line holds '}'; 'buffer.extend_from_slice(row_text(row, geometry.co' -- its text is at 0 places; the head's line most like its first is :2760 (ratio 0.79)
+WRONG src/tui/event_loop.rs:8115 ,1696 (list; written by d3f61f5e as :1696): the head's line holds 'check::Seg::Scroll {'; 'pub(crate) fn row_text(row: &str, cols: u16) -> Co' -- its text is at :2866
+WRONG src/tui/event_loop.rs:8115 ,1758 (list; written by d3f61f5e as :1758): the head's line holds '///'; 'pub(crate) fn clip(row: &str, cols: u16) -> &str {' -- its text is at :2962
 WRONG src/tui/event_loop.rs:12044 frame.rs:61 (short; written by 060e2a4b as :61): the head's line holds "/// handed back its caret. A reset's handoff ends "; 'const ERASE_LINE: &str = "\\x1b[K";' -- its text is at :102
 WRONG src/tui/event_loop.rs:12046 frame.rs:1615-1628 (short; written by 060e2a4b as :1615-1628): the head's line holds '};'; '/// Places one row of the document: `CUP`, the cli' -- its text is at 0 places; the head's line most like its first is :2726 (ratio 1.00)
 WRONG src/tui/event_loop.rs:12047 grid.rs:41 (short; written by 060e2a4b as :41): the head's line holds 'use super::frame::cup;'; 'const ERASE_LINE: &str = "\\u{1b}[K";' -- its text is at :47
 WRONG src/tui/event_loop.rs:12270 transcript.rs:136 (short; written by 060e2a4b as :136): the head's line holds 'if bytes == 0 {'; 'const MAX_TAIL_ROWS: usize = 256;' -- its text is at :348
 WRONG src/tui/event_loop.rs:12828 shell.rs:2716 (short; written by 589248ac as :2716): the head's line holds '#[cfg(not(test))]'; '#[cfg(test)]' -- its text is at :2718
 WRONG src/tui/event_loop.rs:12926 transcript.rs:505-531 (short; written by 063fc66e as :505-531): the head's line holds '}'; 'pub(crate) fn emit_front<E>(' -- its text is at 0 places; the head's line most like its first is :1078 (ratio 1.00)
-# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 7; other product 10; unread 0; refs 22
+# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 11; other product 10; unread 0; refs 26
 # exit 1
 ## src/tui/file_index.rs
 # src/tui/file_index.rs at 7c3f6c1e; blame ignoring nothing
@@ -208,7 +214,7 @@ WRONG src/tui/input.rs:1543 .prd/tui-phase3/loop.md:416 (path; written by 6c4213
 ## src/tui/probe.rs
 # src/tui/probe.rs at 7c3f6c1e; blame ignoring nothing
 WRONG src/tui/probe.rs:519 .prd/03-tui-port.md:43-44 (path; written by 100f1909 as :43-44): the head's line holds ''; '1. At launch, query the cursor row (CSI `6n`, 100 ' -- its text is at 0 places; the head's line most like its first is :62 (ratio 1.00)
-# SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 2; unread 0; refs 4
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 2; unread 0; refs 5
 # exit 1
 ## src/tui/program_status.rs
 # src/tui/program_status.rs at 7c3f6c1e; blame ignoring nothing
@@ -218,7 +224,7 @@ WRONG src/tui/probe.rs:519 .prd/03-tui-port.md:43-44 (path; written by 100f1909 
 # src/tui/shell.rs at 7c3f6c1e; blame ignoring nothing
 WRONG src/tui/shell.rs:10535 worker.rs:3917 (short; written by 589248ac as :3917): the head's line holds '// quiet without hanging up never lets the body fi'; 'bridge::send_terminal(events, UiEvent::TurnEnded {' -- its text is at :3950
 WRONG src/tui/shell.rs:22673 shell.rs:5870 (short; written by 589248ac as :5870): the head's line holds 'self.skills_menu = None;'; 'true' -- its text is at :5872
-# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 2; other product 44; unread 0; refs 46
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 2; other product 45; unread 0; refs 47
 # exit 1
 ## src/tui/toolgroup.rs
 # src/tui/toolgroup.rs at 7c3f6c1e; blame ignoring nothing
@@ -270,8 +276,13 @@ WRONG tests/sessions.rs:3239 src/app.rs:242 (path; written by 7daab7f9 as :242):
 WRONG tests/tui.rs:591 src/tui/mod.rs:269-270 (path; written by 43b27001 as :269-270): the head's line holds '// the two lines above -- `term::shutdown` itself '; 'term::enter_raw(stdin.as_fd(), &current)?;' -- its text is at :747-748
 WRONG tests/tui.rs:2404 .prd/tui-phase3/ssot.md:43 (path; written by 3dd16a11 as :43): the head's line holds ''; '| P3-THEME | TUI ladder 23 | Live theme monitoring' -- its text is at :51
 WRONG tests/tui.rs:2483 tests/tui.rs:1191 (path; written by 3dd16a11 as :1191): the head's line holds '// log, a history or a lock kept under it would ch'; 'pty.resize(24, 80);' -- its text is at 2 places
+WRONG tests/tui.rs:2483 ,1654 (list; written by 3dd16a11 as :1654): the head's line holds 'assert_eq!('; 'let pty = Pty::open();' -- its text is at :2688
+WRONG tests/tui.rs:2483 ,1777 (list; written by 3dd16a11 as :1777): the head's line holds 'assert!('; '("\\u{1b}[24;1H", "the hint row"),' -- its text is at 0 places; the head's line most like its first is :2832 (ratio 0.96)
+WRONG tests/tui.rs:2483 ,2103 (list; written by 3dd16a11 as :2103): the head's line holds 'assert_eq!(session.wait_exit().code(), Some(0));'; '' -- its text is at :3303
+WRONG tests/tui.rs:2483 ,4607 (list; written by 3dd16a11 as :4607): the head's line holds '// of pacing rather than a scheduling accident. Th'; '#[test]' -- its text is at :8600
+WRONG tests/tui.rs:2483 ,4803 (list; written by 3dd16a11 as :4803): the head's line holds ');'; '// solved once and then merely moved would pass th' -- its text is at :8883
 WRONG tests/tui.rs:3129 .prd/tui-phase3/loop.md:416 (path; written by 6c421313 as :416): the head's line holds ''; '- R125 installed WezTerm encoder receipt inspected' -- its text is at :441
 WRONG tests/tui.rs:9199 src/tui/shell.rs:2713 (path; written by 589248ac as :2713): the head's line holds 'usage,'; '// kept for the case to answer ([`super::credits_a' -- its text is at :2715
-# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 5; other product 24; unread 0; refs 31
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 10; other product 24; unread 0; refs 36
 # exit 1
-# all 52 files: SAME 171; SAME-ROW 35; SAME-LINES 3; WRONG 63; other product 441; unread 1; refs 714
+# all 52 files: SAME 174; SAME-ROW 35; SAME-LINES 3; WRONG 74; other product 448; unread 1; refs 735

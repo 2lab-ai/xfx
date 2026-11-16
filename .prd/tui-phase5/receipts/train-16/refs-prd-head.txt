@@ -1,4 +1,4 @@
-# head 2b78aab6; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+# head 6137bd3d; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
 .prd/01-spec.md:58	[docs/parity.md:241]
     base* = | profile -> 60 | slash -> 60 | test-env -> 60 | lpw -> 60 | aps -> 60 | mpd -> 60
 .prd/04-providers.md:13-20	[scripts/fxcap/parity-ledger.toml:197]

@@ -1,34 +1,51 @@
-# jobs.sh net at 2026-11-16T08:53:17Z, load 17.28
-# net-clone at 2b78aab6
-# logger pid 3486, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
-## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 97 s
-   test result: ok. 5118 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 54.69s
+# jobs.sh net at 2026-11-16T11:44:19Z, load 27.03
+# net-clone at 6137bd3d
+# logger pid 31644, 127.0.0.1:<ephemeral>; HTTPS_PROXY, https_proxy, HTTP_PROXY, http_proxy at it; NO_PROXY, no_proxy, ALL_PROXY, all_proxy unset
+## lib: `cargo test --locked --lib --no-fail-fast` exit 0, 98 s
+   test result: ok. 5120 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.61s
    connections logged during it: 0
 ## tui: `cargo test --locked --test tui --no-fail-fast` exit 0, 32 s
-   test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.15s
+   test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.12s
    connections logged during it: 0
-## sessions: `cargo test --locked --test sessions --no-fail-fast` exit 0, 4 s
-   test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+## sessions: `cargo test --locked --test sessions --no-fail-fast` exit 0, 5 s
+   test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
    connections logged during it: 0
-# logger 3486 ended (-15)
+# logger 31644 ended (-15)
 # part 2: sandbox-exec -p '(version 1)(allow default)(deny network-outbound (remote ip "*:*"))(allow network-outbound (remote ip "localhost:*"))'
-## control, under it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 192.0.2.1 port 80 after 1 ms: Couldn't connect to server
-## control, outside it: curl exit 28, 3.0 s: curl: (28) Connection timed out after 3003 milliseconds
+# log stream pid 63668: every report whose message names network-outbound, from here
+## control, IPv4, under it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 192.0.2.1 port 80 after 1 ms: Couldn't connect to server
+## control, IPv4, outside it: curl exit 28, 3.0 s: curl: (28) Connection timed out after 3011 milliseconds
+## control, IPv6, under it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 2001:db8::1 port 80 after 0 ms: Couldn't connect to server
+## control, IPv6, outside it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 2001:db8::1 port 80 after 0 ms: Couldn't connect to server
+## planted 60 s into the run, IPv4, under it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 192.0.2.1 port 80 after 1 ms: Couldn't connect to server
+## planted 60 s into the run, IPv6, under it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 2001:db8::1 port 80 after 1 ms: Couldn't connect to server
+   the run still going after both: True
+## planted after the run, IPv4, under it: curl exit 7, 0.0 s: curl: (7) Failed to connect to 192.0.2.1 port 80 after 1 ms: Couldn't connect to server
+# log stream 63668 ended (-15)
 ## every test binary under the profile: `cargo test --locked --all-targets --no-fail-fast` exit 0, 119 s; 15 binaries
-   test result: ok. 5118 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.90s
+   test result: ok. 5120 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 52.64s
    test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-   test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+   test result: ok. 89 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
    test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.01s
-   test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.22s
-   test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
-   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.72s
-   test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.17s
-   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.97s
-   test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.02s
-   test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
-   test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
-   test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.87s
-   test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
-   test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.18s
-   summed: 6060 passed, 0 failed
-# jobs.sh net done at 2026-11-16T08:57:37Z
+   test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.58s
+   test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.04s
+   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+   test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.15s
+   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+   test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.53s
+   test result: ok. 159 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.44s
+   test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.64s
+   test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.28s
+   test result: ok. 109 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+   test result: ok. 192 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.28s
+   summed: 6062 passed, 0 failed
+## the denial reports: 5 naming a remote address; 0 others (no `remote:`, or not a deny line) not counted
+   control, IPv4, under it (at 0 s): reported: curl deny(1) remote:*:80
+   control, IPv4, outside it (at 0 s): no report
+   control, IPv6, under it (at 3 s): reported: curl deny(1) remote:*:80
+   control, IPv6, outside it (at 3 s): no report
+   planted 60 s into the run, IPv4, under it (at 63 s): reported: curl deny(1) remote:*:80
+   planted 60 s into the run, IPv6, under it (at 63 s): reported: curl deny(1) remote:*:80
+   planted after the run, IPv4, under it (at 122 s): reported: curl deny(1) remote:*:80
+   reports from any other process: 0, 0 of them during the run (119 s)
+# jobs.sh net done at 2026-11-16T11:48:47Z

@@ -6,12 +6,19 @@
 # `--features fault-injection`), one `<binary> <test>` line a test, sorted;
 # then what the head lists that the base does not, and the reverse, per
 # feature set. Run inside one hold of the suite lock.
-# usage: suite-lock.sh test_lists.sh <repo> <base> <head> <scratch>
+# Round 2: with REUSE_BASE=1, the base's two lists already in <scratch>
+# (round 1's, made by this script at the same base) are read as they are,
+# and only the head is cloned and listed.
+# usage: [REUSE_BASE=1] suite-lock.sh test_lists.sh <repo> <base> <head> <scratch>
 set -u
 repo=$1 base=$2 head=$3 T=$4
 mkdir -p "$T"
 for spec in base:$base head:$head; do
   n=${spec%%:*} c=${spec#*:}
+  if [ "$n" = base ] && [ "${REUSE_BASE:-}" = 1 ] && [ -s "$T/list-base-plain.txt" ] && [ -s "$T/list-base-fault.txt" ]; then
+    for fs in plain fault; do echo "# base $c $fs: $(wc -l < "$T/list-base-$fs.txt" | tr -d ' ') tests listed (round 1's list, reused)"; done
+    continue
+  fi
   rm -rf "$T/list-$n"
   git clone -q --no-local "$repo" "$T/list-$n" && git -C "$T/list-$n" checkout -q --detach "$c" || exit 2
   for fs in plain fault; do

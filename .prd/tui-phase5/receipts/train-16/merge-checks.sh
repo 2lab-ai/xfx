@@ -13,6 +13,12 @@
 # file both sides of a merge changed, functions.py across the commits,
 # moved_edits.py for merge 5's moved comment); the
 # overlaps; the test counts and every side's tests by name (tests_kept.py).
+# Round 2 (opus's MUST 1): the scans read comma lists (refs_content.py,
+# refs_bare.py); the third re-point adb809f5 (TEXT's span) joins REPOINTS
+# and is checked by extra_check.py --text, at it and at <head>, into
+# extra-check.txt with the second's; `masked` masks a number with its list;
+# and the plan is derived at <head> too (repoint-plan-head.txt: what is
+# still WRONG there, and from where).
 # usage: merge-checks.sh <repo> <head> <scratch>   (no lock: git and python only)
 set -u
 repo=$1 head=$2 scratch=$3
@@ -21,7 +27,7 @@ rd() { python3 -I -B "$here/redacted.py" "$1" "$repo=<repo>" "$scratch=<scratch>
 P="python3 -I -B $here"
 MERGES=(b2d044c9 e8b004a5 849f5017 dd2ac93d 71787971 1bce5348)
 PRE=622b2865          # the six merges and the join commit: before any re-point
-REPOINTS=(c637ed4c 15c9744b)
+REPOINTS=(c637ed4c 15c9744b adb809f5)
 BASE=866747ff         # train 15's head, this train's base
 SIDES=(base=$BASE profile=bacb1052 slash=32eb858f test-env=7c3f6c1e lpw=dd9f5f0a aps=ca496c10 mpd=6d94fbc0)
 { echo "# each merge tree's checks before its commit (check-merge.sh, no lock), as run: merges 1-6 (m1..m6; merge 3 twice, its first run before semantic.py's fixes: m3-first), the join commit 622b2865 (j1)"
@@ -73,8 +79,9 @@ SC=()
 for spec in "${SIDES[@]}"; do SC+=(--side "${spec%%=*}=$here/content-${spec#*=}.txt"); done
 $P/repoint.py "$repo" "$PRE" --content "$here/content-$PRE.txt" "${SC[@]}" --derive 2>&1 | rd "$here/repoint-plan.txt"
 $P/repoint.py "$repo" "${REPOINTS[0]}" --content "$here/content-${REPOINTS[0]}.txt" "${SC[@]}" --derive 2>&1 | rd "$here/repoint-plan-2.txt"
+$P/repoint.py "$repo" "$head" --content "$here/content-head.txt" "${SC[@]}" --derive 2>&1 | rd "$here/repoint-plan-head.txt"
 masked() { # <commit>: lines out, lines in, the same once numbers are masked
-  echo "# $(git -C "$repo" rev-parse --short=8 "$1"): $(git -C "$repo" show --format= -U0 "$1" | grep -c '^-[^-]') lines out, $(git -C "$repo" show --format= -U0 "$1" | grep -c '^+[^+]') in; the same once numbers are masked: $(diff <(git -C "$repo" show --format= -U0 "$1" | grep '^-[^-]' | cut -c2- | sed -E 's/:[0-9]+(-[0-9]+)?/:N/g' | sort) <(git -C "$repo" show --format= -U0 "$1" | grep '^+[^+]' | cut -c2- | sed -E 's/:[0-9]+(-[0-9]+)?/:N/g' | sort) > /dev/null && echo True || echo False)"
+  echo "# $(git -C "$repo" rev-parse --short=8 "$1"): $(git -C "$repo" show --format= -U0 "$1" | grep -c '^-[^-]') lines out, $(git -C "$repo" show --format= -U0 "$1" | grep -c '^+[^+]') in; the same once numbers are masked: $(diff <(git -C "$repo" show --format= -U0 "$1" | grep '^-[^-]' | cut -c2- | sed -E 's/:[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*/:N/g' | sort) <(git -C "$repo" show --format= -U0 "$1" | grep '^+[^+]' | cut -c2- | sed -E 's/:[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*/:N/g' | sort) > /dev/null && echo True || echo False)"
 }
 { echo "# the first plan as applied (repoint-plan-applied.txt: derived at $PRE before ${REPOINTS[0]}, train 14's two LEAVE entries alone), at ${REPOINTS[0]}, where its numbers stand"
   $P/repointed.py "$repo" "${REPOINTS[0]}" "$PRE" "$here/repoint-plan-applied.txt" "${REPOINTS[0]}"; echo "# exit $?"
@@ -83,7 +90,15 @@ masked() { # <commit>: lines out, lines in, the same once numbers are masked
   $P/extra_check.py "$repo" "${REPOINTS[1]}"; echo "# exit $?"
   masked "${REPOINTS[1]}"
   echo "# the pinned ref put back, 2b78aab6"
-  masked 2b78aab6; } 2>&1 | rd "$here/repointed.txt"
+  masked 2b78aab6
+  echo "# the third re-point (round 2), TEXT's span, at ${REPOINTS[2]}: extra_check.py --text"
+  $P/extra_check.py "$repo" "${REPOINTS[2]}" --text | grep -A 20 '^TEXT'; echo "# exit ${PIPESTATUS[0]}"
+  masked "${REPOINTS[2]}"; } 2>&1 | rd "$here/repointed.txt"
+{ for c in "${REPOINTS[1]}" "${REPOINTS[2]}" "$head"; do
+    echo "# extra_check.py at $(git -C "$repo" rev-parse --short=8 "$c")$([ "$c" = "${REPOINTS[1]}" ] && echo ' (the second re-point: EXTRA alone)' || echo ' --text (EXTRA and TEXT)')"
+    $P/extra_check.py "$repo" "$c" $([ "$c" = "${REPOINTS[1]}" ] || echo --text); echo "# exit $?"
+    echo
+  done; } 2>&1 | rd "$here/extra-check.txt"
 { for m in "${MERGES[@]}"; do
     b=$(git -C "$repo" merge-base "$m^1" "$m^2")
     for f in $(comm -12 <(git -C "$repo" diff --name-only "$b" "$m^1" | sort) <(git -C "$repo" diff --name-only "$b" "$m^2" | sort) | grep -E '\.rs$'); do

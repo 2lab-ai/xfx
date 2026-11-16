@@ -1,4 +1,4 @@
-# unit_tests.py at 2b78aab6 over the gate's logs (its test and test-fault steps)
+# unit_tests.py at 6137bd3d over the gate's logs (its test and test-fault steps)
 PROFILE-REFUSE-AT-LAUNCH (3943d667..0a334851): 18 tests (15 added, 3 changed); ok in both runs 18; gone at the head 0; not ok 0
     ok in both runs: src/config.rs a_launch_refuses_the_models_fx_refuses_and_no_other
     ok in both runs: src/config.rs a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not
@@ -249,5 +249,9 @@ join (1bce5348..622b2865): 3 tests (3 added, 0 changed); ok in both runs 3; gone
     ok in both runs: src/tui/shell.rs a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte
     ok in both runs: src/tui/shell.rs a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs
     ok in both runs: src/tui/shell.rs every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte
-# 238 (unit, test) pairs; 5 not ok or not found in a run
+round2 (2b78aab6..6137bd3d): 3 tests (2 added, 1 changed); ok in both runs 3; gone at the head 0; not ok 0
+    ok in both runs: src/tui/shell.rs a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte
+    ok in both runs: src/tui/shell.rs a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs
+    ok in both runs: tests/tui.rs a_live_theme_notification_repaints_the_band_without_losing_the_draft
+# 241 (unit, test) pairs; 5 not ok or not found in a run
 # exit 1

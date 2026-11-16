@@ -1,225 +1,231 @@
-# content.sh at 2b78aab6, blame ignoring the re-points c637ed4c 15c9744b (each re-pointed ref read against the frame that wrote its numbers)
+# content.sh at 6137bd3d, blame ignoring the re-points c637ed4c 15c9744b adb809f5 (each re-pointed ref read against the frame that wrote its numbers)
 ## UPSTREAM.md
-# UPSTREAM.md at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# UPSTREAM.md at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 42; unread 0; refs 42
 # exit 0
 ## docs/architecture.md
-# docs/architecture.md at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# docs/architecture.md at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
 # exit 0
 ## docs/parity.md
-# docs/parity.md at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# docs/parity.md at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 WRONG docs/parity.md:237 src/gateway/mod.rs:1009-1010 (path; written by 622b2865 as :1005-1006): the head's line holds 'pub(crate) fn is_retryable_status(status: u16) -> '; '}' -- its text is at :1005-1006
-# SAME 23; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 131; unread 0; refs 155
+# SAME 23; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 136; unread 0; refs 160
 # exit 1
 ## scripts/check-no-local-paths.sh
-# scripts/check-no-local-paths.sh at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/check-no-local-paths.sh at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
 # exit 0
 ## scripts/fxcap/capfile.py
-# scripts/fxcap/capfile.py at 2b78aab6; blame ignoring c637ed4c, 15c9744b
-# SAME 5; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 6
+# scripts/fxcap/capfile.py at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+# SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 7
 # exit 0
 ## scripts/fxcap/capture.sh
-# scripts/fxcap/capture.sh at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/capture.sh at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 5
 # exit 0
 ## scripts/fxcap/fakegw.ts
-# scripts/fxcap/fakegw.ts at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/fakegw.ts at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 12
 # exit 0
 ## scripts/fxcap/parity-ledger.toml
-# scripts/fxcap/parity-ledger.toml at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/parity-ledger.toml at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 SAME-LINES scripts/fxcap/parity-ledger.toml:419 .prd/07-fx-parity-program.md:45 (path; written by a1007a00 as :45): the cited text the same, a neighbour not
 # SAME 124; SAME-ROW 42; SAME-LINES 1; WRONG 0; other product 5; unread 0; refs 172
 # exit 0
 ## scripts/fxcap/scenarios/p5-esc-clear.cap
-# scripts/fxcap/scenarios/p5-esc-clear.cap at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/scenarios/p5-esc-clear.cap at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 4
 # exit 0
 ## scripts/fxcap/scenarios/p5-mcp-fail-held.cap
-# scripts/fxcap/scenarios/p5-mcp-fail-held.cap at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/scenarios/p5-mcp-fail-held.cap at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
 # exit 0
 ## scripts/fxcap/scenarios/p5-mcp-fail.cap
-# scripts/fxcap/scenarios/p5-mcp-fail.cap at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/scenarios/p5-mcp-fail.cap at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 2
 # exit 0
 ## scripts/fxcap/scenarios/p5-usage-mkcache.py
-# scripts/fxcap/scenarios/p5-usage-mkcache.py at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/scenarios/p5-usage-mkcache.py at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 2
 # exit 0
 ## scripts/fxcap/test_sweep.py
-# scripts/fxcap/test_sweep.py at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/fxcap/test_sweep.py at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 UNREAD scripts/fxcap/test_sweep.py:512 scripts/fxcap/cells.py:100000 (path): out of range at 9344eb85 or the head
 # SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 1; refs 8
 # exit 0
 ## scripts/smoke-tui.sh
-# scripts/smoke-tui.sh at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/smoke-tui.sh at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+WRONG scripts/smoke-tui.sh:251 ,65 (list; written by 3dd16a11 as :65): the head's line holds '/// It opens by **clearing** the window title -- u'; '"\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004l\\x1b[?2031l' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.60)
+WRONG scripts/smoke-tui.sh:1568 ,65 (list; written by 3dd16a11 as :65): the head's line holds '/// It opens by **clearing** the window title -- u'; '"\\x1b[23;2t\\x1b[>4;0m\\x1b[<u\\x1b[?2004l\\x1b[?2031l' -- its text is at 0 places; the head's line most like its first is :56 (ratio 0.60)
 SAME-LINES scripts/smoke-tui.sh:5755 src/process.rs:24-43 (path; written by 878186b5 as :24): the cited text the same, a neighbour not
 SAME-LINES scripts/smoke-tui.sh:5840 process.rs:24-43 (short; written by 878186b5 as :24): the cited text the same, a neighbour not
-# SAME 19; SAME-ROW 0; SAME-LINES 2; WRONG 0; other product 4; unread 0; refs 25
-# exit 0
+# SAME 20; SAME-ROW 0; SAME-LINES 2; WRONG 2; other product 4; unread 0; refs 28
+# exit 1
 ## scripts/test-check-no-local-paths.sh
-# scripts/test-check-no-local-paths.sh at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# scripts/test-check-no-local-paths.sh at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 3
 # exit 0
 ## src/app.rs
-# src/app.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/app.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 5; unread 0; refs 5
 # exit 0
 ## src/build_meta.rs
-# src/build_meta.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/build_meta.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
 # exit 0
 ## src/cli.rs
-# src/cli.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/cli.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
 # exit 0
 ## src/clipboard.rs
-# src/clipboard.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/clipboard.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
 # exit 0
 ## src/gateway/mod.rs
-# src/gateway/mod.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/gateway/mod.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 15; unread 0; refs 15
 # exit 0
 ## src/image.rs
-# src/image.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/image.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
 # exit 0
 ## src/llmux/protocol.rs
-# src/llmux/protocol.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/llmux/protocol.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 14
 # exit 0
 ## src/llmux/setup.rs
-# src/llmux/setup.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/llmux/setup.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
 # exit 0
 ## src/llmux/sse.rs
-# src/llmux/sse.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/llmux/sse.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
 # exit 0
 ## src/output.rs
-# src/output.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/output.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
 # exit 0
 ## src/permission/authority.rs
-# src/permission/authority.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/permission/authority.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 10; unread 0; refs 10
 # exit 0
 ## src/permission/policy.rs
-# src/permission/policy.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/permission/policy.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
 # exit 0
 ## src/provider/model.rs
-# src/provider/model.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
-# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 25; unread 0; refs 25
+# src/provider/model.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+# SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 26; unread 0; refs 26
 # exit 0
 ## src/session/store/fork.rs
-# src/session/store/fork.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/session/store/fork.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
 # exit 0
 ## src/tools/mutate.rs
-# src/tools/mutate.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tools/mutate.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 7; unread 0; refs 7
 # exit 0
 ## src/tools/question.rs
-# src/tools/question.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tools/question.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 WRONG src/tools/question.rs:303 Cargo.toml:42 (path; written by 866de4f4 as :42): the head's line holds '# built for `ignore`, `globset` and `serde_json`.'; 'serde_json = "1.0"' -- its text is at 0 places; the head's line most like its first is :47 (ratio 0.44)
 # SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 4; unread 0; refs 8
 # exit 1
 ## src/tools/undo.rs
-# src/tools/undo.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tools/undo.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
 # exit 0
 ## src/tui/approval.rs
-# src/tui/approval.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/approval.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
 # exit 0
 ## src/tui/bridge.rs
-# src/tui/bridge.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/bridge.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 8
 # exit 0
 ## src/tui/edit_history.rs
-# src/tui/edit_history.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/edit_history.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 4; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 4
 # exit 0
 ## src/tui/event_loop.rs
-# src/tui/event_loop.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
-# SAME 12; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 24
-# exit 0
+# src/tui/event_loop.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+WRONG src/tui/event_loop.rs:8409 ,1156 (list; written by d3f61f5e as :1156): the head's line holds 'let released = self.top(geometry);'; 'place(&mut self.buffer, line, row, geometry);' -- its text is at :1682
+WRONG src/tui/event_loop.rs:8409 ,1626 (list; written by d3f61f5e as :1626): the head's line holds 'cup(&mut self.buffer, line, 1);'; 'buffer.extend_from_slice(row_text(row, geometry.co' -- its text is at 0 places; the head's line most like its first is :2768 (ratio 0.79)
+WRONG src/tui/event_loop.rs:8409 ,1696 (list; written by d3f61f5e as :1696): the head's line holds 'let bottom = geometry.band_top().saturating_sub(1)'; 'pub(crate) fn row_text(row: &str, cols: u16) -> Co' -- its text is at :2874
+WRONG src/tui/event_loop.rs:8409 ,1758 (list; written by d3f61f5e as :1758): the head's line holds '/// [`Self::frame_landed`]: the stop handler. A `S'; 'pub(crate) fn clip(row: &str, cols: u16) -> &str {' -- its text is at :2970
+# SAME 12; SAME-ROW 0; SAME-LINES 0; WRONG 4; other product 12; unread 0; refs 28
+# exit 1
 ## src/tui/file_index.rs
-# src/tui/file_index.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/file_index.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
 # exit 0
 ## src/tui/file_picker.rs
-# src/tui/file_picker.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/file_picker.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 4; unread 0; refs 4
 # exit 0
 ## src/tui/frame.rs
-# src/tui/frame.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/frame.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 10; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 10
 # exit 0
 ## src/tui/input.rs
-# src/tui/input.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/input.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 12; unread 0; refs 13
 # exit 0
 ## src/tui/probe.rs
-# src/tui/probe.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
-# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 4
+# src/tui/probe.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+# SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 5
 # exit 0
 ## src/tui/program_status.rs
-# src/tui/program_status.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/program_status.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 0; unread 0; refs 1
 # exit 0
 ## src/tui/shell.rs
-# src/tui/shell.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
-# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 90; unread 0; refs 92
+# src/tui/shell.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+# SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 91; unread 0; refs 93
 # exit 0
 ## src/tui/toolgroup.rs
-# src/tui/toolgroup.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/toolgroup.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 1; SAME-LINES 0; WRONG 0; other product 14; unread 0; refs 15
 # exit 0
 ## src/tui/worker.rs
-# src/tui/worker.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/worker.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 2; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 27; unread 0; refs 29
 # exit 0
 ## src/tui/wrap.rs
-# src/tui/wrap.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/tui/wrap.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 3; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 5
 # exit 0
 ## src/usage/clock.rs
-# src/usage/clock.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# src/usage/clock.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 3; unread 0; refs 3
 # exit 0
 ## tests/permissions.rs
-# tests/permissions.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# tests/permissions.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 9; unread 0; refs 9
 # exit 0
 ## tests/session_compat.rs
-# tests/session_compat.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# tests/session_compat.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 WRONG tests/session_compat.rs:57 src/session/event.rs:98-192 (path; written by 9956e7a8 as :98-192): the head's line holds ''; '' -- its text is at 0 places; the head's line most like its first is :25 (ratio 1.00)
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 1; other product 3; unread 0; refs 5
 # exit 1
 ## tests/sessions.rs
-# tests/sessions.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# tests/sessions.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 2; unread 0; refs 3
 # exit 0
 ## tests/support/fake_gateway.rs
-# tests/support/fake_gateway.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# tests/support/fake_gateway.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 6
 # exit 0
 ## tests/support/fake_llmux.rs
-# tests/support/fake_llmux.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# tests/support/fake_llmux.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 0; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 1; unread 0; refs 1
 # exit 0
 ## tests/tool_loop.rs
-# tests/tool_loop.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
+# tests/tool_loop.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
 # SAME 1; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 6; unread 0; refs 7
 # exit 0
 ## tests/tui.rs
-# tests/tui.rs at 2b78aab6; blame ignoring c637ed4c, 15c9744b
-# SAME 6; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 24; unread 0; refs 30
+# tests/tui.rs at 6137bd3d; blame ignoring c637ed4c, 15c9744b, adb809f5
+# SAME 16; SAME-ROW 0; SAME-LINES 0; WRONG 0; other product 24; unread 0; refs 40
 # exit 0
-# all 54 files: SAME 242; SAME-ROW 43; SAME-LINES 3; WRONG 3; other product 549; unread 1; refs 841
+# all 54 files: SAME 255; SAME-ROW 43; SAME-LINES 3; WRONG 9; other product 556; unread 1; refs 867

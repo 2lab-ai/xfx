@@ -44,7 +44,7 @@ ok  auto  tests/tui.rs:592 src/tui/mod.rs:759-760 -> src/tui/mod.rs:772-773: the
 ok  auto  tests/tui.rs:2721 tests/tui.rs:1809 -> tests/tui.rs:1930: the frame's lines and two either side at :1930
 ok  auto  tests/tui.rs:9563 src/tui/shell.rs:17529 -> src/tui/shell.rs:17608: the frame's lines and two either side at :17608
 # 44 plan lines checked at c637ed4c: 44 ok, 0 bad
-# c637ed4c: 36 lines out, 36 in; the same once numbers are masked and the 0 text spans put back: True
+# c637ed4c: 36 lines out, 36 in; the same once numbers are masked and the 1 text spans put back: True
 # exit 0
 # c637ed4c: 36 lines out, 36 in; the same once numbers are masked: True
 # the second plan, EXTRA's four read by hand, at 15c9744b: extra_check.py (repointed.py has no file for a bare :N)
@@ -57,3 +57,19 @@ ok  src/tui/shell.rs :6418 -> 6423: the citing text with the new number once and
 # 15c9744b: 4 lines out, 4 in; the same once numbers are masked: True
 # the pinned ref put back, 2b78aab6
 # 2b78aab6: 1 lines out, 1 in; the same once numbers are masked: True
+# the third re-point (round 2), TEXT's span, at adb809f5: extra_check.py --text
+TEXT tests/tui.rs: the new span once and the old nowhere: True; the base span once at 866747ff: True
+  ok  866747ff's :1809 -> :1930 mapped, written :1930; tests/tui.rs:1930 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :1809 did: True
+  ok  866747ff's :2191 -> :2312 mapped, written :2312; tests/tui.rs:2312 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2191 did: True
+  ok  866747ff's :2766 -> :2887 mapped, written :2887; tests/tui.rs:2887 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :2766 did: True
+  ok  866747ff's :3113 -> :3234 mapped, written :3234; tests/tui.rs:3234 holds 'session.type_bytes(&[0x05, 0x15, 0x04]);', as 866747ff's :3113 did: True
+  ok  866747ff's :3236 -> :3357 mapped, written :3357; tests/tui.rs:3357 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3236 did: True
+  ok  866747ff's :3928 -> :4049 mapped, written :4049; tests/tui.rs:4049 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :3928 did: True
+  ok  866747ff's :7648 -> :7769 mapped, written :7769; tests/tui.rs:7769 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7648 did: True
+  ok  866747ff's :7722 -> :7843 mapped, written :7843; tests/tui.rs:7843 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :7722 did: True
+  ok  866747ff's :8515 -> :8630 mapped, written :8630; tests/tui.rs:8630 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :8515 did: True
+  ok  866747ff's :9216 -> :9331 mapped, written :9331; tests/tui.rs:9331 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9216 did: True
+  ok  866747ff's :9412 -> :9527 mapped, written :9527; tests/tui.rs:9527 holds 'session.type_bytes(&[0x15, 0x04]);', as 866747ff's :9412 did: True
+# TEXT: 1 span(s) at adb809f5, 0 bad
+# exit 0
+# adb809f5: 1 lines out, 1 in; the same once numbers are masked: True

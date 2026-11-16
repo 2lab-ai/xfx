@@ -4,9 +4,12 @@
 # commit's `git diff --word-diff=plain` of the file, the words out and in,
 # one changed run a line, then the rows each commit changed (by first cell)
 # and, for the join commit, each edited sentence as it stands after it.
+# Round 2: its last section's python moved to parity_sentences.py (gpt6's NTH
+# 2: the inline `-c` quoting broke it, a SyntaxError in round 1's output).
 # usage: parity-join.sh <repo>
 set -u
 repo=$1
+here=$(cd "$(dirname "$0")" && pwd)
 for c in 622b2865 c637ed4c 15c9744b; do
   echo "## $c: $(git -C "$repo" log -1 --format=%s "$c" | cut -c1-90)"
   echo "# lines changed: $(git -C "$repo" diff --numstat "$c^" "$c" -- docs/parity.md)"
@@ -17,16 +20,5 @@ for c in 622b2865 c637ed4c 15c9744b; do
   echo
 done
 echo "## the join commit's sentences as they stand at 622b2865"
-git -C "$repo" show 622b2865:docs/parity.md | python3 -I -B -c '
-import sys
-text = sys.stdin.read()
-for start in ("fx\x27s composer also completes a typed argument from its menu before Enter, and so does",
-              "**The draft\x27s keys are fx v0.0.16\x27s**",
-              "behind the meta prefix too (`ESC ESC [106;5u`",
-              "The meta-prefixed ones are C-j too:",
-              "refuses it as not an xfx command when it takes none."):
-    i = text.find(start)
-    end = text.find("**", i + len(start) + 400) if i >= 0 else -1
-    print(f"- {text[i:i + 1100] if i >= 0 else 'NOT FOUND: ' + start}")
-    print()
-'
+git -C "$repo" show 622b2865:docs/parity.md | python3 -I -B "$here/parity_sentences.py"
+echo "# exit $?"

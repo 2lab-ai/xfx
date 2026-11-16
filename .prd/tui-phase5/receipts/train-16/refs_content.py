@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-# Train 16: train 15's refs_content.py, unchanged but for this line.
+# Train 16: train 15's refs_content.py; round 2 adds the comma-list form
+# (`path:N,M,...`, opus's MUST 1): each `,M` after a ref is a ref of kind
+# `list` into the same file, and NUMS masks a number with its list.
 # Train 14: train 13's refs_content.py, copied; what changed for this train, if anything, is said below this line.
 """Train 13: every reference the parity ledger holds, checked by **content**
 -- APPROVAL-VERTICAL-SPELLINGS' refs.py is the model (a ref must name the
@@ -32,7 +34,12 @@ What counts as a ref: a repo path (`src/`, `scripts/`, `tests/`, `docs/`,
 followed by `@` (a pin into another product); a short `<basename>:N` whose
 basename names one tracked file (any of the path's extensions but `.zig`:
 a short `main.zig:N` is fx's); and a bare `:N` after either, on the same
-line, until a ref into another file starts (refs.py's rule). A path that is
+line, until a ref into another file starts (refs.py's rule); and (train 16)
+each `,M` or `,M-K` of a comma list straight after any of those
+(`tests/tui.rs:1930,2312`), a `list` ref into the same file. A list whose
+last number has `@` after it is pinned and its `,M`s are skipped (its first
+number is read as before; at train 16's head every such list is fx's). A
+path that is
 neither in the head's tree nor in B's is another product's (fx's `src/...zig`,
 say) and is counted, not checked.
 
@@ -58,7 +65,8 @@ FULL = re.compile(r"(?<![A-Za-z0-9_./-])((?:src|scripts|tests|docs|\.prd)/[A-Za-
 SHORT = re.compile(r"(?<![A-Za-z0-9_./-])([A-Za-z0-9_-]+\.(?:rs|sh|py|md|toml|ts|json|txt|cap|yml|rb)):(\d+)(?:-(\d+))?(?![\d@]|-\d)")
 ANY = re.compile(r"[\w./-]+\.(?:rs|zig|md|toml|ts|py|sh|txt|json|cap|yml|rb):\d+")
 BARE = re.compile(r"(?<![\w./:]):(\d+)(?:-(\d+))?(?![\d\w@-])")
-NUMS = re.compile(r":\d+(?:-\d+)?")
+NUMS = re.compile(r":\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*")
+LIST = re.compile(r",(\d+)(?:-(\d+))?(?!\d|-\d)")
 CTX = 2
 _cache = {}
 
@@ -87,6 +95,19 @@ def setup(r, h, ign=()):
         by_name.setdefault(os.path.basename(f), []).append(f)
 
 
+def tail(line, end, path):
+    """The `,M` refs of a comma list straight after a ref ending at `end`
+    (train 16): none when the list's last number has `@` after it (pinned)."""
+    out, pos = [], end
+    while True:
+        m = LIST.match(line, pos)
+        if not m:
+            break
+        out.append((m.start(), m.end(), path, int(m.group(1)), m.group(2), "list"))
+        pos = m.end()
+    return [] if line[pos:pos + 1] == "@" else out
+
+
 def refs_of(line):
     """(start, end, path, first, last, kind) of every ref on one line."""
     marks = []
@@ -102,6 +123,8 @@ def refs_of(line):
     files = sorted(marks)
     others = [m.start() for m in ANY.finditer(line) if not any(a <= m.start() < b for a, b, *_ in files)]
     out = list(files)
+    for f in files:
+        out += tail(line, f[1], f[2])
     for m in BARE.finditer(line):
         if any(a <= m.start() < b for a, b, *_ in files):
             continue
@@ -112,6 +135,7 @@ def refs_of(line):
         if any(last[1] <= o < m.start() for o in others):
             continue  # a ref into another file (not this repo's) came between
         out.append((m.start(), m.end(), last[2], int(m.group(1)), m.group(2), "bare"))
+        out += tail(line, m.end(), last[2])
     return sorted(out)
 
 

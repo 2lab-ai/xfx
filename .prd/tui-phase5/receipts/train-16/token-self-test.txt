@@ -60,7 +60,7 @@ self-test b2d044c9: 51 of 51 found
 # exit 0
 ## token_check.py --self-test e8b004a5 (train 7's, as it is; its last three lines)
 # exit 1
-  File "<<checkout>/.prd/tui-phase5/receipts/train-16/token_check.py", line 606, in self_test
+  File "<repo>/.prd/tui-phase5/receipts/train-16/token_check.py", line 606, in self_test
     at = next(i for i in range(len(words)) if [w for w in words[i:i + len(run)]] == run)
 StopIteration
 ## token_check16.py --self-test e8b004a5 (its two plants fixed)
@@ -224,7 +224,7 @@ self-test dd2ac93d: 42 of 42 found
 # exit 0
 ## token_check.py --self-test 71787971 (train 7's, as it is; its last three lines)
 # exit 1
-  File "<<checkout>/.prd/tui-phase5/receipts/train-16/token_check.py", line 606, in self_test
+  File "<repo>/.prd/tui-phase5/receipts/train-16/token_check.py", line 606, in self_test
     at = next(i for i in range(len(words)) if [w for w in words[i:i + len(run)]] == run)
 StopIteration
 ## token_check16.py --self-test 71787971 (its two plants fixed)
@@ -279,7 +279,7 @@ self-test 71787971: 47 of 47 found
 # exit 0
 ## token_check.py --self-test 1bce5348 (train 7's, as it is; its last three lines)
 # exit 1
-  File "<<checkout>/.prd/tui-phase5/receipts/train-16/token_check.py", line 606, in self_test
+  File "<repo>/.prd/tui-phase5/receipts/train-16/token_check.py", line 606, in self_test
     at = next(i for i in range(len(words)) if [w for w in words[i:i + len(run)]] == run)
 StopIteration
 ## token_check16.py --self-test 1bce5348 (its two plants fixed)

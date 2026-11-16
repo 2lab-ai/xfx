@@ -1,14 +1,14 @@
-# test_lists.sh <repo> 866747ff 2b78aab6 <scratch> (one hold of the suite lock): every test each test binary lists (cargo test --all-targets -- --list), at the base and the head, plain and with fault-injection
-# base 866747ff plain: 5949 tests listed
-# base 866747ff fault: 5986 tests listed
-# head 2b78aab6 plain: 6068 tests listed
-# head 2b78aab6 fault: 6105 tests listed
-## plain: in the head's list and not the base's: 120; in the base's and not the head's: 1
+# test_lists.sh <repo> 866747ff 6137bd3d <scratch> (REUSE_BASE=1: round 1's base lists, made by this script at the same base; one hold of the suite lock): every test each test binary lists (cargo test --all-targets -- --list), at the base and the head, plain and with fault-injection
+# base 866747ff plain: 5949 tests listed (round 1's list, reused)
+# base 866747ff fault: 5986 tests listed (round 1's list, reused)
+# head 6137bd3d plain: 6070 tests listed
+# head 6137bd3d fault: 6107 tests listed
+## plain: in the head's list and not the base's: 122; in the base's and not the head's: 1
   gone: src/lib.rs process::tests::no_child_process_is_made_any_other_way
-## fault: in the head's list and not the base's: 120; in the base's and not the head's: 1
+## fault: in the head's list and not the base's: 122; in the base's and not the head's: 1
   gone: src/lib.rs process::tests::no_child_process_is_made_any_other_way
 ## plain: the tests per binary, base -> head
-  src/lib.rs: 5023 -> 5125 (+102)
+  src/lib.rs: 5023 -> 5127 (+104)
   tests/cli.rs: 82 -> 89 (+7)
   tests/gateway.rs: 93 -> 93 (+0)
   tests/interactive.rs: 79 -> 81 (+2)
@@ -22,8 +22,8 @@
   tests/sessions.rs: 67 -> 67 (+0)
   tests/tool_loop.rs: 109 -> 109 (+0)
   tests/tui.rs: 189 -> 192 (+3)
-  all: 5949 -> 6068 (+119)
-## plain: the 120 the head lists and the base does not
+  all: 5949 -> 6070 (+121)
+## plain: the 122 the head lists and the base does not
   + src/lib.rs config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
   + src/lib.rs config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes
   + src/lib.rs config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
@@ -101,7 +101,9 @@
   + src/lib.rs tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash
   + src/lib.rs tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one
   + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte
   + src/lib.rs tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs
   + src/lib.rs tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own
   + src/lib.rs tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs
   + src/lib.rs tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape
@@ -145,7 +147,7 @@
   + tests/tui.rs a_profile_only_ask_refuses_starts_the_tui
   + tests/tui.rs a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal
 ## fault: the tests per binary, base -> head
-  src/lib.rs: 5046 -> 5148 (+102)
+  src/lib.rs: 5046 -> 5150 (+104)
   tests/cli.rs: 82 -> 89 (+7)
   tests/gateway.rs: 93 -> 93 (+0)
   tests/interactive.rs: 79 -> 81 (+2)
@@ -159,8 +161,8 @@
   tests/sessions.rs: 67 -> 67 (+0)
   tests/tool_loop.rs: 109 -> 109 (+0)
   tests/tui.rs: 203 -> 206 (+3)
-  all: 5986 -> 6105 (+119)
-## fault: the 120 the head lists and the base does not
+  all: 5986 -> 6107 (+121)
+## fault: the 122 the head lists and the base does not
   + src/lib.rs config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion
   + src/lib.rs config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes
   + src/lib.rs config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
@@ -238,7 +240,9 @@
   + src/lib.rs tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash
   + src/lib.rs tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one
   + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte
   + src/lib.rs tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs
   + src/lib.rs tui::shell::tests::a_name_with_no_argument_lists_nothing_past_its_blank_and_a_table_lists_its_own
   + src/lib.rs tui::shell::tests::a_paste_into_an_amendment_is_one_line_on_either_plane_as_fxs
   + src/lib.rs tui::shell::tests::a_prefixed_arrow_at_an_approval_choice_or_a_question_is_a_move_and_no_escape
@@ -282,6 +286,12 @@
   + tests/tui.rs a_profile_only_ask_refuses_starts_the_tui
   + tests/tui.rs a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal
 ## the doc test: one at both (cargo test --doc -- --list), `src/agent/types.rs - agent::types::TurnJournal (line 70)`; TEST-ENV-ISOLATION's Cargo.toml sets `doctest = false` (and `test = false` on the binary), so the head's gate runs it no more: train 15's gate at 2c575f52 had its `1 passed` (../train-15/gate-counts.txt), this train's gate none (gate-counts.txt)
-## Cargo.toml at 2b78aab6, the two lines
+## Cargo.toml at 6137bd3d, the two lines
 21:test = false
 26:doctest = false
+## round 2, plain: in 6137bd3d's list and not round 1's head 2b78aab6's: 2; the reverse: 0
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs
+## round 2, fault: in 6137bd3d's list and not round 1's head 2b78aab6's: 2; the reverse: 0
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte
+  + src/lib.rs tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs

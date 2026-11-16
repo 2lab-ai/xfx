@@ -1,4 +1,18 @@
-# head 2b78aab6; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+# head 6137bd3d; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1297 (after tests/gateway.rs)
+    base MOVED -> :1277 | profile MOVED -> :1277 | slash MOVED -> :1277 | lpw MOVED -> :1277 | aps MOVED -> :1277 | mpd MOVED -> :1277
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1320 (after tests/gateway.rs)
+    base MOVED -> :1300 | profile MOVED -> :1300 | slash MOVED -> :1300 | lpw MOVED -> :1300 | aps MOVED -> :1300 | mpd MOVED -> :1300
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1345 (after tests/gateway.rs)
+    base MOVED -> :1325 | profile MOVED -> :1325 | slash MOVED -> :1325 | lpw MOVED -> :1325 | aps MOVED -> :1325 | mpd MOVED -> :1325
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1280 (after tests/tool_loop.rs)
+    base MOVED -> :1271 | profile MOVED -> :1271 | slash MOVED -> :1271 | lpw MOVED -> :1271 | aps MOVED -> :1271 | mpd MOVED -> :1271
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,2535 (after tests/permissions.rs)
+    base MOVED -> :2530 | profile MOVED -> :2530 | slash MOVED -> :2530 | lpw MOVED -> :2530 | aps MOVED -> :2530 | mpd MOVED -> :2530
+docs/superpowers/plans/2026-08-24-provider-frame.md:1436: ,2360 (after src/session/store.rs)
+    profile MOVED -> :2638 | slash MOVED -> :2646 | test-env MOVED -> :2638 | lpw MOVED -> :2638 | aps MOVED -> :2646 | mpd MOVED -> :2646
+docs/superpowers/plans/2026-08-24-provider-frame.md:1436: ,1197 (after tests/sessions.rs)
+    base MOVED -> :1199 | profile MOVED -> :1200 | slash MOVED -> :1199 | test-env MOVED -> :1198 | lpw MOVED -> :1200 | aps MOVED -> :1199 | mpd MOVED -> :1199
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
     base MOVED -> :1943-1949 | profile MOVED -> :1951-1957 | slash MOVED -> :1950-1956 | test-env MOVED -> :2040-2046 | lpw MOVED -> :1951-1957 | aps MOVED -> :1951-1957 | mpd MOVED -> :1951-1957
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
@@ -35,6 +49,8 @@ docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after s
     base MOVED -> :4079 | profile MOVED -> :4087 | slash MOVED -> :4084 | test-env MOVED -> :4226 | lpw MOVED -> :4087 | aps MOVED -> :4087 | mpd MOVED -> :4087
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
     base MOVED -> :2860 | profile MOVED -> :2869 | slash MOVED -> :2869 | test-env MOVED -> :2980 | lpw MOVED -> :2869 | aps MOVED -> :2869 | mpd MOVED -> :2869
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:34: ,194 (after tests/tool_loop.rs)
+    base MOVED -> :185 | profile MOVED -> :185 | slash MOVED -> :185 | lpw MOVED -> :185 | aps MOVED -> :185 | mpd MOVED -> :185
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md:35: :349-380 (after tests/parity.rs)
     base MOVED -> :352-383 | profile MOVED -> :352-383 | slash MOVED -> :352-383 | lpw MOVED -> :352-383 | aps MOVED -> :352-383 | mpd MOVED -> :352-383
 docs/superpowers/plans/2026-09-10-tui-phase3-question.md:35: :330 (after tests/parity.rs)
@@ -143,4 +159,10 @@ docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src
     profile MOVED -> :777 | slash MOVED -> :774 | test-env MOVED -> :777 | lpw MOVED -> :777 | aps MOVED -> :771 | mpd MOVED -> :771
 scripts/fxcap/parity-ledger.toml:984: :116 (after docs/parity.md)
     base CHANGED | profile CHANGED | test-env CHANGED | lpw CHANGED | aps CHANGED | mpd CHANGED
-# 128 bare continuations after a reference into a changed file; 72 moved or changed on some side that holds them
+src/tui/event_loop.rs:8409: ,1626 (after src/tui/frame.rs)
+    profile MOVED -> :1634 | slash MOVED -> :1634 | test-env MOVED -> :1634 | lpw MOVED -> :1634 | aps MOVED -> :1634 | mpd MOVED -> :1634
+src/tui/event_loop.rs:8409: ,1696 (after src/tui/frame.rs)
+    profile MOVED -> :1704 | slash MOVED -> :1704 | test-env MOVED -> :1704 | lpw MOVED -> :1704 | aps MOVED -> :1704 | mpd MOVED -> :1704
+src/tui/event_loop.rs:8409: ,1758 (after src/tui/frame.rs)
+    profile MOVED -> :1766 | slash MOVED -> :1766 | test-env MOVED -> :1766 | lpw MOVED -> :1766 | aps MOVED -> :1766 | mpd MOVED -> :1766
+# 152 bare continuations after a reference into a changed file; 83 moved or changed on some side that holds them

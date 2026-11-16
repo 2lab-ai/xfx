@@ -1,4 +1,4 @@
-# head 2b78aab6; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
+# head 6137bd3d; sides: base 866747ff, profile bacb1052, slash 32eb858f, test-env 7c3f6c1e, lpw dd9f5f0a, aps ca496c10, mpd 6d94fbc0
 docs/superpowers/plans/2026-08-24-tui-phase1.md: machine.rs:633-648 (src/agent/machine.rs)
     profile MOVED -> 634-649 | slash MOVED -> 634-649 | test-env MOVED -> 634-649 | lpw MOVED -> 634-649 | aps MOVED -> 634-649 | mpd MOVED -> 634-649
 docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md: editor.rs:470-476 (src/tui/editor.rs)

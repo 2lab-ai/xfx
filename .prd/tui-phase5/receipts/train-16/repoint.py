@@ -4,6 +4,13 @@ train's (train 15's were empty), its two LEAVE entries kept -- the two refs
 train 14 left WRONG on purpose, WRONG at this train's base still. Nothing
 else changed.
 
+Train 16, round 2 (opus's MUST 1): refs_content.py reads a comma list's
+`,M` as a ref of kind `list`, so its WRONG ones come here as any other; a
+`list` token is re-pointed by TEXT (its whole span) or left by LEAVE, and
+`numbers` takes a `,M` as it takes a `:N`. `--apply-spans` writes TEXT's
+spans alone: the plan's numbers and EXTRA's are in already (`c637ed4c`,
+`15c9744b`), and `--apply` would write EXTRA's again.
+
 Train 15: train 14's repoint.py, its HAND, TEXT and EXTRA tables this
 train's (train 14's were applied there), its two LEAVE entries kept -- the
 two refs train 14 left WRONG on purpose, WRONG on main still. Nothing else
@@ -103,9 +110,34 @@ LEAVE[("docs/parity.md", "src/mcp/transport.rs:1318-1320", "path")] = (
     "`is_answer` (an answer is the frame with no method and its id); the check reads the path against the head, "
     "where TEST-ENV-ISOLATION moved those lines. The first re-point (c637ed4c) moved it with the rest; the third "
     "(train 16's) puts it back")
+# Round 2: the comma lists the list-aware content check reads WRONG at the
+# code head 2b78aab6 and at the base 866747ff alike -- older than this train,
+# named and left (the dispatcher's call for event_loop.rs's; the same class
+# for smoke-tui.sh's).
+for _n in (",1156", ",1626", ",1696", ",1758"):
+    LEAVE[("src/tui/event_loop.rs", _n, "list")] = (
+        "stale before this train: the `clip` chain's list `frame.rs:2631,1156,1626,1696,1758`; frame.rs is the same "
+        "blob at the base and the head, and the base's content check reads these four WRONG already. Train 14's "
+        "04e4491d moved the first number alone (`frame.rs:1533` -> `:2631`), the comma-list blind spot. The head's "
+        "lines for d3f61f5e's text: `place(...)` :1682, `row_text`'s call rewritten, `fn row_text` :2874, `fn clip` :2970")
+LEAVE[("scripts/smoke-tui.sh", ",65", "list")] = (
+    "stale before this train: `src/tui/term.rs:56,65`, whose :65 was `RESTORE` (`?2031l`) when 3dd16a11 wrote it; "
+    "at the base and the head :65 is a doc comment and `RESTORE` is at :97-98. The base's content check reads both "
+    "(smoke-tui.sh:251 and :1568) WRONG already; a third, :2613, reads SAME, its frame ff736932 having written :65 "
+    "when it was that comment already (the check's blind spot)")
 LEAVE[("tests/session_compat.rs", "src/session/event.rs:98-192", "path")] = (
     "it names commit 14ad04202fe5's file (`14ad04202fe5 src/session/event.rs:98-192`), whose 98-192 are "
     "`SessionEvent` as it says; the check reads it against the head")
+
+# Round 2: the list tests/tui.rs:2721 holds (opus's MUST 1). Train 14's
+# 04e4491d wrote it whole; the merges moved all eleven numbers and the first
+# re-point (c637ed4c) moved the first alone. Each new number is the base's
+# mapped through `git diff -U0 866747ff` (refs_bare.py's MOVED at the code
+# head), and each names a clear-line send (extra_check.py's TEXT section).
+TEXT[("tests/tui.rs", "`tests/tui.rs:1930,2191,2766,3113,3236,3928,7648,7722,8515,9216,9412`")] = (
+    "`tests/tui.rs:1930,2312,2887,3234,3357,4049,7769,7843,8630,9331,9527`",
+    "the merges moved the list's ten numbers after the first (+121 through 7722, +115 after; c637ed4c re-pointed only "
+    "the first), each to the base's clear-line send `session.type_bytes(&[0x15, 0x04]);` (3234: `&[0x05, 0x15, 0x04]`)")
 
 
 def parse(path):
@@ -178,7 +210,7 @@ def plan(repo, head, content, sides):
 
 
 def numbers(spelled, new):
-    return re.sub(r":\d+(?:-\d+)?$", ":" + new, spelled)
+    return re.sub(r"([:,])\d+(?:-\d+)?$", lambda m: m.group(1) + new, spelled)
 
 
 def main():
@@ -204,7 +236,14 @@ def main():
         print(f"extra {'main':19} {c} {spelled} -> {numbers(spelled, new)} (read SAME; the head's :{new} holds {text!r}): {why}")
     print(f"# {len(out)} WRONG refs, by where they came from: " + "; ".join(f"{k} {v}" for k, v in sorted(by.items())))
     print(f"# by how: " + "; ".join(f"{k} {v}" for k, v in sorted(hows.items())) + " (extra: read SAME, re-pointed by hand)")
-    if "--apply" in args:
+    if "--apply-spans" in args:
+        for (c, old_span), (new_span, why) in TEXT.items():
+            body = open(os.path.join(repo, c), encoding="utf-8").read()
+            assert body.count(old_span) == 1 and body.count(new_span) == 0, (c, old_span)
+            open(os.path.join(repo, c), "w", encoding="utf-8").write(body.replace(old_span, new_span))
+            print(f"span  {c}: {old_span} -> {new_span}")
+        print(f"# applied {len(TEXT)} spans (TEXT alone)")
+    elif "--apply" in args:
         edits = {}
         for w, origin, path, new, how, why in out:
             if new is None:

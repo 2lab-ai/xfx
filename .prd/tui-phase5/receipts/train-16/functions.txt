@@ -1,5 +1,5 @@
 # functions.py: each function's sha256 (12 hex digits, and its length in lines) per commit; then the lines that differ between the named pairs
-| function | base `866747ff` | decoder `df45025c` | aps `ca496c10` | mpd `6d94fbc0` | slash `32eb858f` | test-env `7c3f6c1e` | m1 `b2d044c9` | m2 `e8b004a5` | m3 `849f5017` | m4 `dd2ac93d` | m5 `71787971` | m6 `1bce5348` | join `622b2865` | head `2b78aab6` |
+| function | base `866747ff` | decoder `df45025c` | aps `ca496c10` | mpd `6d94fbc0` | slash `32eb858f` | test-env `7c3f6c1e` | m1 `b2d044c9` | m2 `e8b004a5` | m3 `849f5017` | m4 `dd2ac93d` | m5 `71787971` | m6 `1bce5348` | join `622b2865` | head `6137bd3d` |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `src/tui/approval_amendment.rs` `apply` | be0d55e01557 (3) | 811481471ec9 (34) | 82a79de04c84 (50) | 811481471ec9 (34) | 811481471ec9 (34) | 811481471ec9 (34) | be0d55e01557 (3) | be0d55e01557 (3) | be0d55e01557 (3) | be0d55e01557 (3) | d852ed327d22 (16) | d852ed327d22 (16) | d852ed327d22 (16) | d852ed327d22 (16) |
 | `src/tui/shell.rs` `offer_to_mcp_args` | 0945733cba64 (65) | 752141c0f566 (42) | 752141c0f566 (42) | 752141c0f566 (42) | 8d1cb7bddd0c (42) | 752141c0f566 (42) | 0945733cba64 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) |

@@ -1,54 +1,114 @@
-# mutants.sh in a git clone --no-local at the join commit 622b2865, under the suite lock (one hold), 900 s bound each; exit 0
-# clone at 622b2865, tree clean: yes
-## none: exit 0, 39 s
+# mutants.sh in a git clone --no-local at the code head 6137bd3d (round 2: MA-MD as at the join commit, ME and MF added for the split case), under the suite lock (one hold), 900 s bound each; exit 0
+# clone at 6137bd3d, tree clean: yes
+## none: exit 0, 9 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... ok
 test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... ok
 test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... ok
 test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... ok
 test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... ok
 test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
 test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... ok
 test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
-test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.19s
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.20s
 ## MA-no-prefix-stage: exit 101, 6 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... FAILED
 test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... FAILED
 test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... ok
 test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... ok
 test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... ok
 test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
-test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... ok
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
-test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.18s
+test result: FAILED. 8 passed; 2 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.18s
 ## MB-prefix-not-alt: exit 101, 6 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... FAILED
 test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... FAILED
 test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... ok
 test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... ok
 test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... ok
 test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
-test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... ok
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
-test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.18s
+test result: FAILED. 8 passed; 2 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.20s
 ## MC-ctrl-letter-not-behind-prefix: exit 101, 7 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... ok
 test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... ok
 test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... ok
 test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... FAILED
 test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... FAILED
 test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
-test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... FAILED
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
-test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.18s
+test result: FAILED. 7 passed; 3 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.20s
 ## MD-end-to-draft-start: exit 101, 6 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... ok
 test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... FAILED
 test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... FAILED
 test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... FAILED
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... ok
 test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... ok
 test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
-test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... ok
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
 test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
-test result: FAILED. 5 passed; 3 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.17s
+test result: FAILED. 7 passed; 3 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.19s
+## ME-pair-resolves-at-esc-timeout: exit 101, 7 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... FAILED
+test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... ok
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... ok
+test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
+test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... ok
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
+test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.20s
+## MF-escape-in-a-draft-swallowed: exit 101, 6 s
+test tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs ... FAILED
+test tui::shell::tests::the_tilde_edges_and_ctrl_shift_letters_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_key_in_an_amendment_is_its_alt_spelling_as_fxs ... ok
+test tui::shell::tests::super_left_right_and_the_draft_edges_in_an_amendment_are_fxs ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte ... ok
+test tui::shell::tests::a_meta_prefixed_ctrl_j_report_answers_a_permission_question_as_the_byte ... ok
+test tui::shell::tests::ctrl_j_answers_as_enter_does_at_a_choice_and_in_a_draft_on_both_planes ... ok
+test tui::shell::tests::every_meta_prefixed_ctrl_j_report_answers_a_model_question_as_the_byte ... ok
+test tui::shell::tests::every_ctrl_j_spelling_fx_reads_as_the_byte_answers_a_model_question ... ok
+test tui::shell::tests::ctrl_j_answers_a_model_question_as_enter_does_at_a_choice_and_in_the_field ... ok
+test result: FAILED. 9 passed; 1 failed; 0 ignored; 0 measured; 5117 filtered out; finished in 0.18s
 # tree clean after: yes
 
+# the split case's failing assertion under each mutant that kills it (its log)
+## MA-no-prefix-stage
+thread 'tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs' panicked at src/tui/shell.rs:62407:9:
+assertion `left == right` failed: inside the pair's stage
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab cdz ef") })
+ right: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab zcd ef") })
+## MB-prefix-not-alt
+thread 'tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs' panicked at src/tui/shell.rs:62407:9:
+assertion `left == right` failed: inside the pair's stage
+  left: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab cdz ef") })
+ right: Some(Answer { id: ApprovalId(1), answer: Once, feedback: Some("ab zcd ef") })
+## ME-pair-resolves-at-esc-timeout
+thread 'tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs' panicked at src/tui/shell.rs:62420:9:
+assertion `left == right` failed: the pair's Escape left the turn running
+  left: None
+ right: Some(Cancel { through: 1 })
+## MF-escape-in-a-draft-swallowed
+thread 'tui::shell::tests::a_meta_prefixed_key_split_by_the_pair_flush_in_an_amendment_cancels_as_fxs' panicked at src/tui/shell.rs:62420:9:
+assertion `left == right` failed: the pair's Escape left the turn running
+  left: None
+ right: Some(Cancel { through: 1 })
+## MC-ctrl-letter-not-behind-prefix (the choice-2 case)
+thread 'tui::shell::tests::a_meta_prefixed_ctrl_j_report_at_choice_2_answers_always_as_the_byte' panicked at src/tui/shell.rs:62357:9:
+[
+    "the band, choice 2, esc kitty ctrl+j: None",
+    "the band, choice 2, esc kitty ctrl+J: None",
