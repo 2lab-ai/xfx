@@ -3981,18 +3981,60 @@ fn sigurg_disposition() -> (usize, libc::c_int) {
     }
 }
 
+/// SIGURG's disposition as it was before a test changed it, put back when
+/// this is dropped: when the test returns, and when it unwinds from a panic
+/// -- a failed assertion included. A restore that fails panics, unless the
+/// thread is already unwinding, where a second panic would abort the binary.
+struct SigurgRestore(libc::sigaction);
+
+impl Drop for SigurgRestore {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` is a disposition `sigaction` handed back.
+        let restored = unsafe { libc::sigaction(libc::SIGURG, &self.0, std::ptr::null_mut()) };
+        if restored != 0 && !std::thread::panicking() {
+            panic!(
+                "put SIGURG's disposition back: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+}
+
+/// Ignores SIGURG until the returned guard is dropped, which puts back the
+/// disposition it found ([`SigurgRestore`]). For a test that must tell a
+/// disposition put back from one left behind: nothing else in this binary
+/// leaves SIGURG ignored. The caller holds [`SIGURG_IN_USE`].
+fn ignore_sigurg(_alone: &std::sync::MutexGuard<'_, ()>) -> SigurgRestore {
+    // SAFETY: `ignore` and `found` are zeroed `sigaction`s owned here;
+    // `ignore` holds `SIG_IGN` and an empty mask.
+    unsafe {
+        let mut ignore: libc::sigaction = std::mem::zeroed();
+        ignore.sa_sigaction = libc::SIG_IGN;
+        libc::sigemptyset(&mut ignore.sa_mask);
+        let mut found: libc::sigaction = std::mem::zeroed();
+        assert_eq!(
+            libc::sigaction(libc::SIGURG, &ignore, &mut found),
+            0,
+            "ignore SIGURG: {}",
+            std::io::Error::last_os_error()
+        );
+        SigurgRestore(found)
+    }
+}
+
 /// The thread [`with_sigurg_every_millisecond`] sends from, and the
 /// disposition its handler replaced.
 ///
 /// Dropped however the waits leave -- returning, or unwinding from a panic
 /// -- it stops the sender and joins it, and only then puts the disposition
-/// back. The drop runs on the thread the sender signals, so that thread is
-/// alive until the sender has stopped: no `pthread_kill` can name a thread
-/// that has gone.
+/// back: `_previous`, held only to be dropped, is the last field, and a
+/// struct's fields are dropped after its own `drop`. The drop runs on the
+/// thread the sender signals, so that thread is alive until the sender has
+/// stopped: no `pthread_kill` can name a thread that has gone.
 struct SigurgSender {
     sending: std::sync::Arc<std::sync::atomic::AtomicBool>,
     sender: Option<std::thread::JoinHandle<()>>,
-    previous: libc::sigaction,
+    _previous: SigurgRestore,
 }
 
 impl Drop for SigurgSender {
@@ -4009,16 +4051,6 @@ impl SigurgSender {
             // A sender that panicked has stopped too, and its panic has been
             // printed; raising it here could be a panic inside an unwind.
             let _ = sender.join();
-        }
-        // SAFETY: `previous` is the disposition `sigaction` handed back when
-        // the handler went in, and nothing sends `SIGURG` any more.
-        let restored =
-            unsafe { libc::sigaction(libc::SIGURG, &self.previous, std::ptr::null_mut()) };
-        if restored != 0 && !std::thread::panicking() {
-            panic!(
-                "put SIGURG's disposition back: {}",
-                std::io::Error::last_os_error()
-            );
         }
     }
 }
@@ -4059,7 +4091,7 @@ fn with_sigurg_every_millisecond<T>(
     let mut sender = SigurgSender {
         sending: Arc::new(AtomicBool::new(true)),
         sender: None,
-        previous,
+        _previous: SigurgRestore(previous),
     };
     // SAFETY: `pthread_self` takes nothing and cannot fail.
     let waiter = unsafe { libc::pthread_self() } as usize;
@@ -4124,17 +4156,9 @@ fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     // SIGURG ignored first: a disposition no other test here leaves behind,
     // so one the helper failed to put back -- here or in the test before --
-    // is not taken for the one it found. What was there is put back after.
-    // SAFETY: `ignore` and `found` are zeroed `sigaction`s owned here;
-    // `ignore` holds `SIG_IGN` and an empty mask.
-    let found = unsafe {
-        let mut ignore: libc::sigaction = std::mem::zeroed();
-        ignore.sa_sigaction = libc::SIG_IGN;
-        libc::sigemptyset(&mut ignore.sa_mask);
-        let mut found: libc::sigaction = std::mem::zeroed();
-        assert_eq!(libc::sigaction(libc::SIGURG, &ignore, &mut found), 0);
-        found
-    };
+    // is not taken for the one it found. What was there is put back however
+    // this test leaves, a failed assertion below included.
+    let _ignored = ignore_sigurg(&alone);
     let before = sigurg_disposition();
     let sent = std::sync::Arc::new(AtomicUsize::new(0));
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -4152,10 +4176,32 @@ fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
         stopped,
         "the sender went on after the waits unwound"
     );
-    let after = sigurg_disposition();
-    // SAFETY: `found` is the disposition `sigaction` handed back above.
-    unsafe { libc::sigaction(libc::SIGURG, &found, std::ptr::null_mut()) };
-    assert_eq!(after, before, "SIGURG's disposition was not put back");
+    assert_eq!(
+        sigurg_disposition(),
+        before,
+        "SIGURG's disposition was not put back"
+    );
+}
+
+#[test]
+fn an_assertion_that_fails_while_sigurg_is_ignored_still_puts_its_disposition_back() {
+    // The unwind test above ignores SIGURG for its whole body and asserts
+    // several things on the way, any of which can fail -- "nothing was sent
+    // during the wait", on a runner that did not schedule the sender. One
+    // that fails must not leave SIGURG ignored for the rest of the binary.
+    // The failed assertion here is `resume_unwind`, a panic without the
+    // hook's message.
+    let alone = SIGURG_IN_USE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let found = sigurg_disposition();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ignored = ignore_sigurg(&alone);
+        assert_eq!(sigurg_disposition().0, libc::SIG_IGN, "SIGURG not ignored");
+        std::panic::resume_unwind(Box::new("an assertion failed"))
+    }));
+    assert!(failed.is_err(), "the assertion did not fail");
+    assert_eq!(sigurg_disposition(), found, "SIGURG was left ignored");
 }
 
 #[test]
