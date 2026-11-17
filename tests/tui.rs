@@ -4334,9 +4334,13 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // inside a pause, which a quarantine that ends too early needs here to
     // show. The pacing is measured on the writer, a starved reader can take
     // two parts in one read, and the TUI's check after an empty one is its
-    // own 8 ms timeout, which a clamped runner fires late (CI-PTY-WAIT §13).
-    // The threshold is held by the lib's clock-free cases
-    // (`src/tui/input.rs:5334`, `:5933`).
+    // own 8 ms timeout, which a clamped runner fires late. Measured with a
+    // quarantine that ends at any quiet, and with one that ends after 5 ms,
+    // 10 runs each (CI-PTY-WAIT §13): red 10 and 10 on CI's aarch64 Linux
+    // row; 1 and 9 on its x86_64 Linux row; 0 and 0 under a utility clamp
+    // here, the clamp CI's macOS rows run under. The threshold is held by the
+    // lib's clock-free cases (`src/tui/input.rs:5334`, `:5933`), which failed
+    // under the first on both Linux rows.
     //
     // A red here whose every pause was under 50 ms is not retried, and it
     // can be the known clock-after-poll defect rather than a regression: the
