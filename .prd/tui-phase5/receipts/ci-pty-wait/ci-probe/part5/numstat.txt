@@ -1,0 +1,20 @@
+7fdd8556..190b7b13
+  product  +0 -0
+  tests    +202 -53
+  receipt  +4 -4
+  other    +0 -0
+8e2f04c2..190b7b13
+  product  +0 -0
+  tests    +323 -25
+  receipt  +4482 -33
+  other    +0 -0
+190b7b13..HEAD
+  product  +0 -0
+  tests    +0 -0
+  receipt  +2346 -2
+  other    +0 -0
+1a4cb6b4..HEAD
+  product  +98 -33
+  tests    +1970 -77
+  receipt  +21236 -0
+  other    +14 -14

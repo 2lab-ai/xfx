@@ -17,7 +17,10 @@ from the kills -- and the two `loop-*` mutants, with the join test in UNIT.
 The join review added two more `loop-*` orders, and UNIT takes every
 `an_escape_pair_` case (the settled one, the hand-driven pending one and the
 loop-driven pending one). PR #103's second run (§13) added the two `wait-*`
-mutants of `sleep_on_time` (macOS), with its test in HARNESS.
+mutants of `sleep_on_time` (macOS), with its test in HARNESS. Its review
+(part 5) added three on the signal test's cleanup: a panic inside its waits
+(only that test may fail), and a sender left running, or SIGURG's
+disposition left changed, after an unwind.
 """
 import os
 import re
@@ -36,7 +39,7 @@ UNIT = ["cargo", "test", "--locked", "--lib", "--",
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
            "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
            "the_last_bytes_of_a_stream", "no_two_unpaced_cases_run_at_once",
-           "a_pause_is_said_to_fall", "a_wait_on_time"]
+           "a_pause_is_said_to_fall", "a_wait_on_time", "a_wait_that_unwinds"]
 
 DRAIN_STOP = ("                if starts && shell.turn_start_owes_its_frame() {\n"
               "                    return false;\n"
@@ -143,6 +146,18 @@ MUTANTS = [
      WAIT_TOP + "    if wait > Duration::ZERO {\n        return;\n    }\n", HARNESS),
     ("wait-ends-at-a-signal", "tests/support/pty.rs", WAIT_EINTR,
      WAIT_EINTR.replace("continue;", "return;"), HARNESS),
+    # Part 5 (the review's MUST and SHOULD 2): the signal test's cleanup.
+    ("wait-panics-under-signals", "tests/tui.rs",
+     "                support::pty::sleep_on_time(wait);\n                let took",
+     "                support::pty::sleep_on_time(wait);\n"
+     "                if wait > std::time::Duration::ZERO {\n"
+     "                    panic!(\"a wait failed\");\n                }\n                let took",
+     HARNESS),
+    ("sender-left-running-on-unwind", "tests/tui.rs", "        self.stop();\n",
+     "        if !std::thread::panicking() {\n            self.stop();\n        }\n", HARNESS),
+    ("sigurg-not-put-back", "tests/tui.rs",
+     "            unsafe { libc::sigaction(libc::SIGURG, &self.previous, std::ptr::null_mut()) };\n",
+     "            0;\n", HARNESS),
 ]
 
 

@@ -1636,6 +1636,189 @@ test process's threads]. What the clamp does to the product, from the code
   the paste takes longer. It is not in the measure. If a test ever bounds
   how fast output is read, it is the same `sleep_on_time` change.
 
+### Part 5: the review's MUST and two SHOULDs (`ae1273a8`, `9d8af4d9`, `8a8f0543`; re-points `7472b24b`, `1df862cb`, `190b7b13`; `ci-probe/part5/`)
+
+The review of part 4 (gpt6, two personas) found `sleep_on_time` itself
+sound. It found three things in the tests around it. All three are fixed,
+in tests only; no product line changed.
+
+- **MUST: the signal test's cleanup on unwind.** The test stopped and joined
+  its `SIGURG` sender only when it returned. A wait that panicked would
+  have dropped the `JoinHandle` and left the sender running, calling
+  `pthread_kill` on a thread that could be gone. `sleep_on_time` does panic
+  on a kqueue, `kevent` or `EV_ERROR` failure.
+  - `with_sigurg_every_millisecond` now runs the waits under a
+    `SigurgSender`. Its drop runs on the waiting thread, however the waits
+    leave: it clears the flag, joins the sender, and only then puts the
+    disposition back. So the waiting thread cannot leave before the sender
+    has stopped.
+  - `a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back`
+    pins it. A 12 ms wait under the signals is followed by a quiet unwind
+    (`resume_unwind`). After the unwind, the send count must not grow over
+    20 ms, and the disposition must be what the test set before it.
+- **SHOULD: SIGURG's disposition is put back.** The previous disposition is
+  saved when the handler goes in. The same drop restores it after the
+  sender is joined, on an unwind too. `SIGURG_IN_USE` keeps the two tests
+  that send `SIGURG` apart, since the disposition belongs to the process.
+  - The first form of the unwind test compared the disposition with the
+    one it found, and `sigurg-not-put-back` survived it at `7472b24b`
+    (`part5/mutants-7472b24b.txt`). Under that mutant the signal test, run
+    first in the same binary, had left its handler in, so the unwind
+    test's two reads were both that handler.
+  - `9d8af4d9` sets `SIG_IGN` first, which nothing else here leaves
+    behind, compares the disposition with that, and puts back what it
+    found.
+- **SHOULD: the paced case's comment.** It said a quarantine that ends at
+  any quiet, or after 5 ms, "fails here". Under the clamp both passed 10 of
+  10, and with no clamp any-quiet passed 1 run in 13.
+  - `ae1273a8` replaced the claim with what the case does not prove: that
+    the reader made two empty checks inside a pause. The pacing is measured
+    on the writer, a starved reader can take two parts in one read, and the
+    TUI's check after an empty one is its own 8 ms timeout, which a clamped
+    runner fires late.
+  - `8a8f0543` adds what was measured, row by row (below), and that the
+    lib's clock-free cases hold the threshold.
+  - It predicts nothing past those runs and skips nothing.
+
+**What the paced case catches, measured** (`part5/ci-mutant-probe/`):
+- **On CI.** The coordinator ran the paced case alone, 10 times per Linux
+  row, one run at a time (`--exact --nocapture`), on `7fdd8556` plus one
+  quarantine mutant per branch. These are the coordinator's
+  `probe/p5-cpw-mutant3-*` branches, which are not on this branch. Each
+  log has "running 1 test" for all 10 runs, and the pause line of every
+  session.
+
+  | branch | run | x86_64 Linux | aarch64 Linux |
+  |---|---|---|---|
+  | baseline, no mutant | 44012597516 | green 10 / 10 | green 10 / 10 |
+  | quarantine ends at any quiet | 44012600054 | **red 1 / 10** | **red 10 / 10** |
+  | quarantine ends after 5 ms | 44012602942 | **red 9 / 10** | **red 10 / 10** |
+
+  - Every red run failed after an accepted session. No run was rejected
+    with every session paused.
+  - All 30 red runs panicked at `tests/support/pty.rs:533`, `wait_until`'s
+    20 s timeout, taking about 24 s each; green runs took 1.3–2.5 s. The
+    probe's filter dropped the panic's message. In the case, the wait that
+    follows the paste is `on_screen`: the composer holding `xz` and the
+    ignored-input warning, with no `K0000` on the screen [read from the
+    case].
+- **Here, under a utility clamp** (part 4, `paced-power-clamp-e4b591d2.txt`):
+  red 0 of 10 under each. That is the clamp CI's macOS rows run under.
+- **Here, with no clamp:** any-quiet red 12 of 13 and 5 ms red 13 of 13
+  (part 4), and 3 of 3 each at `7472b24b` (below).
+- **The lib's clock-free cases.** In the coordinator's full `cargo test`
+  under any-quiet (run 44010293600), they failed 3 on both Linux rows, and
+  `tests/tui.rs` never ran [the coordinator's report; that log is not in
+  this folder]. The 5 ms mutant has not been through them on CI. Here,
+  `lib_threshold_mutants.py` kills all three mutants (below).
+- **Not cited, because they measured nothing about the paced case:**
+  - run 44010299787 (5 ms) failed at fmt;
+  - the `mutant2` pair, whose workflow stopped at the first red run on one
+    row and printed no session on the other.
+
+  Those void runs pointed the same way: x86_64 Linux green for both
+  mutants, aarch64 Linux red at its first run.
+
+So, as measured:
+- **aarch64 Linux** catches both mutants every time;
+- **x86_64 Linux** catches them depending on the runner: any-quiet 1 in 10,
+  5 ms 9 in 10;
+- **this Mac under a utility clamp** catches neither;
+- **the lib's cases** catch any-quiet on both Linux rows, and all three
+  here.
+
+The paced case's comment says the same, with the numbers, and no more.
+
+**Mutants** (`part5/mutants-*.txt`, `lib-threshold-7472b24b.txt`,
+`quarantine-7472b24b.txt`; `--no-local` clones, under the lock):
+
+- **`mutants.py`: 25 of 25 killed at `1df862cb` and again at the code head
+  `190b7b13`**, both baselines green each time (unit 9, harness 9). The
+  head differs from `1df862cb` only in the paced case's comment and the
+  re-points. The three new ones:
+  - `wait-panics-under-signals` panics inside the signal test's waits. It
+    is killed by that test alone. The other eight harness tests pass,
+    including the unwind test, which shares the lock and the disposition.
+    Over the whole `tests/tui.rs` binary with fault injection under this
+    mutant (at `1df862cb`), 215 passed and 1 failed: that test.
+  - `sender-left-running-on-unwind`: the guard's drop skips stopping the
+    sender during an unwind. The unwind test kills it.
+  - `sigurg-not-put-back`: the guard never puts the disposition back. The
+    unwind test kills it from `9d8af4d9` on; it survived that test's first
+    form at `7472b24b` (above).
+- **`lib_threshold_mutants.py`** (at `7472b24b`): each of the three
+  quarantine mutants is killed by both of the lib's clock-free cases.
+- **`quarantine_mutants.py`** (at `7472b24b`, 3 runs per case, no clamp):
+  - baseline 9 of 9 green;
+  - the paced case red under any-quiet 3 of 3 and under 5 ms 3 of 3, each
+    on an accepted session, and green under 20 ms 3 of 3;
+  - the unpaced cases green under every mutant, as before.
+
+  The code head differs from `7472b24b` in the unwind test, the paced
+  case's comment and the re-points; neither script runs the first, and the
+  other two change no code. Under the clamp the paced case catches neither
+  mutant (part 4, above).
+
+**References** (`part5/content-*.txt`, `readme-refs-*.txt`,
+`repoint-*.txt`):
+- Each of this round's three test commits moved the same 10 references:
+  - six numbers in `tests/tui.rs:2721`'s comma list, mapped through the
+    diff (`repoint-map-*.txt`);
+  - four of this README's references into `tests/tui.rs`.
+
+  Each was re-pointed right after, numbers only, 5 lines each time
+  (`repoint-numbers-*.txt`):
+
+  | moved by | how far | re-pointed in |
+  |---|---|---|
+  | `ae1273a8` | +133 | `7472b24b` |
+  | `9d8af4d9` | +12 | `1df862cb` |
+  | `8a8f0543` | +4 | `190b7b13` |
+- One reference is left as it was: row 419's citation of the paced case's
+  round-3 comment. This round rewrote that comment (SHOULD 3), so no
+  window places it, and the row is round 3's record.
+- **At the code head `190b7b13`:**
+  - Code and docs: WRONG 9, the same set as at `f2b01cc1`.
+  - This README: 24. That is part 4's 21, plus row 419's reference above,
+    plus §13's two references to `tests/tui.rs:2721`, the comma-list line
+    itself, whose numbers changed. Read by hand.
+
+**The gate:**
+
+Train 16's `gates.sh` ran at the code head `190b7b13` twice, side by
+side, each on a fresh `--no-local` clone in its own hold of the lock
+(`part5/gates-*.txt`, `gate-counts-*.txt`). The machine's load was 6–44.
+
+| run | steps | `cargo test` / with fault injection | `tests/tui.rs` / with fault injection | smoke-tui |
+|---|---|---|---|---|
+| rustup (its own proxies, `RUSTUP_TOOLCHAIN=1.99.1`) | **29 of 29, tree clean** | 6081 / 6118 passed, 0 failed, 8 ignored | 202 / 216 | 1167 checks, 0 failures |
+| Homebrew (PATH as this Mac has it) | **29 of 29, tree clean** | 6081 / 6118 passed, 0 failed, 8 ignored | 202 / 216 | 1167 checks, 0 failures |
+
+That is one test more than part 4's gate: the unwind test.
+`check-no-local-paths.sh` passed in both. `linux-clippy.sh` at `190b7b13`,
+x86_64 and aarch64 Linux, plain and with `fault-injection`: **4 of 4 exit
+0** (`part5/linux-clippy.txt`).
+
+A first pair of gates, at `1df862cb`, was stopped after its clippy steps
+when the comment commit `8a8f0543` changed the head. It is not counted.
+
+**Numstat by class** (`part5/numstat.txt`):
+
+| range | product | tests | receipt | other |
+|---|---|---|---|---|
+| this round's code, `7fdd8556..190b7b13` | **+0 −0** | +202 −53 (`tests/tui.rs`) | +4 −4 (the re-points) | +0 −0 |
+| PR #103's two rounds, `8e2f04c2..190b7b13` | **+0 −0** | +323 −25 | in `numstat.txt` | +0 −0 |
+| the branch against train 16, `1a4cb6b4..190b7b13` | +98 −33 (§2a, from before the joins) | +1970 −77 | in `numstat.txt` | +14 −14 (re-points in `docs/` and `scripts/`) |
+
+This addendum's own commit is receipt only. `part5/numstat.txt` has every
+range, the commit that adds it included.
+
+**Paths:** `join/pathscan.sh` scanned every commit this branch holds that
+`8be4693b` does not, through this addendum's commit: the messages and what
+`git show` prints of each (`part5/pathscan.txt`). **0 matching lines, and 0
+files in this folder.** The CI excerpts
+were masked before they reached this folder, and each was scanned again.
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**
