@@ -3954,6 +3954,133 @@ fn the_harness_measures_a_pause_between_two_writes_of_one_paste() {
     assert!(gap >= PASTE_QUIET * 2, "{gap:?}");
 }
 
+/// Held by a test while it sends `SIGURG` to one of its threads
+/// ([`with_sigurg_every_millisecond`]): the disposition is the process's, so
+/// two such tests at once would each put back the other's.
+static SIGURG_IN_USE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// How many `SIGURG`s have landed on a thread of this binary, counted by the
+/// handler [`with_sigurg_every_millisecond`] puts in.
+static SIGURG_LANDED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+extern "C" fn sigurg_landed(_: libc::c_int) {
+    SIGURG_LANDED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// `SIGURG`'s disposition as the process has it now: its handler and flags.
+fn sigurg_disposition() -> (usize, libc::c_int) {
+    // SAFETY: a null new action only reads the current one into `current`, a
+    // zeroed `sigaction` owned here.
+    unsafe {
+        let mut current: libc::sigaction = std::mem::zeroed();
+        assert_eq!(
+            libc::sigaction(libc::SIGURG, std::ptr::null(), &mut current),
+            0
+        );
+        (current.sa_sigaction, current.sa_flags)
+    }
+}
+
+/// The thread [`with_sigurg_every_millisecond`] sends from, and the
+/// disposition its handler replaced.
+///
+/// Dropped however the waits leave -- returning, or unwinding from a panic
+/// -- it stops the sender and joins it, and only then puts the disposition
+/// back. The drop runs on the thread the sender signals, so that thread is
+/// alive until the sender has stopped: no `pthread_kill` can name a thread
+/// that has gone.
+struct SigurgSender {
+    sending: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    sender: Option<std::thread::JoinHandle<()>>,
+    previous: libc::sigaction,
+}
+
+impl Drop for SigurgSender {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+impl SigurgSender {
+    fn stop(&mut self) {
+        self.sending
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some(sender) = self.sender.take() {
+            // A sender that panicked has stopped too, and its panic has been
+            // printed; raising it here could be a panic inside an unwind.
+            let _ = sender.join();
+        }
+        // SAFETY: `previous` is the disposition `sigaction` handed back when
+        // the handler went in, and nothing sends `SIGURG` any more.
+        let restored =
+            unsafe { libc::sigaction(libc::SIGURG, &self.previous, std::ptr::null_mut()) };
+        if restored != 0 && !std::thread::panicking() {
+            panic!(
+                "put SIGURG's disposition back: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+}
+
+/// Runs `waits` on this thread with `SIGURG` sent to it every millisecond,
+/// counting each send in `sent`, and returns what `waits` returned and how
+/// many landed. The handler has no `SA_RESTART`, so each one that lands ends
+/// the call it lands in (`EINTR`). The caller holds [`SIGURG_IN_USE`].
+///
+/// However `waits` leaves, the sender is stopped and joined and the
+/// disposition put back before this does ([`SigurgSender`]).
+fn with_sigurg_every_millisecond<T>(
+    _alone: &std::sync::MutexGuard<'_, ()>,
+    sent: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    waits: impl FnOnce() -> T,
+) -> (T, usize) {
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+    use std::sync::Arc;
+    let landed = SIGURG_LANDED.load(SeqCst);
+    // SAFETY: `action` is a zeroed `sigaction` owned here, given a handler
+    // that only adds to an atomic, an empty mask and no `SA_RESTART`;
+    // `previous`, zeroed and owned here, is given the disposition it
+    // replaces. `SIGURG` is ignored by default, and only this function sends
+    // it in this binary.
+    let previous = unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = sigurg_landed as *const () as usize;
+        libc::sigemptyset(&mut action.sa_mask);
+        let mut previous: libc::sigaction = std::mem::zeroed();
+        assert_eq!(
+            libc::sigaction(libc::SIGURG, &action, &mut previous),
+            0,
+            "put in the SIGURG handler: {}",
+            std::io::Error::last_os_error()
+        );
+        previous
+    };
+    let mut sender = SigurgSender {
+        sending: Arc::new(AtomicBool::new(true)),
+        sender: None,
+        previous,
+    };
+    // SAFETY: `pthread_self` takes nothing and cannot fail.
+    let waiter = unsafe { libc::pthread_self() } as usize;
+    let sending = Arc::clone(&sender.sending);
+    let counted = Arc::clone(sent);
+    sender.sender = Some(std::thread::spawn(move || {
+        while sending.load(SeqCst) {
+            // SAFETY: `waiter` is the thread that owns the `SigurgSender`,
+            // whose drop stops and joins this thread before that one can
+            // leave `with_sigurg_every_millisecond`, returning or unwinding;
+            // so it is alive for every call.
+            unsafe { libc::pthread_kill(waiter as libc::pthread_t, libc::SIGURG) };
+            counted.fetch_add(1, SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }));
+    let waited = waits();
+    drop(sender);
+    (waited, SIGURG_LANDED.load(SeqCst) - landed)
+}
+
 #[test]
 fn a_wait_on_time_is_never_short_with_signals_landing_on_it() {
     // `support::pty::sleep_on_time`, for the two waits the paste measure
@@ -3961,55 +4088,61 @@ fn a_wait_on_time_is_never_short_with_signals_landing_on_it() {
     // with a signal sent to the waiting thread every millisecond. A signal
     // ends macOS's `kevent` early (`EINTR`), and a wait that returned there
     // would make the paced case's pauses shorter than it says they are.
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    static CAUGHT: AtomicUsize = AtomicUsize::new(0);
-    extern "C" fn caught(_: libc::c_int) {
-        CAUGHT.fetch_add(1, Ordering::SeqCst);
-    }
-    // SAFETY: `action` is a zeroed `sigaction` owned here, given a handler
-    // that only adds to an atomic, an empty mask, and no `SA_RESTART`, so the
-    // signal ends the call it lands in. `SIGURG` is ignored by default and
-    // nothing else in this binary sends or handles it.
-    unsafe {
-        let mut action: libc::sigaction = std::mem::zeroed();
-        action.sa_sigaction = caught as *const () as usize;
-        libc::sigemptyset(&mut action.sa_mask);
-        assert_eq!(
-            libc::sigaction(libc::SIGURG, &action, std::ptr::null_mut()),
-            0
-        );
-    }
-    // SAFETY: `pthread_self` takes nothing and cannot fail.
-    let waiter = unsafe { libc::pthread_self() } as usize;
-    let waiting = std::sync::Arc::new(AtomicBool::new(true));
-    let signaller = {
-        let waiting = std::sync::Arc::clone(&waiting);
-        std::thread::spawn(move || {
-            while waiting.load(Ordering::SeqCst) {
-                // SAFETY: `waiter` is the test's thread, which joins this one
-                // before it returns, so it is alive for every call.
-                unsafe { libc::pthread_kill(waiter as libc::pthread_t, libc::SIGURG) };
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-        })
-    };
-    let mut short = Vec::new();
-    for wait in [2, 12].map(std::time::Duration::from_millis) {
-        for _ in 0..40 {
-            let started = std::time::Instant::now();
-            support::pty::sleep_on_time(wait);
-            let took = started.elapsed();
-            if took < wait {
-                short.push((wait, took));
+    let alone = SIGURG_IN_USE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let sent = std::sync::Arc::default();
+    let (short, landed) = with_sigurg_every_millisecond(&alone, &sent, || {
+        let mut short = Vec::new();
+        for wait in [2, 12].map(std::time::Duration::from_millis) {
+            for _ in 0..40 {
+                let started = std::time::Instant::now();
+                support::pty::sleep_on_time(wait);
+                let took = started.elapsed();
+                if took < wait {
+                    short.push((wait, took));
+                }
             }
         }
-    }
-    waiting.store(false, Ordering::SeqCst);
-    signaller.join().expect("the signaller");
+        short
+    });
     assert!(short.is_empty(), "waits that ended short: {short:?}");
-    assert!(
-        CAUGHT.load(Ordering::SeqCst) > 0,
-        "no signal landed on the waiting thread"
+    assert!(landed > 0, "no signal landed on the waiting thread");
+}
+
+#[test]
+fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
+    // `sleep_on_time` panics on a kqueue, a `kevent` or an `EV_ERROR` it
+    // cannot get past. A wait that does, inside
+    // `with_sigurg_every_millisecond`, must not leave the sender running:
+    // it would go on signalling a thread that may be gone, and SIGURG's
+    // disposition would stay this binary's handler. The unwind here is
+    // `resume_unwind`, a panic without the hook's message.
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let alone = SIGURG_IN_USE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let before = sigurg_disposition();
+    let sent = std::sync::Arc::new(AtomicUsize::new(0));
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _: ((), usize) = with_sigurg_every_millisecond(&alone, &sent, || {
+            support::pty::sleep_on_time(std::time::Duration::from_millis(12));
+            std::panic::resume_unwind(Box::new("a wait failed"))
+        });
+    }));
+    assert!(unwound.is_err(), "the waits did not unwind");
+    let stopped = sent.load(SeqCst);
+    assert!(stopped > 0, "nothing was sent during the wait");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert_eq!(
+        sent.load(SeqCst),
+        stopped,
+        "the sender went on after the waits unwound"
+    );
+    assert_eq!(
+        sigurg_disposition(),
+        before,
+        "SIGURG's disposition was not put back"
     );
 }
 
@@ -4185,13 +4318,13 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // the unpaced cases'; 20 ms at four still had a fifth rejected inside a
     // parallel suite (CI-PTY-WAIT round 3, `round3/` in the receipt).
     //
-    // What it does not carry: the quarantine's threshold, which the lib
-    // pins without a clock (`src/tui/input.rs:5334`, `:5933`); and proof
-    // that the reader saw each pause -- acceptance is measured on the
-    // writer, and a starved reader can take two parts in one read. A
-    // quarantine that ends at any quiet, or after 5 ms, fails here; one that
-    // ends after 20 ms does only when the writer oversleeps (CI-PTY-WAIT
-    // rounds 2 and 3, the receipt's quarantine mutants).
+    // What it does not carry: proof that the reader made two empty checks
+    // inside a pause, which a quarantine that ends too early needs here to
+    // show. The pacing is measured on the writer, a starved reader can take
+    // two parts in one read, and the TUI's check after an empty one is its
+    // own 8 ms timeout, which a clamped runner fires late (CI-PTY-WAIT §13).
+    // The threshold is held by the lib's clock-free cases
+    // (`src/tui/input.rs:5334`, `:5933`).
     //
     // A red here whose every pause was under 50 ms is not retried, and it
     // can be the known clock-after-poll defect rather than a regression: the
