@@ -4180,7 +4180,7 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     // `end_delivery`, on the loop's own clock.
     //
     // Four 12 ms pauses, not 20 ms ones at every boundary: under load the
-    // writer oversleeps a 20 ms sleep by 10-30 ms, and 20 ms at all 255
+    // writer's `thread::sleep` overslept 20 ms by 10-30 ms, and 20 ms at all 255
     // boundaries had a fifth of its sessions rejected, against an eighth of
     // the unpaced cases'; 20 ms at four still had a fifth rejected inside a
     // parallel suite (CI-PTY-WAIT round 3, `round3/` in the receipt).
