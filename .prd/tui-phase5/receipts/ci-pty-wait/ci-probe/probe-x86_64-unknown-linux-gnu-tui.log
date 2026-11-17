@@ -1,0 +1,247 @@
+# excerpt of probe-x86_64-unknown-linux-gnu-failed.log: lines 5978-6223 of 6223, the tests/tui.rs part; the whole log's sha256 9ba9234efc9e71343cc881171c97a7920679d13271c6710b7e451db6437fdcbd
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:13.9892884Z      Running tests/tui.rs (target/debug/deps/tui-4d5fbebcde371998)
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:13.9911312Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:13.9911517Z running 200 tests
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:13.9966200Z test a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:13.9966834Z test a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:14.5343156Z test a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:14.6736758Z test a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:14.8646885Z test a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band_comes_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:15.3476289Z test a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:15.7368970Z test a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:15.9208983Z test a_command_the_tui_runs_keeps_a_sigint_ignore_and_only_that ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:16.3352924Z test a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:17.3379798Z test a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:17.3384058Z test a_document_append_moves_the_band_off_its_rows_until_the_next_frame ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:17.6022530Z test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:17.6531164Z test a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:17.9598329Z test a_double_escape_clears_the_composer_and_warns_before_it_does ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.1871420Z test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.2289794Z test a_keystroke_that_arrived_with_the_answer_is_typed_rather_than_scanned ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.2337452Z test a_fresh_sessions_first_prompt_is_titled_by_a_model_in_the_window_and_the_log ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.2501737Z test a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.2919966Z test a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.3440759Z test a_live_theme_notification_repaints_the_band_without_losing_the_draft ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:18.5611155Z test a_level_chosen_on_llmux_rides_as_output_config_effort ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:19.2953947Z test a_burst_of_winches_costs_one_frame ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:19.6649837Z test a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:21.4673879Z test a_mebibyte_of_hostile_clipboard_timer_probe ... FAILED
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:21.7108118Z the paste's longest pause: 12.086248ms (pauses of 12ms), between parts 127 and 128 of 256, across a planned 12ms pause that slept 12.074241ms; the write that ended it took 6.896µs, and the rest, 5.111µs, is the write before it and the time this thread was off a CPU;
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.0160966Z test a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.2800452Z test a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.6170371Z test a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.7867200Z test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.7882007Z test a_notice_wrapped_onto_the_row_under_it_is_held_and_another_notice_is_not ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.8512080Z test a_normal_exit_gives_the_terminal_back_byte_for_byte ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.8700179Z test a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_paints_in ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:22.9033753Z test a_palette_the_user_named_is_not_overruled_by_the_terminal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:23.1906893Z the paste's longest pause: 2.092199ms (pauses of 0ns), inside part 185 of 256, at its write attempt 3 of 3, behind a full queue's 2ms poll that slept 2.087254ms; the write that ended it took 3.825µs, and the rest, 1.12µs, is the write before it and the time this thread was off a CPU;
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:23.4126919Z test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:23.5376547Z test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:23.5898573Z test a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:23.8894541Z test a_permission_question_rings_the_bell_when_it_opens ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:23.9502129Z test a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:24.2252255Z test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:24.2779117Z test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:24.4600618Z the paste's longest pause: 2.08137ms (pauses of 0ns), inside part 34 of 256, at its write attempt 3 of 3, behind a full queue's 2ms poll that slept 2.075472ms; the write that ended it took 4.828µs, and the rest, 1.07µs, is the write before it and the time this thread was off a CPU;
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:24.5316470Z test a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:24.6177168Z test a_prompt_sent_while_an_answer_streams_cuts_it_and_the_turn_goes_on_with_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:24.9171474Z test a_prompt_typed_behind_a_provider_switch_is_titled_by_the_provider_switched_to ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.0162861Z test a_profile_only_ask_refuses_starts_the_tui ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.0163307Z test a_question_still_being_painted_is_not_a_painted_question ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.2456459Z test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.2946218Z test a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.3148725Z test a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.5377928Z test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.5552084Z test a_refusal_in_the_band_leaves_the_file_alone ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:25.8851893Z test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.0069180Z test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.0647755Z test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.2353382Z test a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.4438415Z test a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.4708642Z test a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.5957002Z test a_resize_mid_answer_keeps_what_the_document_already_holds ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.6082281Z test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.6190033Z test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.7416174Z test a_resize_moves_the_band_to_the_foot_of_the_new_screen ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.8464301Z test a_resize_while_a_question_is_up_keeps_the_question_and_the_decision_still_lands ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:26.9972565Z test a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:27.1485714Z test a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:27.1616628Z test a_resumed_session_keeps_its_model_and_opening_it_writes_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:27.1762766Z test a_return_typed_before_the_session_is_a_newline_in_the_composer_as_upstreams_is ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:27.4747126Z test a_rule_that_asks_before_a_read_puts_the_read_band_up_in_auto_and_a_no_is_denied_to_the_model ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:27.5219128Z test a_save_that_fails_is_said_once_for_fast_and_for_effort ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:27.5815696Z test a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:28.0896796Z test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:28.2305462Z test a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_and_stays_there ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:28.5504201Z test a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.2450314Z test a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.3308540Z test a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.4789805Z test a_session_with_no_credential_is_told_so_before_it_spends_a_prompt ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.4791204Z test a_skills_sandbox_path_never_holds_what_its_case_searches ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.8189249Z test a_slash_word_opens_a_menu_that_completes_without_taking_the_caret ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.8580921Z test a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:29.8764121Z test a_sigint_the_launcher_ignored_stays_ignored ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.1147224Z test a_small_change_is_still_asked_in_the_band_and_takes_no_plane ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.1887197Z test a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.3499439Z test a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.5042662Z test a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.5773315Z test a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.5876882Z test a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.5985723Z test a_subcommand_is_never_the_tui_however_the_variable_is_set ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.6231104Z test a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.8725926Z test a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.8834880Z test a_terminal_too_small_for_a_band_is_refused_with_a_reason ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:30.9465730Z test a_theme_notification_repaints_the_band_with_no_keystroke_behind_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.1141304Z test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.2307990Z test a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.3671233Z test a_streamed_answer_grows_the_document_only_inside_the_update_that_paints_the_band ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.4540945Z test a_tool_a_global_deny_covers_is_left_out_of_the_request_until_allowlist_lets_it_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.6771079Z test a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.6819369Z test a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.7481218Z test a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:31.9908472Z test a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.0888433Z test a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.2048966Z test a_very_large_paste_collapses_on_screen_and_expands_on_submit ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.3909629Z test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.4239204Z test after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_window ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.4835359Z test alias_is_offered_under_extensions_and_answers_every_form_with_upstreams_notice ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.4957907Z test a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.5092060Z test an_ask_on_a_terminal_reports_no_program_status ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.6858919Z test an_always_answered_in_the_band_is_written_where_a_resume_will_read_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:32.7491498Z test an_answer_lands_even_with_a_prompt_already_queued ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.0577367Z test an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.0656491Z test an_escape_sequence_in_an_answer_reaches_the_terminal_disarmed ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.1499325Z test an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_even_after_a_resume ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.2358407Z test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.3007876Z test an_external_sigint_is_not_swallowed_because_isig_is_off ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.3571365Z test an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really_has ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.5555443Z test an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.5702262Z test an_ordinary_exit_leaves_no_independent_diagnostic_behind ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.5705289Z test an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.5706362Z test an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.5717088Z test an_unpaced_case_whose_every_paste_paused_fails_saying_so ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.7228327Z test an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.8460113Z test an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:33.9359899Z test any_value_but_zero_is_the_tui ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:34.1554984Z test ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:34.2028634Z test captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:34.3975986Z test an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn_is_over ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:34.8932469Z test compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:35.0029996Z test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:35.2501690Z test credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:35.3022842Z test ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:35.5747082Z test ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130 ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:35.7387775Z test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:36.0847851Z test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:36.1587549Z test ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:36.4405792Z test ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:36.5268232Z test edit_history_undo_and_yank_on_a_real_terminal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:36.8820432Z test an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:36.9750150Z test escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.0491975Z test escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.3039327Z test herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.3805971Z test every_size_puts_the_composer_over_the_rule_and_the_hint_on_its_last_row ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.4492918Z test compact_of_one_turn_has_nothing_to_compact_and_asks_nobody ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.4878256Z test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.5699829Z test no_two_unpaced_cases_run_at_once ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.5880832Z test leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.7182587Z test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.8446529Z test paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:37.8946362Z test one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.0578432Z test quit_leaves_the_way_ctrl_d_does ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.1851035Z test quit_before_any_prompt_names_nothing_and_keeps_no_session ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.2271516Z test shell_output_from_before_the_launch_is_still_readable_afterwards ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.3625249Z test read_file_of_an_image_shows_it_to_the_model_on_every_later_request ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.3750787Z test quit_after_a_conversation_names_the_session_and_resume_continues_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.4616229Z test sighup_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.4980463Z test quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.6098879Z test sigterm_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.6167551Z test sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.7213498Z test sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:38.7544355Z test sigtstp_really_stops_the_process_with_the_terminal_given_back ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.0481820Z test six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.0541323Z test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.1168719Z test slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.1358197Z test slash_sound_saves_both_switches_and_moves_what_the_next_turn_rings ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.3084546Z test the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_terminal ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.3787071Z test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.3788299Z test the_bell_counter_skips_the_titles_terminator ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.4571897Z test switching_provider_sends_the_next_prompt_only_to_the_new_fixture ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.5058823Z test status_counts_the_turn_the_live_conversation_just_held ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.5412243Z test the_band_is_painted_under_the_welcome_inside_one_synchronized_frame ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.6429280Z test the_harness_measures_a_pause_between_two_writes_of_one_paste ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.6885914Z test the_catalog_is_read_at_launch_and_a_session_s_first_turn_is_sized_by_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.6910790Z test the_composer_stops_growing_at_half_the_content_area ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.6911360Z test the_last_bytes_of_a_stream_start_at_a_character ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.7763243Z test the_launch_asks_for_the_background_then_the_mode_and_the_cursor_report_fences_both ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.7975775Z test the_launch_probe_asks_where_the_cursor_is_and_does_not_eat_the_answer ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:39.9321599Z test the_hint_row_says_what_mode_and_which_model_a_turn_will_use ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.0258369Z test the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.2317099Z test the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.3556294Z test the_request_after_an_interrupt_says_the_last_turn_ended_early_as_upstreams_does ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.5259113Z test the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.5336732Z test the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.6095095Z test the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.7072981Z test the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:40.8225464Z test the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.0302696Z test the_speed_column_and_the_switches_ride_as_upstreams_provider_options ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.0785087Z test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.2923553Z test under_tmux_the_kitty_keyboard_push_is_omitted ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.2983584Z test typing_appears_in_the_composer_and_the_cursor_follows_it ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.3147501Z test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.7039451Z test undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:41.8602239Z test what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:42.1513815Z test what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:42.1624651Z test with_no_usable_home_a_resume_has_nothing_to_continue ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:42.1798577Z test what_was_typed_before_the_session_took_the_terminal_is_in_the_composer ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:42.4137631Z test with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:42.6951256Z test with_no_usable_home_a_tool_runs_under_the_session_authority_alone ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:42.9692077Z test with_session_titles_off_nothing_is_asked_and_the_prompt_titles_the_session ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.0113603Z test with_startup_scrollback_off_the_launch_starts_under_the_shells_output ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.1590773Z test usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.2237822Z test without_the_variable_a_bare_xfx_is_the_tui ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.2450282Z test zero_is_the_line_shell ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.4686589Z test xfx_sound_off_keeps_a_session_silent ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.6258342Z test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8503747Z test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8504104Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8504235Z failures:
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8504333Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8504464Z ---- a_mebibyte_of_hostile_clipboard_timer_probe stdout ----
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8504693Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8504945Z thread 'a_mebibyte_of_hostile_clipboard_timer_probe' (45030) panicked at tests/tui.rs:4173:5:
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8505969Z CI-PTY-WAIT timer probe; this test fails on purpose so libtest prints it
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8506464Z environment: 4 CPUs, load [1.7587890625, 3.421875, 2.287109375] (3), nice 0
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8506863Z == the writer at its default QoS: the paste took 3.077902106s
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8507322Z sleep 12ms: n 64, min 12.055924ms, median 12.067852ms, p95 12.09129ms, max 12.13961ms, >=20ms 0, >=50ms 0
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8507789Z spin 12ms: n 64, min 12.000186ms, median 12.000442ms, p95 12.00075ms, max 12.003671ms, >=20ms 0, >=50ms 0
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8508214Z yield 12ms: n 64, min 12.000213ms, median 12.000481ms, p95 12.000927ms, max 12.142396ms, >=20ms 0, >=50ms 0
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8508667Z 1ms steps to 12ms: n 63, min 12.05387ms, median 12.064663ms, p95 12.06796ms, max 12.083ms, >=20ms 0, >=50ms 0
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8508994Z full queue: sleep 2ms: no samples
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8509196Z full queue: poll POLLOUT: no samples
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8509811Z write: n 256, min 2.652µs, median 5.197µs, p95 9.27µs, max 17.232µs, >=20ms 0, >=50ms 0
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8510025Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8510097Z stack backtrace:
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8510289Z    0: __rustc::rust_begin_unwind
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8510604Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8510932Z    1: core::panicking::panic_fmt
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8511239Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8511594Z    2: tui::a_mebibyte_of_hostile_clipboard_timer_probe
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8511843Z              at ./tests/tui.rs:4173:5
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8512102Z    3: tui::a_mebibyte_of_hostile_clipboard_timer_probe::{closure#0}
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8512600Z              at ./tests/tui.rs:4163:49
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8512970Z    4: <tui::a_mebibyte_of_hostile_clipboard_timer_probe::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8513460Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8513915Z    5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8514358Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8514775Z note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8515012Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8515017Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8515081Z failures:
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8515253Z     a_mebibyte_of_hostile_clipboard_timer_probe
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8515401Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8515739Z test result: FAILED. 199 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.86s
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8516003Z 
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8536526Z error: test failed, to rerun pass `--test tui`
+gate (x86_64-unknown-linux-gnu)	Tests	2026-11-17T00:19:43.8585746Z ##[error]Process completed with exit code 101.

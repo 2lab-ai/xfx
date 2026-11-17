@@ -1,13 +1,13 @@
 # CI-PTY-WAIT — receipt
 
 Unit: CI-PTY-WAIT. Base `dcfa5146` (main). Branch `fix/p5-ci-pty-wait`: one
-product commit, `f79f5e5b`; five test commits, `f311ad79`, `a70dcd89`,
-`a77fad76`, `7b524d78` and `765f9170`; and the receipt commits. Joined with
-train 16 (§9): the merge `931418d4`, a join test `9a54c911`, the re-points
-`3e17645a` and a clippy fix `ba133c25`. The join review's case `25203a2c`
-(§10). Train 16's final head merged as `d0115e72` (§11). PR #103's red
-fixed in tests (§12): `8ab62f69`, `a981b4ec`, `a6c6de29`, `f516d090` and
-the re-points `e717f3f6`, the code head.
+product commit, `f79f5e5b`; test commits `f311ad79`, `a70dcd89`, `a77fad76`,
+`7b524d78`, `765f9170`; and receipt commits. Joined with train 16 (§9): merge
+`931418d4`, join test `9a54c911`, re-points `3e17645a`, clippy fix `ba133c25`.
+Join review case `25203a2c` (§10). Train 16's final head merged as `d0115e72`
+(§11). PR #103's first red (§12): `8ab62f69`, `a981b4ec`, `a6c6de29`,
+`f516d090`, re-points `e717f3f6`; its second (§13): `e4b591d2`, re-points
+`f2b01cc1`, a comment `a6045a54` (the code head).
 Every figure below comes from a file in this folder; paths are scrubbed (`<runner>`,
 `<tmp>`, `<home>`).
 
@@ -1011,8 +1011,20 @@ both.
 
 ### The cause (`runs/phases/`, `runs/recipe3-16-suites.txt`)
 
-**Measured locally, with the new words.** The pauses that reject a session
-are neither the planned sleep oversleeping nor the 2 ms poll stretching:
+> **Corrected by §13 (PR #103's second CI run).** What follows is true of
+> this machine's recipes and was not CI's cause. This section said as fact
+> that the pauses are not the planned sleep oversleeping, and inferred that
+> on CI, too, three pastes at once slowed the writes. CI's second run, with
+> these words, said otherwise. Every rejected session on both macOS rows,
+> 10 of 10, fell across a planned 12 ms pause whose sleep took 50–110 ms.
+> The writes on either side took under 0.25 ms. CI's macOS runners stretch
+> the harness's own timers, which no recipe here did. §13 has the evidence
+> and the fix. The claims this changes are marked below; the rest stands as
+> a record of what was measured here.
+
+**Measured locally, with the new words.** On this machine's recipes, the
+pauses that reject a session were neither the planned sleep oversleeping
+nor the 2 ms poll stretching (**on CI they were the sleep, §13**):
 - **Rejected inside a part, behind a poll:** 255 of the 280 before-fix
   rejections in the phase run. The poll slept 0–8 ms (median 3). The write
   that ended the pause took 10–50 ms (median 26), and the rest 0–44 ms
@@ -1029,8 +1041,8 @@ each reach 50 ms with no help from any sleep. The planned pause adds about
 18 ms, which is why the paced case is rejected more at lighter loads
 (8.6% against 3.0% in recipe 1).
 
-**What slows the writes is mebibyte pastes beside one another, not load as
-such.**
+**Here, what slows the writes is mebibyte pastes beside one another, not
+load as such** (on CI, the writes did not slow: §13).
 - One suite beside eleven background suites that skip the hostile pastes:
   pauses of 3–18 ms (`runs/recipe4-one-suite.txt`).
 - One suite beside 36 CPU-bound processes: pauses of 9–19 ms
@@ -1039,9 +1051,11 @@ such.**
   (`runs/recipe1-8-suites.txt`).
 - 36 at once (12 suites): 75% (`runs/phases/`).
 
-**On CI** (inferred, not measured there): libtest starts a suite's three
-hostile cases together, so on the row's three vCPUs a suite runs three
-mebibyte pastes at once. That is the condition that slows the writes here.
+**On CI** (inferred, not measured there, and **wrong**: §13): libtest starts
+a suite's three hostile cases together, so on the row's three vCPUs a suite
+runs three mebibyte pastes at once. That is the condition that slows the
+writes here. CI's second run measured the writes there at under 0.25 ms,
+and the planned sleep at 50–110 ms.
 - The one pause the log lets me place fell at the planned pause before part
   64.
 - Where the other two fell, and how CI's 61–97 ms split between sleep, write
@@ -1063,8 +1077,11 @@ out waiting for its screen.** Of its sessions, 88 of 117 were rejected
 1. **One hostile paste at a time in the binary.** `unpaced_case` holds
    `ONE_PASTE_AT_A_TIME` for the whole case, all its sessions, so the three
    cases run one after another. The rest of the suite runs beside them as
-   before. This takes away the condition that slows the writes, and it is
-   the measured part of the fix.
+   before. This takes away the condition that slows the writes here, and it
+   is the part of the fix measured here. On CI it was not the cause: the
+   paced case's rejected pauses were 50–110 ms with it and 59–97 ms without
+   it (§13). It stays, for the reason measured here; CI's numbers do not
+   decide it.
 2. **Five sessions before giving up, not three** (`UNPACED_ATTEMPTS`). A
    rejected session still asserts nothing and returns before any assertion,
    and a failed assertion on an accepted session still fails the case at
@@ -1079,7 +1096,9 @@ out waiting for its screen.** Of its sessions, 88 of 117 were rejected
 Rejected candidates:
 - **Serializing the hostile pastes against every PTY test.** The other
   tests write no mebibyte, and recipe 4 shows them not slowing the writer.
-- **A different pacing.** The sleeps are not where the pauses go.
+- **A different pacing.** The sleeps are not where the pauses go. (**Wrong
+  on CI**, §13: there the sleep was the whole pause. §13 changes how the
+  pause is waited, not the pacing.)
 - **A time budget.** A count gives the same bound with one number less.
 
 `no_two_unpaced_cases_run_at_once` pins the lock: three cases started
@@ -1120,9 +1139,10 @@ construction: twelve hostile pastes at once instead of 36.
   runs and in every recipe here. It writes no mebibyte, and its CI failure
   was a product defect (§2a).
 - **"CI's test parallelism is unchanged; none of the causes needed it"
-  (open question 3) no longer holds for the hostile pastes.** They needed
-  not to run beside one another. The suite's thread count and every other
-  test's parallelism are unchanged.
+  (open question 3) no longer holds for the hostile pastes.** Here they
+  needed not to run beside one another. (On CI that was not the cause;
+  §13.) The suite's thread count and every other test's parallelism are
+  unchanged.
 
 ### The recipes that did not reproduce, and two runs of mine to discount (`runs/`)
 
@@ -1217,6 +1237,405 @@ does not, through this section's commit: the messages, and what `git show`
 prints of each. **0 matching lines, and 0 files in this folder**
 (`pathscan.txt`). `check-no-local-paths.sh` passed in both gates.
 
+## 13. PR #103's second CI run: the harness's own timers, fired late on CI's macOS rows — `ci-pr103-r2/`, `ci-probe/`
+
+**The fix is tests only:** `tests/support/pty.rs` and `tests/tui.rs`. No
+product line changed. §12's claims that this run refuted are corrected in
+place, each marked.
+
+### The evidence (`ci-pr103-r2/`)
+
+The coordinator pushed `8e2f04c2` (§12's fix and its words) to PR #103.
+- **Both macOS rows went red on the paced case**, and only there:
+  aarch64-apple-darwin's "Tests, with the fault injector"
+  (`gate-aarch64-apple-darwin-fi-failed.log`) and x86_64-apple-darwin's
+  checks "Tests" (`gate-x86_64-apple-darwin-checks-tui.log`, the log's
+  `tests/tui.rs` part; `ci-probe/excerpt.py` cut it, and its first line
+  names the whole log's sha256).
+- **Every rejected session, 10 of 10, fell "between parts N−1 and N,
+  across a planned 12ms pause that slept" 50.2–109.5 ms.** Seven fell at
+  parts 0→1, two at 127→128 and one at 191→192. The write that ended each
+  took 0.10–0.24 ms, and the rest (the write before it and any time off a
+  CPU) 0.03–0.22 ms. So the sleep was the whole pause.
+- **The unpaced cases passed on both rows.** Each one's longest pause was a
+  full queue's 2 ms poll, which slept 19.9–27.1 ms; the writes around it
+  took at most 0.39 ms. That is half the bar from the poll alone.
+- §12's mechanism, writes slowed to 20–30 ms by pastes beside one another,
+  is not in this run: no write near a counted pause took a millisecond.
+
+### Locally, by CI's signature (`ci-pr103-r2/signature.sh`, `signature-local.txt`)
+
+`signature.sh` runs the paced case alone under a recipe and counts the
+sessions "rejected across a planned pause that slept ≥50 ms" whose ending
+write took under a millisecond. At `f516d090`'s fault-injection binary
+(the code of `8e2f04c2`; the two differ in one comment's numbers), 2 runs
+per recipe:
+
+| recipe | runs green | sessions with CI's signature | what the sessions said |
+|---|---|---|---|
+| none (idle) | 2 / 2 | 0 of 2 | planned sleeps 17.5–18.0 ms |
+| `taskpolicy -l 3`, `-l 5`, `-t 5` | 2 / 2 each | 0 | sleeps 15.1–18.0 ms |
+| `taskpolicy -b`, `-c background` | 0 / 2 each | 0 of 10 each | a different signature: inside part 0, behind a 2 ms poll that slept 126–520 ms |
+| **`taskpolicy -c utility`** | **0 / 2** | **10 of 10** | **planned sleeps 68.5–107.0 ms, ending writes 0.07–0.14 ms** |
+
+Only a utility clamp gives CI's signature. It lets macOS coalesce the
+thread's timers and fire them late; it does not withhold the CPU.
+
+### The probe (`probe/p5-cpw-timer` at `f0d609e1`; run 43984803095; `ci-probe/`)
+
+A test on its own branch, off `8e2f04c2`, never to merge and not on this
+branch: in the paced case's own setting (a live TUI reading the pty, the
+hostile mebibyte in 4 KiB parts, the lock held) it takes one of five 12 ms
+waits in turn before each part from the second on, and meets each full
+queue with one of two waits in turn, timing every one. Then the same with
+the writer thread asking for the user-interactive QoS. It fails on purpose
+so libtest prints the numbers. The coordinator ran it on every row
+(workflow_dispatch); `ci-probe/probe-<row>-tui.log` are the four logs'
+`tests/tui.rs` parts, cut by `excerpt.py`, each naming its whole log's
+sha256.
+
+**The environment.** aarch64 macOS: 3 CPUs, load 9–21, nice −10, every
+thread of the test process at priority 20T (one at 19T), the writer's QoS
+read as `QOS_CLASS_DEFAULT`, not darwin-background. x86_64 macOS: 4 CPUs,
+load 3–6, every thread 20T. 20T is the utility clamp's priority (31T is the
+default, 4 the background); the requested class does not show a clamp.
+Linux: nice 0.
+
+**The waits** (macOS, 51 of each per pass; the writer at its default QoS /
+asking for user-interactive):
+
+| wait | aarch64 macOS | x86_64 macOS |
+|---|---|---|
+| `thread::sleep` 12 ms | median 57 / 44 ms, max 109 / 108, ≥50 ms 31 / 20 of 51 | median 31 / 32 ms, max 106 / 106, ≥50 ms 12 / 18 |
+| spin to a 12 ms deadline | max 12.95 / 12.07 ms | max 12.10 / 12.12 ms |
+| `yield_now` to 12 ms | max 21.3 / 20.2 ms | max 13.4 / 27.2 ms |
+| 1 ms sleeps to 12 ms | median 17.7 / 16.9 ms, max 22.3 / 24.0 | median 12.7 / 12.7 ms, max 17.8 / 17.8 |
+| kqueue `NOTE_CRITICAL` 12 ms | median 12.2 / 12.2 ms, max 14.9 / 18.1 | median 12.2 / 12.2 ms, max 12.6 / 14.3 |
+| full queue: `thread::sleep` 2 ms | median 16.4 / 16.8 ms, max 24.3 / 25.7 | median 3.0 / 3.0 ms, max 30.2 / 29.4 |
+| full queue: `poll` for `POLLOUT` | max 160 / 178 ms, ≥50 ms 15 / 13 | max 578 / 548 ms, ≥50 ms 22 / 19 |
+| `write` | max 5.9 / 2.1 ms | max 1.6 / 2.3 ms |
+
+Linux (64 of each, no kqueue row, and no full queue: the reader kept up):
+`thread::sleep` 12 ms took 12.04–12.14 ms, the spin 12.000–12.004 ms.
+
+Before CI, the probe's first form ran here once each with no clamp, under
+`taskpolicy -c utility` and under `taskpolicy -b`
+(`ci-pr103-r2/probe-local-{idle,utility,bg}.txt`). Under the utility clamp
+it matched CI: `thread::sleep` 12 ms took 15.8–108 ms (median 93–96), while
+the spin stayed within 0.01 ms and the critical timer within 13.9 ms.
+
+What it says:
+- **The timer fires late; the CPU is not withheld.** A spin, which has no
+  timer, stayed within 1 ms of its deadline on both macOS rows while the
+  sleep beside it took up to 109 ms.
+- **Asking for a higher QoS does not help.** The priorities stayed 20T, and
+  the sleep's median 32–44 ms.
+- **The full queue's 2 ms sleep is exposed too.** Up to 30 ms on CI, and in
+  this run's unpaced cases it was each longest pause. Under the clamp here
+  it reached 82 ms (`probe-local-2ms.txt`, below).
+- **`POLLOUT` is no way out:** it came back up to 578 ms late.
+- Linux does not stretch its sleeps.
+
+### The fix (`e4b591d2`, tests only)
+
+- **`support::pty::sleep_on_time(wait)`.** On macOS: a one-shot kqueue
+  `EVFILT_TIMER` with `NOTE_USECONDS | NOTE_CRITICAL` (the man page: "override
+  default power-saving techniques to more strictly respect the leeway
+  value"). A signal ends the `kevent` early (`EINTR`), and this binary
+  handles `SIGCHLD` (`stops`); the timer is set again for what is left of
+  the deadline, so the wait is never short. An `EV_ERROR` event fails. The
+  kqueue is an `OwnedFd`, closed on every way out, and not inherited by a
+  fork. Elsewhere: `thread::sleep`, unchanged.
+- **It takes the two waits the measure counts:** the writer's full-queue
+  poll (`Session::write_raw_traced`) and the paced paste's planned pause
+  (`paste_with_pauses`). The reader thread's poll, `stop_with`'s and every
+  other wait are unchanged.
+- **Why this primitive, from the CI numbers:**
+  - `thread::sleep`: the defect.
+  - 1 ms sleeps: each is stretched too; 22–24 ms for 12 on aarch64.
+  - `yield_now`: up to 27 ms, and a busy loop where nothing else is runnable.
+  - A spin: exact (≤12.95 ms). Fine for four planned pauses, but the
+    full-queue poll runs for most of a paste (20–33 s on the probe's macOS
+    rows), and a spinning writer takes a CPU from the TUI that drains the
+    queue, on a 3-CPU runner at load 9–21. One primitive for both waits.
+  - The critical kqueue timer: 12.0–18.1 ms for 12 ms on both macOS rows,
+    p95 ≤14.1, and it blocks.
+  - `POLLOUT`: up to 578 ms.
+- **What CI has not measured:** the critical timer at 2 ms, and this
+  harness. CI measured the critical timer at 12 ms only, and the fixed
+  harness has not run there. The full-queue poll's GREEN below is local.
+- **What did not change:** `PASTE_QUIET` (50 ms), the 50 ms bar, the pacing
+  (four 12 ms pauses before parts 1, 64, 128 and 192), `UNPACED_ATTEMPTS`
+  (5), what an accepted session asserts, and that a rejected session asserts
+  nothing. The words a session says are the same, so the same scripts count
+  both builds.
+- **Pinned by** `a_wait_on_time_is_never_short_with_signals_landing_on_it`:
+  40 waits of 2 ms and 40 of 12 ms with a signal sent to the waiting thread
+  every millisecond (`SIGURG`, with a handler and no `SA_RESTART`); no wait
+  may end short, and a signal must have landed.
+- `unpaced_case`'s failure said "the harness was not scheduled while it
+  wrote". It now says the harness was that late between two of its writes,
+  and each rejected session says where.
+
+### The lock
+
+`ONE_PASTE_AT_A_TIME` stays, and its doc now says why. CI's numbers do not
+decide it:
+- The paced case's rejected pauses were 59–97 ms without it (the first run)
+  and 50–110 ms with it (the second): it neither caused nor fixed CI's red.
+- The unpaced cases' longest pauses were 43.1 and 28.0 ms without it, and
+  20.1–27.3 ms with it. That is two sessions against four, and the first
+  run's had no words saying where they fell: not evidence either way.
+- The x86_64 row passed the paced case without the lock and failed with it.
+  The timer alone predicts that often enough: the probe's x86_64 row slept
+  12 ms past 50 ms in 12 and 18 of 51 tries, about 0.3 a pause, so a
+  session of four pauses was rejected about 3 times in 4. The first run gave
+  the case 3 sessions (all rejected about 0.42 of the time) and the second
+  gave it 5 (about 0.24). A pass and then a fail comes out about 1 time in
+  7 [computed from the probe's rates, which were taken with the lock held].
+- Every CI number the fix's primitive rests on was taken with the lock held.
+  Taking it out would put the fix on ground CI has not measured, and here it
+  cannot be measured without CI. Keeping it also makes the RED below a
+  change of one thing.
+- Its reason is the one measured here (§12): 36 pastes at once slowed the
+  writes to 20–30 ms. Its cost: the three cases wait for one another, and
+  the suite was no slower with it (§12).
+
+### RED and GREEN under the clamp (`ci-probe/red.sh`, `red-runs.txt`, `red-count.txt`, `red-sessions.txt`)
+
+**Recipe:** the three hostile pastes in one run of the fault-injection test
+binary (the lock runs them one after another), under `taskpolicy -c utility`
+and with no clamp, 20 rounds each, the two builds interleaved round by round
+(which goes first alternates). Before = `8e2f04c2`, after = `e4b591d2`, each
+built the same way on a fresh `--no-local` clone. The machine was not idle:
+other work held its load at about 25–35 (read at the probe runs just after,
+`probe-local-2ms.txt`; not recorded during these), the same for both builds.
+"No clamp" names the recipe, not the load.
+
+| | before, clamp | after, clamp | before, no clamp | after, no clamp |
+|---|---|---|---|---|
+| paced case | **red 20 / 20** | **green 20 / 20** | green 20 / 20 | green 20 / 20 |
+| unpaced, types nothing | green 20 / 20 | green 20 / 20 | green 20 / 20 | green 20 / 20 |
+| unpaced, no approval | green 20 / 20 | green 20 / 20 | green 20 / 20 | green 20 / 20 |
+| paced sessions with CI's signature | **100 of 100** | **0 of 20** | 0 of 20 | 0 of 20 |
+| other rejected sessions | 0 | 1 of 60 (unpaced; below) | 0 | 0 |
+| an accepted session failing an assertion | 0 | 0 | 0 | 0 |
+| planned pauses that ended a session's longest pause | slept 50.8–107.8 ms, median 100.3 | 12.0–13.0 ms, median 12.0 | 16.0–18.0 ms, median 18.0 | 12.0–12.1 ms, median 12.0 |
+| unpaced sessions' longest pause | 18.1–42.3 ms, median 21.3 | 2.6–36.1 ms, median 6.6 | 3.2–11.2 ms, median 6.2 | 2.2–10.9 ms, median 5.1 |
+| seconds per run | 32–39 | 11–13 | 13 | 10–11 |
+
+**The paced case alone, 60 more runs under the clamp after the fix**
+(`ci-pr103-r2/signature.sh` at the after build, `signature-after.txt`):
+60 of 60 green, 0 of 60 sessions with CI's signature or rejected at all,
+planned pauses 12.0–13.3 ms, the longest pause of any session 21.6 ms.
+With the 20 rounds above: **0 rejected paced sessions in 80 runs under the
+clamp, which bounds the rate at about 4% a run (rule of three, 95%)**,
+against 100 of 100 sessions before.
+
+- **The paced case's RED is CI's, and the fix takes it away.** Before, every
+  session under the clamp carried CI's signature and the case failed every
+  time. After, no paced session was rejected, and each planned pause slept
+  12.0–13.0 ms.
+- **The full-queue poll is better at the median and not in its tail.** The
+  unpaced sessions' longest pause fell from a median 21.3 ms to 6.6, but the
+  longest of all was 42.3 ms before and 36.1 after, and one session after
+  was rejected at 68.9 ms: "inside part 1 of 256 ... behind a full queue's
+  2ms poll that slept 68.849792ms", its write 0.08 ms (`red-sessions.txt`,
+  `utility.after.18`). Its case ran a second session, which passed.
+- **That tail is time off a CPU, not the timer.** The probe, extended here
+  to meet each full queue with a 2 ms `thread::sleep`, a 2 ms critical
+  timer or a 2 ms spin in turn (`probe-local-2ms.diff`, never committed),
+  says so (`probe-local-2ms.txt`, three runs under the clamp):
+
+  | 2 ms wait, full queue | median | p95 | max | ≥50 ms |
+  |---|---|---|---|---|
+  | `thread::sleep` | 11.7–12.8 ms | 17.8–50.3 | 27.7–82.4 | 0–41 per pass |
+  | critical kqueue timer | 2.03–2.07 ms | 2.7–3.1 | 24.2–53.2 | 0–23 |
+  | spin | 2.000 ms | 2.4–2.6 | 35.2–111.9 | 0–51 |
+
+  A spin has no timer, and its tail is as long as the timer's: the writer,
+  clamped to priority 20 on a machine at load 25–35, sometimes waited for a
+  CPU. No wait removes that. The measure counts it as a pause, as it should,
+  and a session it rejects asserts nothing. On CI the spin's tail was within
+  1 ms (the probe), so there the critical timer is what is left.
+
+### §2b, looked at again
+
+§2b's two CI failures (the unpaced paste typed as keys) were put down to the
+writer not being scheduled for 50 ms [inferred; the logs had no breakdown].
+This run shows a second contributor: the 2 ms poll's own sleep, fired late
+under the clamp. It reached 30 ms on CI's rows in the probe, short of 50 by
+itself, and 82 ms under the clamp here (`probe-local-2ms.txt`). What made
+those failures' 50 ms stays [inferred]. The fix takes the timer's part away;
+time off a CPU is what a rejected session is for.
+
+### Mutants (`mutants-e4b591d2.txt`, `lib-threshold-e4b591d2.txt`, `quarantine-e4b591d2.txt`, `paced-power-*.txt`)
+
+On a `--no-local` clone at `e4b591d2`, under the lock. The code head
+`a6045a54` differs from it in one comment line and `f2b01cc1`'s numbers.
+- **`mutants.py`: 22 of 22 killed**, both baselines green (unit 9, harness
+  8). The two new ones are `sleep_on_time`'s (macOS): `wait-returns-at-once`
+  and `wait-ends-at-a-signal` (an `EINTR` ends the wait), each killed by
+  `a_wait_on_time_is_never_short_with_signals_landing_on_it`. Putting
+  `thread::sleep` back is not a mutant here, since nothing at idle tells
+  the two apart. The clamp runs above are that RED: the before build is
+  that code.
+- **`lib_threshold_mutants.py`:** each of the three quarantine mutants is
+  killed by both of the lib's clock-free threshold cases.
+- **`quarantine_mutants.py`, 3 runs per case:** baseline 9 of 9 green, and no
+  session rejected. The paced case is red under 5 ms 3 of 3 and under
+  any-quiet 2 of 3 (run 2 green), each time on an accepted session, and
+  green under 20 ms 3 of 3. The unpaced cases pass under every mutant, as
+  before.
+- **The paced case's catch rate with no clamp, 10 runs more per build**
+  (`ci-probe/paced_power.py`, `paced-power-e4b591d2.txt`): any-quiet and
+  5 ms red 10 of 10, 20 ms green 10 of 10, baseline green 10 of 10. With
+  the runs above, **12 of 13 catch any-quiet and 13 of 13 catch 5 ms.** §12
+  had 3 of 3 each.
+- **Under the clamp it catches neither** (`paced-power-clamp-e4b591d2.txt`,
+  every run under `taskpolicy -c utility`): any-quiet green 10 of 10, 5 ms
+  green 10 of 10, 20 ms and the baseline green 10 of 10. 40 of the 41
+  sessions were accepted, with planned pauses that slept 12.0–14.2 ms; one
+  was rejected behind a 53.5 ms poll, and its case's next session passed.
+  **So on a clamped runner, as CI's macOS rows are, the paced case after
+  this fix passes with the quarantine broken.** Before the fix it was red
+  there on every build, the correct one included, so it caught nothing
+  there either; it now says nothing instead of failing on every build.
+  What still catches these mutants on every row: the lib's two clock-free
+  threshold cases (above). What catches them in the paced case: an
+  unclamped machine (above), and CI's Linux rows [inferred: their 12 ms
+  sleep took 12.04–12.14 ms and nothing there read as a clamp; this run
+  could not measure Linux].
+- **Why a run can miss, and why the clamp blinds it** [read from the code,
+  not measured]. Both mutants end the quarantine at an empty check that
+  comes after an earlier empty check. With no input, the loop's next check
+  is its `TICK` (8 ms) timeout (`wait_timeout`,
+  `src/tui/event_loop.rs:317-322`). So a 12 ms pause catches them only when
+  the TUI empties the queue in its first 4 ms or so, and its 8 ms timeout
+  fires on time. Before this fix, macOS slept the pause as about 18 ms at
+  idle (§12), which left more room. CI's Linux rows slept it as
+  12.04–12.14 ms all along. Under the clamp the TUI's own 8 ms timeout is a
+  timer that fires late, the way the harness's 12 ms one did, so the
+  second check comes after the paste has resumed. That is the product's
+  timer, which the brief puts out of this round's reach (look-ahead,
+  below). No pause under the 50 ms bar is sure to hold a late timeout.
+- **The pacing stays at 12 ms.** With no clamp, 18 ms gave the same counts
+  in the same 10 runs per build, so a longer pause bought nothing
+  measurable. Under the clamp no pause the bar allows would help.
+
+### The gate
+
+Train 16's `gates.sh` (ci.yml's gate job, 29 steps) ran at the code head
+`a6045a54` twice, side by side, each on a fresh `--no-local` clone in its
+own hold of the lock (`gates-rustup.txt`, `gates-brew.txt`,
+`gate-counts-*.txt`). The machine's load was 15–71 through them, from other
+work.
+
+| run | how | steps | `cargo test` / with fault injection | `tests/tui.rs` / with fault injection | smoke-tui |
+|---|---|---|---|---|---|
+| rustup | rustup's own proxies first on PATH, `RUSTUP_TOOLCHAIN=1.99.1` | **29 of 29, tree clean** | 6080 / 6117 passed, 0 failed, 8 ignored | 201 / 215 | 37 scenarios, 1167 checks, 0 failures |
+| Homebrew | PATH as this Mac has it (Homebrew's 1.99.1) | **29 of 29, tree clean** | 6080 / 6117 passed, 0 failed, 8 ignored | 201 / 215 | 37 scenarios, 1167 checks, 0 failures |
+
+One test more than §12's gate in each count: the new wait test.
+`check-no-local-paths.sh` passed in both.
+
+Train 16's `linux-clippy.sh` ran at `a6045a54` on a fresh clone, with
+rustup's own proxies (`linux-clippy.txt`). x86_64 and aarch64 Linux, plain
+and with `fault-injection`: **4 of 4 exit 0.** On Linux `sleep_on_time` is
+`thread::sleep`, and the kqueue code is compiled for macOS only.
+
+### References (`content-*.txt`, `readme-refs-*.txt`, `repoint-*.txt`, `repoint_map.py`)
+
+- **This round's test lines moved 16 references** (the content check at
+  `e4b591d2` against `8e2f04c2`). `f2b01cc1` re-points them, numbers only
+  (9 lines, `repoint-numbers.txt`):
+  - six numbers of `tests/tui.rs:2721`'s comma list, each +64. Each is
+    still the clear-line send. They were mapped through the diff
+    (`repoint_map.py`, `repoint-map.txt`), because that line stands at many
+    places and no window around it places one;
+  - ten of this README's references into `tests/tui.rs` and
+    `tests/support/pty.rs`, +2 to +84 (`repoint-readme-plan.txt`).
+- **At `f2b01cc1`:**
+  - Code and docs: WRONG 9, the same set as at `8e2f04c2`.
+  - This README: 21. That is the 19 from before, plus §12's two references
+    to `tests/tui.rs:2721`, the comma-list line itself. That line is the
+    same line with its numbers re-pointed, so the check reads the changed
+    text as WRONG. Read by hand.
+
+### Numstat by class (`numstat.txt`)
+
+| range | product | tests | receipt | other |
+|---|---|---|---|---|
+| the fix, `8e2f04c2..e4b591d2` | **+0 −0** | +165 −16 (`tests/support/pty.rs` +87 −2, `tests/tui.rs` +78 −14) | +0 −0 | +0 −0 |
+| this round's code, `8e2f04c2..a6045a54` | **+0 −0** | +167 −18 (the fix, the re-pointed comma list, and the one-line note) | +8 −8 (the re-points) | +0 −0 |
+| the branch against train 16, `1a4cb6b4..a6045a54` | +98 −33 (§2a, from before the joins) | +1821 −77 | in `numstat.txt` | +14 −14 (re-points in `docs/` and `scripts/`) |
+
+This section's own commit is receipt only. `numstat.txt` has every range,
+the commit that adds it included.
+
+### Paths
+
+`join/pathscan.sh` scanned every commit this branch holds that `8be4693b`
+does not, through this section's commit: the messages, and what `git show`
+prints of each (`pathscan.txt`). **0 matching lines, and 0 files in this
+folder.** The CI logs here were masked
+before they reached this folder, and each excerpt was scanned again.
+`check-no-local-paths.sh` passed in both gates.
+
+### Look-ahead: the product's own timers on a clamped runner
+
+CI's macOS runners clamp the TUI under test as well as the harness: the
+clamp holds for the whole process tree [inferred; the probe read only the
+test process's threads]. What the clamp does to the product, from the code
+(not fixed here):
+- **The loop's turn with no input is a timer.** `wait_for_input`'s timeout
+  is the `TICK` (8 ms) or `LISTING_POLL` (1 ms) (`src/tui/event_loop.rs:262`,
+  `:317-322`). On a clamped runner that timeout fires late, so anything a
+  quiet turn does comes later:
+  - a held lone ESC becomes the Escape key later than `ESC_TIMEOUT` plus a
+    tick (the module doc promises "within a tick of the timeout",
+    `src/tui/input.rs:48-49`);
+  - a meta pair's `PAIR_TIMEOUT` (30 ms) runs late the same way;
+  - a paste's quarantine ends later than `PASTE_QUIET` after the quiet
+    began. That is the safe direction: the quarantine is held longer;
+  - a folder listing's rows are painted later.
+- **Decoding parity holds.** A byte that comes after the timeout is read
+  against the ESC's own time when it is fed (`Decoder::feed`/`flush`
+  compare `now` with the ESC's `at`; `src/tui/input.rs:4316-4330` pins
+  `ESC ESC` then `[` at `ESC_TIMEOUT` as two Escapes and a `[`). So a late
+  turn changes when an Escape lands, not what the keys are [read from the
+  code].
+- **The paced case is blind under the clamp** (Mutants, above): the TUI's
+  late 8 ms timeout means no empty check falls inside a 12 ms pause, so a
+  quarantine that ends too early is not seen there. The lib's clock-free
+  cases still catch it on every row.
+- **The risk is to tests with a time bound**, not to what keys decode to: a
+  test that bounds how soon an Escape lands or a quiet ends could miss its
+  bound on a clamped runner. Under the clamp here, no session the fixed
+  harness accepted failed an assertion: 80 paced sessions and 40 unpaced
+  ones. Whether any other `tests/tui.rs` case has such a bound was not
+  measured until this run. **One was found:** the whole tui binary ran
+  twice under the clamp and twice without (`whole_suite.sh`,
+  `suite-clamp.txt`). Under the clamp,
+  `a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it` failed
+  once ("the unfinished line was not pushed away"); every other run passed
+  215 of 215. The product gives the terminal `probe::DEADLINE`, 100 ms
+  (`src/tui/probe.rs:51`), to answer its cursor query, and assumes row 1
+  after that. The test answers from the harness, after `wait_for` has seen
+  the query. Under the clamp, `wait_until`'s 10 ms sleep
+  (`tests/support/pty.rs:537`) and the reader's 2 ms poll are both timers
+  that can fire late. So the answer can come after 100 ms, and the product
+  then does what it does for a terminal that never answers [inferred from
+  the code; the failure's own output does not time the answer]. It is in
+  no failure of §1's table, and it passed in every PR #103 and probe log
+  here, the macOS rows' included. The same `sleep_on_time` change to the
+  harness's other two polls is the likely fix. Not made here: the brief
+  scoped this round to the paste measure's waits.
+- **The reader thread's 2 ms poll is not changed.** Under the clamp it is
+  late too (Linux is not), so the reader drains the TUI's output later and
+  the paste takes longer. It is not in the measure. If a test ever bounds
+  how fast output is read, it is the same `sleep_on_time` change.
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**
@@ -1246,9 +1665,11 @@ prints of each. **0 matching lines, and 0 files in this folder**
    the OSC 7501 row, unchanged here: the fix keeps xfx's frame and makes the
    turn's first frame show `Thinking`.
 3. **CI's test parallelism is unchanged, but for the three hostile pastes**
-   (§12). None of the first three causes needed a change. PR #103's red did:
-   the three cases now run one after another. The suite's thread count and
-   every other test's parallelism are as they were.
+   (§12). None of the first three causes needed a change. PR #103's first
+   red was answered by running the three cases one after another; its second
+   showed CI's cause was the harness's own timers (§13), and the lock stays,
+   for the reason measured here, which CI's numbers do not decide. The
+   suite's thread count and every other test's parallelism are as they were.
 4. **Open parity note: no frame between `working` and `done` when the turn ran
    whole** (opus r1 NIT 2). The start's tick writes `working` after its frame
    (`commit_tick`, `src/tui/event_loop.rs:1433-1436`); the next tick reads the

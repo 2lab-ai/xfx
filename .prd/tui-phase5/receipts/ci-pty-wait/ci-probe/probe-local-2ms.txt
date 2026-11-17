@@ -1,0 +1,85 @@
+The probe (f0d609e1) with probe-local-2ms.diff applied, not committed: each full queue met with a 2 ms thread::sleep, a 2 ms NOTE_CRITICAL kqueue timer or a 2 ms spin, in turn. Its fault-injection test binary, 3 runs under taskpolicy -c utility and one with no clamp, under the suite lock, 2026-11-17. The machine's own load (other work) was 24-35, as each environment line says.
+## utility.1
+environment: 18 CPUs, load [26.57275390625, 28.22998046875, 25.853515625] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["20T", "20T"]
+== the writer at its default QoS: the paste took 39.001143375s
+sleep 12ms: n 51, min 12.276958ms, median 89.247042ms, p95 106.17975ms, max 107.989292ms, >=20ms 49, >=50ms 45
+spin 12ms: n 51, min 12.000959ms, median 12.001583ms, p95 12.0755ms, max 15.583292ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.019333ms, median 12.048333ms, p95 15.326583ms, max 30.615375ms, >=20ms 1, >=50ms 0
+full queue: sleep 2ms: n 1041, min 2.017333ms, median 12.067958ms, p95 18.014083ms, max 47.442792ms, >=20ms 24, >=50ms 0
+full queue: kqueue NOTE_CRITICAL 2ms: n 4150, min 2.01ms, median 2.037625ms, p95 3.050542ms, max 31.451333ms, >=20ms 7, >=50ms 0
+full queue: spin 2ms: n 4746, min 2.000041ms, median 2.00025ms, p95 2.3865ms, max 35.229083ms, >=20ms 6, >=50ms 0
+write: n 12108, min 583ns, median 6.375µs, p95 45.916µs, max 2.225417ms, >=20ms 0, >=50ms 0
+environment: 18 CPUs, load [24.1767578125, 27.27587890625, 25.6044921875] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["20T", "20T"]
+== the writer asking for user-interactive QoS: the paste took 33.454048s
+sleep 12ms: n 51, min 16.533833ms, median 89.960125ms, p95 106.671792ms, max 106.934583ms, >=20ms 50, >=50ms 47
+spin 12ms: n 51, min 12.001291ms, median 12.001584ms, p95 28.028792ms, max 31.828834ms, >=20ms 3, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.022542ms, median 12.075ms, p95 31.759208ms, max 45.658875ms, >=20ms 5, >=50ms 0
+full queue: sleep 2ms: n 728, min 2.081292ms, median 12.765583ms, p95 18.107042ms, max 45.110833ms, >=20ms 32, >=50ms 0
+full queue: kqueue NOTE_CRITICAL 2ms: n 3021, min 2.013541ms, median 2.0575ms, p95 3.019208ms, max 40.220583ms, >=20ms 17, >=50ms 0
+full queue: spin 2ms: n 4142, min 2.000041ms, median 2.000291ms, p95 2.624208ms, max 45.16725ms, >=20ms 30, >=50ms 0
+write: n 9892, min 625ns, median 7µs, p95 55.416µs, max 2.822334ms, >=20ms 0, >=50ms 0
+## utility.2
+environment: 18 CPUs, load [25.86279296875, 27.43017578125, 25.7314453125] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["20T", "20T"]
+== the writer at its default QoS: the paste took 40.850878083s
+sleep 12ms: n 51, min 17.226666ms, median 99.190916ms, p95 107.3085ms, max 141.30025ms, >=20ms 50, >=50ms 45
+spin 12ms: n 51, min 12.001041ms, median 12.001917ms, p95 52.7065ms, max 53.133666ms, >=20ms 5, >=50ms 3
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.0275ms, median 12.041083ms, p95 49.461416ms, max 61.542208ms, >=20ms 6, >=50ms 2
+full queue: sleep 2ms: n 801, min 2.057833ms, median 12.52875ms, p95 50.331167ms, max 67.737459ms, >=20ms 85, >=50ms 41
+full queue: kqueue NOTE_CRITICAL 2ms: n 2921, min 2.010875ms, median 2.034541ms, p95 2.693667ms, max 53.157917ms, >=20ms 56, >=50ms 23
+full queue: spin 2ms: n 3754, min 2.000041ms, median 2.000292ms, p95 2.446375ms, max 58.483208ms, >=20ms 93, >=50ms 51
+write: n 9444, min 625ns, median 6.666µs, p95 70.125µs, max 50.154792ms, >=20ms 1, >=50ms 1
+environment: 18 CPUs, load [27.5634765625, 27.56005859375, 25.8486328125] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["20T", "20T"]
+== the writer asking for user-interactive QoS: the paste took 34.980553709s
+sleep 12ms: n 51, min 33.160959ms, median 95.674917ms, p95 107.312042ms, max 123.063792ms, >=20ms 51, >=50ms 47
+spin 12ms: n 51, min 12.001ms, median 12.001792ms, p95 21.713208ms, max 62.001291ms, >=20ms 3, >=50ms 1
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.024ms, median 12.040458ms, p95 12.934166ms, max 52.795041ms, >=20ms 2, >=50ms 1
+full queue: sleep 2ms: n 752, min 2.077334ms, median 12.352375ms, p95 23.8505ms, max 66.808916ms, >=20ms 51, >=50ms 21
+full queue: kqueue NOTE_CRITICAL 2ms: n 3338, min 2.013333ms, median 2.036875ms, p95 2.951875ms, max 52.228542ms, >=20ms 21, >=50ms 8
+full queue: spin 2ms: n 3413, min 2.000041ms, median 2.000292ms, p95 2.4195ms, max 55.138041ms, >=20ms 32, >=50ms 12
+write: n 9459, min 583ns, median 7.208µs, p95 66.875µs, max 1.461208ms, >=20ms 0, >=50ms 0
+## utility.3
+environment: 18 CPUs, load [26.455078125, 27.37841796875, 25.85546875] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["20T", "20T"]
+== the writer at its default QoS: the paste took 33.525302583s
+sleep 12ms: n 51, min 32.326583ms, median 97.986709ms, p95 109.98725ms, max 112.609292ms, >=20ms 51, >=50ms 49
+spin 12ms: n 51, min 12.001291ms, median 12.001625ms, p95 12.003917ms, max 18.7135ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.0185ms, median 12.075833ms, p95 16.472ms, max 24.11475ms, >=20ms 2, >=50ms 0
+full queue: sleep 2ms: n 918, min 2.078209ms, median 12.378083ms, p95 18.016833ms, max 27.669334ms, >=20ms 20, >=50ms 0
+full queue: kqueue NOTE_CRITICAL 2ms: n 3101, min 2.0115ms, median 2.065084ms, p95 3.002708ms, max 24.161166ms, >=20ms 2, >=50ms 0
+full queue: spin 2ms: n 3615, min 2.000041ms, median 2.000333ms, p95 2.482541ms, max 53.352167ms, >=20ms 3, >=50ms 1
+write: n 9663, min 833ns, median 6.875µs, p95 64.167µs, max 11.167209ms, >=20ms 0, >=50ms 0
+environment: 18 CPUs, load [30.8740234375, 28.34130859375, 26.26416015625] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["20T", "20T"]
+== the writer asking for user-interactive QoS: the paste took 28.405774125s
+sleep 12ms: n 51, min 13.519208ms, median 96.428125ms, p95 106.1775ms, max 107.562834ms, >=20ms 50, >=50ms 48
+spin 12ms: n 51, min 12.000917ms, median 12.001542ms, p95 12.089ms, max 13.699583ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.024083ms, median 12.100834ms, p95 13.058166ms, max 14.162209ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 634, min 2.031583ms, median 11.73425ms, p95 17.783875ms, max 82.352792ms, >=20ms 7, >=50ms 1
+full queue: kqueue NOTE_CRITICAL 2ms: n 3184, min 2.014291ms, median 2.059458ms, p95 2.980875ms, max 25.159708ms, >=20ms 1, >=50ms 0
+full queue: spin 2ms: n 3005, min 2.000041ms, median 2.00025ms, p95 2.510666ms, max 111.930041ms, >=20ms 5, >=50ms 2
+write: n 8801, min 709ns, median 6.333µs, p95 51.75µs, max 8.2755ms, >=20ms 0, >=50ms 0
+## idle.1
+environment: 18 CPUs, load [34.68310546875, 29.34716796875, 26.6806640625] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["31T", "31T"]
+== the writer at its default QoS: the paste took 5.686435625s
+sleep 12ms: n 51, min 12.022375ms, median 16.321209ms, p95 18.011458ms, max 18.01575ms, >=20ms 0, >=50ms 0
+spin 12ms: n 51, min 12.00025ms, median 12.000666ms, p95 12.001166ms, max 12.003833ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.009709ms, median 12.018209ms, p95 12.033667ms, max 12.066916ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 343, min 2.011042ms, median 3.004916ms, p95 3.012208ms, max 3.21525ms, >=20ms 0, >=50ms 0
+full queue: kqueue NOTE_CRITICAL 2ms: n 337, min 2.004542ms, median 2.012958ms, p95 2.024875ms, max 3.698708ms, >=20ms 0, >=50ms 0
+full queue: spin 2ms: n 339, min 2.000041ms, median 2.000083ms, p95 2.000167ms, max 2.00425ms, >=20ms 0, >=50ms 0
+write: n 2318, min 375ns, median 3.375µs, p95 45.584µs, max 157.792µs, >=20ms 0, >=50ms 0
+environment: 18 CPUs, load [31.22705078125, 28.77685546875, 26.5087890625] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+this test process's thread priorities: ["31T", "37T"]
+== the writer asking for user-interactive QoS: the paste took 5.6932195s
+sleep 12ms: n 51, min 12.017042ms, median 15.917125ms, p95 18.011125ms, max 18.012792ms, >=20ms 0, >=50ms 0
+spin 12ms: n 51, min 12.000084ms, median 12.000625ms, p95 12.001ms, max 12.001208ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.012708ms, median 12.018417ms, p95 12.040875ms, max 12.048167ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 343, min 2.042208ms, median 3.005875ms, p95 3.0135ms, max 3.023834ms, >=20ms 0, >=50ms 0
+full queue: kqueue NOTE_CRITICAL 2ms: n 339, min 2.006083ms, median 2.012708ms, p95 2.027917ms, max 2.045208ms, >=20ms 0, >=50ms 0
+full queue: spin 2ms: n 341, min 2.000041ms, median 2.000083ms, p95 2.000125ms, max 2.000166ms, >=20ms 0, >=50ms 0
+write: n 2302, min 375ns, median 3.125µs, p95 47.125µs, max 101.625µs, >=20ms 0, >=50ms 0

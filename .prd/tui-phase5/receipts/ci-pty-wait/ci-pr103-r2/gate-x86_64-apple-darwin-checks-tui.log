@@ -1,0 +1,302 @@
+# excerpt of gate-x86_64-apple-darwin-checks-failed.log: lines 5986-6286 of 6286, the tests/tui.rs part; the whole log's sha256 2ad9960642e528b69d023a46a366292b1e2a5b34fd3ef925bc6b7ebbf625e4b3
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:58.1451290Z      Running tests/tui.rs (target/debug/deps/tui-1c735cd8e5e78374)
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:58.2233070Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:58.2236470Z running 200 tests
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:58.2444550Z test a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:58.2452890Z test a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:59.0213150Z test a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:59.8153580Z test a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:37:59.9317190Z test a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band_comes_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:00.8411930Z test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:01.4168630Z test a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:02.4221470Z test a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:02.5051690Z test a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:02.5733650Z test a_command_the_tui_runs_keeps_a_sigint_ignore_and_only_that ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:03.6596350Z test a_burst_of_winches_costs_one_frame ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:03.6608330Z test a_document_append_moves_the_band_off_its_rows_until_the_next_frame ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:03.7067060Z test a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.2072030Z test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.2697100Z test a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.5071390Z test a_double_escape_clears_the_composer_and_warns_before_it_does ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.6375440Z test a_keystroke_that_arrived_with_the_answer_is_typed_rather_than_scanned ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.7127600Z test a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.8274560Z test a_fresh_sessions_first_prompt_is_titled_by_a_model_in_the_window_and_the_log ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:04.9691410Z test a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:05.1737620Z test a_live_theme_notification_repaints_the_band_without_losing_the_draft ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:05.4425160Z test a_level_chosen_on_llmux_rides_as_output_config_effort ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:05.5254360Z test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:06.4359370Z a timing-indeterminate session: the paste paused for 75.440969ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 75.210923ms; the write that ended it took 182.169µs, and the rest, 47.877µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:06.4408480Z x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:06.4409520Z ! input: Input that arrived right after the paste was ignored.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:06.4422110Z ┃ x
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:06.4422550Z auto · glm-5.2
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:07.6616180Z test a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:07.7531560Z a timing-indeterminate session: the paste paused for 88.900996ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 88.623065ms; the write that ended it took 234.15µs, and the rest, 43.781µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:07.7535270Z x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:07.7536040Z ! input: Input that arrived right after the paste was ignored.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:07.7536980Z ┃ x
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:07.7537300Z auto · glm-5.2
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:08.7406090Z test a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:09.1109600Z a timing-indeterminate session: the paste paused for 89.040303ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 88.874632ms; the write that ended it took 129.293µs, and the rest, 36.378µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:09.1144970Z x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:09.1151410Z ! input: Input that arrived right after the paste was ignored.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:09.1176730Z ┃ x
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:09.1182330Z auto · glm-5.2
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:09.4074810Z test a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:10.1394300Z test a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:10.4398700Z test a_normal_exit_gives_the_terminal_back_byte_for_byte ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:10.4406820Z test a_notice_wrapped_onto_the_row_under_it_is_held_and_another_notice_is_not ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:10.7567360Z test a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_paints_in ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:10.9911240Z test a_palette_the_user_named_is_not_overruled_by_the_terminal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:11.7740730Z test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:12.9085120Z test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:13.7741510Z test a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:13.8426390Z test a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:14.6168610Z test a_permission_question_rings_the_bell_when_it_opens ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2955090Z a timing-indeterminate session: the paste paused for 69.264404ms (pauses of 12ms), between parts 127 and 128 of 256, across a planned 12ms pause that slept 68.929989ms; the write that ended it took 138.571µs, and the rest, 195.844µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2960630Z x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2961980Z ! input: Input that arrived right after the paste was ignored.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2964850Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2966220Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2969980Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2972150Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2973520Z ┃ xK00010241
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2978840Z ┃ K00010251
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2979830Z ┃ K00010261
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2980480Z ┃ K00010271
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2981450Z ┃ K00010281
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2982070Z ┃ K00010291
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2982410Z ┃ K00010301
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2982730Z ┃ K00010311
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2983060Z   MARKER-UNPACED
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2983430Z   0s (↑3 ↓5)
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2984230Z ✗ system: the Gateway returned HTTP 500: fake server: unscripted request
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2984920Z ┃
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:15.2985250Z auto · glm-5.2
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:16.1482650Z test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:17.6423910Z test a_profile_only_ask_refuses_starts_the_tui ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:18.1330170Z test a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:18.7404300Z test a_prompt_sent_while_an_answer_streams_cuts_it_and_the_turn_goes_on_with_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:21.2738200Z test a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:21.9001410Z test a_prompt_typed_behind_a_provider_switch_is_titled_by_the_provider_switched_to ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:22.7823240Z test a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:22.7824960Z test a_question_still_being_painted_is_not_a_painted_question ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4852070Z a timing-indeterminate session: the paste paused for 101.233238ms (pauses of 12ms), between parts 191 and 192 of 256, across a planned 12ms pause that slept 100.858164ms; the write that ended it took 156.133µs, and the rest, 218.941µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4854560Z ! input: Input that arrived right after the paste was ignored.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4855210Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4855710Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4856190Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4856800Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4864390Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4864940Z ! input: Keys ignored until input stops.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4865560Z ┃ xK00015361
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4866650Z ┃ K00015371
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4866980Z ┃ K00015381
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4867300Z ┃ K00015391
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4867620Z ┃ K00015401
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4867940Z ┃ K00015411
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4868350Z ┃ K00015421
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4868690Z ┃ K00015431
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4868990Z   MARKER-UNPACED
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4869340Z   0s (↑3 ↓5)
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4870050Z ⚠ Provider unavailable · HTTP 500: fake server: unscripted request · retrying request in 1s
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4870850Z ┃
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.4871170Z auto · glm-5.2
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:23.5922010Z test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... FAILED
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:24.0665110Z test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:24.2401360Z test a_refusal_in_the_band_leaves_the_file_alone ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:25.6462020Z test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:25.8056570Z test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:26.5412890Z test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:26.9145680Z test a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:27.5406630Z test a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:28.4071390Z test a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:29.0058060Z test a_resize_mid_answer_keeps_what_the_document_already_holds ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:29.2259620Z test a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:29.3809930Z test a_resize_moves_the_band_to_the_foot_of_the_new_screen ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:29.4280120Z test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:29.4802700Z test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:29.9919530Z test a_resize_while_a_question_is_up_keeps_the_question_and_the_decision_still_lands ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:30.3851310Z test a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:30.7760520Z test a_resumed_session_keeps_its_model_and_opening_it_writes_nothing ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:31.0000740Z test a_return_typed_before_the_session_is_a_newline_in_the_composer_as_upstreams_is ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:31.5234140Z the paste's longest pause: 20.241218ms (pauses of 0ns), inside part 112 of 256, at its write attempt 5 of 9, behind a full queue's 2ms poll that slept 20.071211ms; the write that ended it took 166.169µs, and the rest, 3.838µs, is the write before it and the time this thread was off a CPU;
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:31.7152810Z test a_rule_that_asks_before_a_read_puts_the_read_band_up_in_auto_and_a_no_is_denied_to_the_model ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:31.7269490Z test a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:32.5284160Z test a_save_that_fails_is_said_once_for_fast_and_for_effort ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:32.8128210Z test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:34.0198540Z test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:34.0998740Z test a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:35.1827030Z test a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_and_stays_there ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:35.2738210Z test a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:36.0679590Z test a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:36.5962290Z test a_session_with_no_credential_is_told_so_before_it_spends_a_prompt ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:36.9676850Z test a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:36.9683150Z test a_skills_sandbox_path_never_holds_what_its_case_searches ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:37.0416590Z test a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:37.3127820Z test a_sigint_the_launcher_ignored_stays_ignored ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:37.5340630Z test a_slash_word_opens_a_menu_that_completes_without_taking_the_caret ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:37.6452610Z test a_small_change_is_still_asked_in_the_band_and_takes_no_plane ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:37.9284680Z test a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:38.0849950Z test a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:38.4266100Z test a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:38.7082010Z test a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:39.0071010Z test a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:39.1078920Z test a_subcommand_is_never_the_tui_however_the_variable_is_set ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:39.4919380Z test a_streamed_answer_grows_the_document_only_inside_the_update_that_paints_the_band ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:39.6748150Z test a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:39.7586810Z test a_terminal_too_small_for_a_band_is_refused_with_a_reason ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:40.0075240Z test a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:40.0325740Z test a_theme_notification_repaints_the_band_with_no_keystroke_behind_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:40.0930690Z the paste's longest pause: 20.093113ms (pauses of 0ns), inside part 181 of 256, at its write attempt 3 of 10, behind a full queue's 2ms poll that slept 19.919548ms; the write that ended it took 170.374µs, and the rest, 3.191µs, is the write before it and the time this thread was off a CPU;
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:40.5386670Z test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:40.7063620Z test a_tool_a_global_deny_covers_is_left_out_of_the_request_until_allowlist_lets_it_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:41.0989980Z test a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:41.3813050Z test a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:41.4412570Z test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:41.4730670Z test a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:42.0218780Z test a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:42.3102340Z test a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:42.3725300Z test a_very_large_paste_collapses_on_screen_and_expands_on_submit ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:42.8837140Z test alias_is_offered_under_extensions_and_answers_every_form_with_upstreams_notice ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:42.9059960Z test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:42.9747400Z test a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:43.0847510Z test after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_window ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:43.0964250Z test an_ask_on_a_terminal_reports_no_program_status ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:43.5858110Z test an_always_answered_in_the_band_is_written_where_a_resume_will_read_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:43.6726890Z test an_answer_lands_even_with_a_prompt_already_queued ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:44.2551770Z test an_escape_sequence_in_an_answer_reaches_the_terminal_disarmed ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:44.3731850Z test an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:44.6196600Z test an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_even_after_a_resume ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:44.6737720Z test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:44.7342470Z test an_external_sigint_is_not_swallowed_because_isig_is_off ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:44.8086080Z test an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really_has ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:45.1231360Z test an_ordinary_exit_leaves_no_independent_diagnostic_behind ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:45.3751890Z test an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:45.4442260Z test an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:45.4481690Z test an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:45.4754770Z test an_unpaced_case_whose_every_paste_paused_fails_saying_so ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:45.7952120Z test an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:46.0729240Z test an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:46.0942360Z test any_value_but_zero_is_the_tui ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:46.7075500Z test ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:46.7743490Z test captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:46.7834350Z test an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn_is_over ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:47.9066380Z test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:48.6953100Z test credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:48.9729090Z test compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:49.3368780Z test ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:49.5415750Z test ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130 ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:49.5890420Z test an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:50.3449400Z test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:50.3742460Z test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:50.3889150Z test compact_of_one_turn_has_nothing_to_compact_and_asks_nobody ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:50.6119600Z test ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.1427890Z test ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.3067910Z test escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.3259510Z test edit_history_undo_and_yank_on_a_real_terminal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.5060950Z test escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.7818960Z test herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.8835490Z test every_size_puts_the_composer_over_the_rule_and_the_hint_on_its_last_row ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:51.9720920Z test leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:52.1067590Z test no_two_unpaced_cases_run_at_once ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:52.4521750Z test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:52.4636910Z test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:52.6784430Z test paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:52.9074780Z test one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:52.9563560Z test quit_leaves_the_way_ctrl_d_does ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:53.1768860Z test quit_before_any_prompt_names_nothing_and_keeps_no_session ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:53.4076910Z test shell_output_from_before_the_launch_is_still_readable_afterwards ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:53.6739230Z test read_file_of_an_image_shows_it_to_the_model_on_every_later_request ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:53.8038380Z test sighup_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:53.8396460Z test quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:53.9046710Z test quit_after_a_conversation_names_the_session_and_resume_continues_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:54.1444210Z test sigterm_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:54.1539760Z test sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:54.3839290Z test sigtstp_really_stops_the_process_with_the_terminal_given_back ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:54.3857290Z test sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:54.8570590Z test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.1206280Z test slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.1767760Z test six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.3146180Z test slash_sound_saves_both_switches_and_moves_what_the_next_turn_rings ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.5781600Z test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.5985260Z test the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_terminal ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.6335460Z test the_bell_counter_skips_the_titles_terminator ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:55.8440290Z test switching_provider_sends_the_next_prompt_only_to_the_new_fixture ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.0086260Z test the_band_is_painted_under_the_welcome_inside_one_synchronized_frame ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.0188140Z test status_counts_the_turn_the_live_conversation_just_held ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.1859890Z test the_composer_stops_growing_at_half_the_content_area ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.2559320Z test the_harness_measures_a_pause_between_two_writes_of_one_paste ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.2742190Z test the_catalog_is_read_at_launch_and_a_session_s_first_turn_is_sized_by_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.2751450Z test the_last_bytes_of_a_stream_start_at_a_character ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.6681290Z test the_launch_asks_for_the_background_then_the_mode_and_the_cursor_report_fences_both ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:56.7827090Z test the_launch_probe_asks_where_the_cursor_is_and_does_not_eat_the_answer ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:57.0142690Z test the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:57.3826060Z test the_hint_row_says_what_mode_and_which_model_a_turn_will_use ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:57.6123850Z test the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:57.9830750Z test the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:58.1442890Z test the_request_after_an_interrupt_says_the_last_turn_ended_early_as_upstreams_does ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:58.1446450Z test the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:58.2738300Z test the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:58.5134450Z test the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:58.5627700Z test the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:59.4617030Z test the_speed_column_and_the_switches_ride_as_upstreams_provider_options ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:59.6080890Z test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:59.8825010Z test under_tmux_the_kitty_keyboard_push_is_omitted ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:38:59.9740530Z test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:00.0401650Z test typing_appears_in_the_composer_and_the_cursor_follows_it ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:01.2062270Z test undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.1075110Z test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.2742900Z test what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.3557470Z test with_no_usable_home_a_resume_has_nothing_to_continue ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.4195060Z test usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.6068590Z test what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.7703010Z test what_was_typed_before_the_session_took_the_terminal_is_in_the_composer ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.7821850Z test with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:02.9828930Z test with_startup_scrollback_off_the_launch_starts_under_the_shells_output ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:03.1357210Z test with_no_usable_home_a_tool_runs_under_the_session_authority_alone ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:03.2330200Z test without_the_variable_a_bare_xfx_is_the_tui ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:03.3018030Z test zero_is_the_line_shell ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:03.4147280Z test with_session_titles_off_nothing_is_asked_and_the_prompt_titles_the_session ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:03.9051860Z test xfx_sound_off_keeps_a_session_silent ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0057410Z test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... ok
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0058100Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0058750Z failures:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0059090Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0059670Z ---- a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing stdout ----
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0060620Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0061510Z thread 'a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing' (125276) panicked at tests/tui.rs:3921:5:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0064050Z each of 5 pastes paused for 50ms or more ([75.440969ms, 88.900996ms, 89.040303ms, 69.264404ms, 101.233238ms]): the harness was not scheduled while it wrote, and the TUI ends a paste's quarantine at such a pause by design, so no session tested the paste; what each screen held a second later: [
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0069010Z     "after 75.440969ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 75.210923ms; the write that ended it took 182.169µs, and the rest, 47.877µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0073800Z     "after 88.900996ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 88.623065ms; the write that ended it took 234.15µs, and the rest, 43.781µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0078480Z     "after 89.040303ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 88.874632ms; the write that ended it took 129.293µs, and the rest, 36.378µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0088630Z     "after 69.264404ms (between parts 127 and 128 of 256, across a planned 12ms pause that slept 68.929989ms; the write that ended it took 138.571µs, and the rest, 195.844µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-16-2156-8e2f04c2d4be) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ┃ xK00010241 | ┃ K00010251 | ┃ K00010261 | ┃ K00010271 | ┃ K00010281 | ┃ K00010291 | ┃ K00010301 | ┃ K00010311 |   MARKER-UNPACED |   0s (↑3 ↓5) | ✗ system: the Gateway returned HTTP 500: fake server: unscripted request | ┃ | auto · glm-5.2",
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0098840Z     "after 101.233238ms (between parts 191 and 192 of 256, across a planned 12ms pause that slept 100.858164ms; the write that ended it took 156.133µs, and the rest, 218.941µs, is the write before it and the time this thread was off a CPU): ! input: Input that arrived right after the paste was ignored. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ! input: Keys ignored until input stops. | ┃ xK00015361 | ┃ K00015371 | ┃ K00015381 | ┃ K00015391 | ┃ K00015401 | ┃ K00015411 | ┃ K00015421 | ┃ K00015431 |   MARKER-UNPACED |   0s (↑3 ↓5) | ⚠ Provider unavailable · HTTP 500: fake server: unscripted request · retrying request in 1s | ┃ | auto · glm-5.2",
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0103800Z ]
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0104090Z stack backtrace:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0104460Z    0: __rustc::rust_begin_unwind
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0105200Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0106010Z    1: core::panicking::panic_fmt
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0115450Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0116470Z    2: tui::unpaced_case::<tui::hostile_paste_types_nothing::{closure#0}>
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0117140Z              at ./tests/tui.rs:3921:5
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0117590Z    3: tui::hostile_paste_types_nothing
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0118040Z              at ./tests/tui.rs:4147:5
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0118840Z    4: tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0119790Z              at ./tests/tui.rs:4139:5
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0120670Z    5: tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing::{closure#0}
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0122020Z              at ./tests/tui.rs:4107:97
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0123190Z    6: <tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0124720Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0125850Z    7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0126980Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0128050Z note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0128650Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0128650Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0128780Z failures:
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0129410Z     a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0130070Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0130540Z test result: FAILED. 199 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 66.78s
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0131200Z 
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0131410Z error: test failed, to rerun pass `--test tui`
+gate (x86_64-apple-darwin, checks)	Tests	2026-11-16T23:39:05.0328270Z ##[error]Process completed with exit code 101.

@@ -16,7 +16,8 @@ OUT -- a baseline that times out fails, a mutant that does is counted apart
 from the kills -- and the two `loop-*` mutants, with the join test in UNIT.
 The join review added two more `loop-*` orders, and UNIT takes every
 `an_escape_pair_` case (the settled one, the hand-driven pending one and the
-loop-driven pending one).
+loop-driven pending one). PR #103's second run (§13) added the two `wait-*`
+mutants of `sleep_on_time` (macOS), with its test in HARNESS.
 """
 import os
 import re
@@ -35,7 +36,7 @@ UNIT = ["cargo", "test", "--locked", "--lib", "--",
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
            "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
            "the_last_bytes_of_a_stream", "no_two_unpaced_cases_run_at_once",
-           "a_pause_is_said_to_fall"]
+           "a_pause_is_said_to_fall", "a_wait_on_time"]
 
 DRAIN_STOP = ("                if starts && shell.turn_start_owes_its_frame() {\n"
               "                    return false;\n"
@@ -66,6 +67,13 @@ READ_TO_DRAIN = (
     "    // every turn, is what makes that a 50 ms wait rather than a wait for the\n"
     "    // next keystroke. It reads no terminal and writes none, which is why it\n"
     "    // is outside the two reconciles rather than between them.\n" + SETTLE_THEN_DRAIN)
+
+# The top of `sleep_on_time` (macOS), and its answer to a signal.
+WAIT_TOP = ("pub fn sleep_on_time(wait: Duration) {\n"
+            "    use std::os::fd::{AsRawFd, FromRawFd};\n")
+WAIT_EINTR = ("                \"the kqueue timer: {err}\"\n"
+              "            );\n"
+              "            continue;\n")
 
 MUTANTS = [
     # The round-1 set, re-aimed at the round-2 code where it moved.
@@ -127,6 +135,14 @@ MUTANTS = [
      "", HARNESS),
     ("loop-drains-before-the-read", "src/tui/event_loop.rs", READ_TO_DRAIN,
      "    take_ui_events(shell, events);\n" + READ_TO_DRAIN.replace(DRAIN_LINE, ""), UNIT),
+    # PR #103's second run (§13): the measure's waits on a critical kqueue
+    # timer, never short. Taking it back to `thread::sleep` is not a mutant
+    # here: nothing at idle tells the two apart, and §13's clamp runs are
+    # that RED.
+    ("wait-returns-at-once", "tests/support/pty.rs", WAIT_TOP,
+     WAIT_TOP + "    if wait > Duration::ZERO {\n        return;\n    }\n", HARNESS),
+    ("wait-ends-at-a-signal", "tests/support/pty.rs", WAIT_EINTR,
+     WAIT_EINTR.replace("continue;", "return;"), HARNESS),
 ]
 
 
