@@ -4122,6 +4122,19 @@ fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
     let alone = SIGURG_IN_USE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // SIGURG ignored first: a disposition no other test here leaves behind,
+    // so one the helper failed to put back -- here or in the test before --
+    // is not taken for the one it found. What was there is put back after.
+    // SAFETY: `ignore` and `found` are zeroed `sigaction`s owned here;
+    // `ignore` holds `SIG_IGN` and an empty mask.
+    let found = unsafe {
+        let mut ignore: libc::sigaction = std::mem::zeroed();
+        ignore.sa_sigaction = libc::SIG_IGN;
+        libc::sigemptyset(&mut ignore.sa_mask);
+        let mut found: libc::sigaction = std::mem::zeroed();
+        assert_eq!(libc::sigaction(libc::SIGURG, &ignore, &mut found), 0);
+        found
+    };
     let before = sigurg_disposition();
     let sent = std::sync::Arc::new(AtomicUsize::new(0));
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -4139,11 +4152,10 @@ fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
         stopped,
         "the sender went on after the waits unwound"
     );
-    assert_eq!(
-        sigurg_disposition(),
-        before,
-        "SIGURG's disposition was not put back"
-    );
+    let after = sigurg_disposition();
+    // SAFETY: `found` is the disposition `sigaction` handed back above.
+    unsafe { libc::sigaction(libc::SIGURG, &found, std::ptr::null_mut()) };
+    assert_eq!(after, before, "SIGURG's disposition was not put back");
 }
 
 #[test]
