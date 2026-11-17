@@ -1,0 +1,18 @@
+literal.py, the re-check's mutant run as it reads, on --no-local clones at 190b7b13 (before the fix) and a6071ab1 (after), under the suite lock. Both runs fail the mutated unwind test by construction; what differs is the reader's line.
+## at 190b7b13
+test a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back ... FAILED
+test zz_sigurg_after_the_unwind_test ... SIGURG after the unwind test: left ignored
+    a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back
+    zz_sigurg_after_the_unwind_test
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 201 filtered out; finished in 0.01s
+thread 'a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back' (676140245) panicked at tests/tui.rs:4146:5:
+thread 'zz_sigurg_after_the_unwind_test' (676140255) panicked at tests/tui.rs:16064:5:
+the unwind test left SIGURG ignored
+clone clean after: 0 changed files
+## at a6071ab1
+test a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back ... FAILED
+test zz_sigurg_after_the_unwind_test ... SIGURG after the unwind test: not ignored
+    a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 202 filtered out; finished in 0.01s
+thread 'a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back' (676140877) panicked at tests/tui.rs:4170:5:
+clone clean after: 0 changed files

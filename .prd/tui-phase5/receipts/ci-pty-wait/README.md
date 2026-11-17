@@ -1819,6 +1819,74 @@ range, the commit that adds it included.
 files in this folder.** The CI excerpts
 were masked before they reached this folder, and each was scanned again.
 
+### Part 6: the re-check's SHOULD (`3627e937`, re-points `a6071ab1`; `ci-probe/part6/`)
+
+The re-check of part 5 approved it, with the MUST closed, and found one
+more thing to fix (a SHOULD). The unwind test's own `SIG_IGN` fixture put
+back what it found only at its end. Before that, several assertions could
+fail, for example "nothing was sent during the wait" on a runner that did
+not schedule the sender. The fixture also ignored the restoring call's
+result. So a failed assertion left SIGURG ignored for the rest of the
+binary. Tests only; no product line changed.
+
+- **`SigurgRestore`** holds a disposition and puts it back on drop,
+  whether the test returns or unwinds. A failed restore panics, unless the
+  thread is already unwinding: a second panic there would abort.
+  - `ignore_sigurg` returns one, and the unwind test holds it for its whole
+    body.
+  - `SigurgSender` keeps the disposition its handler replaced as a
+    `SigurgRestore` too. It is the last field, and a struct's fields drop
+    after its own `drop`, so the put-back still comes after the join. Its
+    hand-written restore is gone.
+- **The failing-assertion test.**
+  `an_assertion_that_fails_while_sigurg_is_ignored_still_puts_its_disposition_back`
+  ignores SIGURG, fails an assertion (`resume_unwind`), and checks that
+  the disposition is the one it found.
+- **The re-check's mutant, run as it reads** (`part6/literal.py`,
+  `literal.txt`). It makes the unwind test's first assertion fail, then
+  runs a reader test after it on one thread, which reads SIGURG's
+  disposition:
+  - before the fix (`190b7b13`): "SIGURG after the unwind test: left
+    ignored";
+  - after it (`a6071ab1`): "not ignored".
+- **`mutants.py` at `a6071ab1`: 26 of 26 killed**, both baselines green
+  (unit 9, harness 10).
+  - `sigurg-not-put-back` was re-aimed at the restore call in
+    `SigurgRestore`.
+  - `sigurg-left-as-it-was-on-unwind` (new) makes that drop return early
+    while the thread is unwinding.
+  - Each is killed by both the unwind test and the failing-assertion test
+    (`part6/mutants-a6071ab1.txt`).
+  - The failed-restore branch is not exercised: `sigaction` on SIGURG with
+    a valid disposition gives this test no way to make it fail.
+- **Checks:**
+  - `cargo fmt --check`;
+  - clippy, plain and with `fault-injection`;
+  - the SIGURG tests and the other harness tests, three times each: 10 of
+    10 each time;
+  - `linux-clippy.sh`: 4 of 4 (`part6/linux-clippy.txt`);
+  - not the full gates, as the brief scoped this round (the dispatcher's
+    gate covers the suite).
+- **References:** `3627e937` moved the same 10 references by +46, and
+  `a6071ab1` re-points them, numbers only: 5 lines
+  (`part6/repoint-numbers.txt`). At `a6071ab1`:
+  - code and docs: WRONG 9, the same set as at `f2b01cc1`;
+  - this README: 26. That is part 5's 24, plus part 5's two references to
+    `tests/tui.rs:2721`, the comma-list line itself, whose numbers changed.
+    Read by hand.
+- **Numstat by class** (`part6/numstat.txt`):
+
+  | range | product | tests | receipt | other |
+  |---|---|---|---|---|
+  | this round's code, `76a7967e..a6071ab1` | **+0 −0** | +77 −31 (`tests/tui.rs`) | +4 −4 (the re-points) | +0 −0 |
+  | PR #103's rounds, `8e2f04c2..a6071ab1` | **+0 −0** | +369 −25 | in `numstat.txt` | +0 −0 |
+
+  This addendum's own commit is receipt only, and `part6/numstat.txt`
+  includes it.
+- **Paths:** `join/pathscan.sh` scanned every commit this branch holds
+  that `8be4693b` does not, through this addendum's commit
+  (`part6/pathscan.txt`): **0 matching lines, and 0 files in this folder.**
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**

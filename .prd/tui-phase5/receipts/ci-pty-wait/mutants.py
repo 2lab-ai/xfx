@@ -20,7 +20,9 @@ loop-driven pending one). PR #103's second run (§13) added the two `wait-*`
 mutants of `sleep_on_time` (macOS), with its test in HARNESS. Its review
 (part 5) added three on the signal test's cleanup: a panic inside its waits
 (only that test may fail), and a sender left running, or SIGURG's
-disposition left changed, after an unwind.
+disposition left changed, after an unwind. Its re-check (part 6) moved the
+put-back into SigurgRestore, re-aimed sigurg-not-put-back there, and added
+sigurg-left-as-it-was-on-unwind, with the failing-assertion test in HARNESS.
 """
 import os
 import re
@@ -39,7 +41,8 @@ UNIT = ["cargo", "test", "--locked", "--lib", "--",
 HARNESS = ["cargo", "test", "--locked", "--test", "tui", "--",
            "the_harness_measures", "an_unpaced_case", "a_skills_sandbox_path",
            "the_last_bytes_of_a_stream", "no_two_unpaced_cases_run_at_once",
-           "a_pause_is_said_to_fall", "a_wait_on_time", "a_wait_that_unwinds"]
+           "a_pause_is_said_to_fall", "a_wait_on_time", "a_wait_that_unwinds",
+           "an_assertion_that_fails_while_sigurg"]
 
 DRAIN_STOP = ("                if starts && shell.turn_start_owes_its_frame() {\n"
               "                    return false;\n"
@@ -155,9 +158,15 @@ MUTANTS = [
      HARNESS),
     ("sender-left-running-on-unwind", "tests/tui.rs", "        self.stop();\n",
      "        if !std::thread::panicking() {\n            self.stop();\n        }\n", HARNESS),
+    # Part 6 (the re-check's SHOULD): the put-back moved into SigurgRestore,
+    # which the unwind test's SIG_IGN fixture uses too.
     ("sigurg-not-put-back", "tests/tui.rs",
-     "            unsafe { libc::sigaction(libc::SIGURG, &self.previous, std::ptr::null_mut()) };\n",
-     "            0;\n", HARNESS),
+     "        let restored = unsafe { libc::sigaction(libc::SIGURG, &self.0, std::ptr::null_mut()) };\n",
+     "        let restored = 0;\n", HARNESS),
+    ("sigurg-left-as-it-was-on-unwind", "tests/tui.rs",
+     "    fn drop(&mut self) {\n        // SAFETY: `self.0` is a disposition `sigaction` handed back.\n",
+     "    fn drop(&mut self) {\n        if std::thread::panicking() {\n            return;\n        }\n"
+     "        // SAFETY: `self.0` is a disposition `sigaction` handed back.\n", HARNESS),
 ]
 
 

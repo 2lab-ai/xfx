@@ -1,0 +1,13 @@
+train 16's linux-clippy.sh at a6071ab1, on a fresh --no-local clone, rustup's own multiplexer as its proxy dir, in one hold of the suite lock.
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 40.94s
+### exit 0
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.55s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.43s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.55s
+### exit 0
