@@ -4139,6 +4139,265 @@ fn a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and
     hostile_paste_types_nothing(std::time::Duration::from_millis(12), &[1, 64, 128, 192]);
 }
 
+/// CI-PTY-WAIT's timer probe (branch `probe/p5-cpw-timer`, never to merge):
+/// how long the waits a paced paste can use really take on a runner, in the
+/// paced case's own setting -- a live TUI reading a pty, the hostile paste
+/// written in 4 KiB parts -- and whether an overshoot is a timer fired late
+/// or a thread woken with no CPU. Before each part from the second on it
+/// takes one of the 12 ms waits below in turn, and each full queue it meets
+/// it waits out one of two ways in turn, timing every one. Then the same
+/// again with the writer thread asking for the user-interactive QoS (macOS).
+/// It fails on purpose, so that libtest prints what it measured.
+///
+/// - `sleep 12ms`: `std::thread::sleep`, as the paced case pauses.
+/// - `spin 12ms`: a deadline loop on `Instant` with `spin_loop`: no timer,
+///   so an overshoot is time with no CPU.
+/// - `yield 12ms`: the same loop with `yield_now`.
+/// - `1ms steps to 12ms`: `sleep` of at most 1 ms at a time until 12 ms.
+/// - `kqueue NOTE_CRITICAL 12ms` (macOS): a kevent timer the kernel is asked
+///   not to coalesce.
+/// - `full queue: sleep 2ms`: the harness's `IDLE_POLL` sleep, as now.
+/// - `full queue: poll POLLOUT`: `poll(2)` for writable, up to 1 s.
+/// - `write`: each `write` call on the pty master.
+#[test]
+fn a_mebibyte_of_hostile_clipboard_timer_probe() {
+    let _alone = ONE_PASTE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut report = probe_environment();
+    report.push_str(&probe_session("the writer at its default QoS"));
+    if probe_raise_qos() {
+        report.push_str(&probe_environment());
+        report.push_str(&probe_session("the writer asking for user-interactive QoS"));
+    }
+    panic!("CI-PTY-WAIT timer probe; this test fails on purpose so libtest prints it\n{report}");
+}
+
+/// What the writer thread runs as: its QoS class (macOS), whether it and
+/// its process are darwin-background, its nice value, and the load.
+fn probe_environment() -> String {
+    let mut loads = [0f64; 3];
+    // SAFETY: getloadavg writes at most the three doubles it is given.
+    let n = unsafe { libc::getloadavg(loads.as_mut_ptr(), 3) };
+    // SAFETY: getpriority reads the calling process's own priority.
+    let nice = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+    let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
+    let mut line = format!("environment: {cpus} CPUs, load {loads:?} ({n}), nice {nice}");
+    #[cfg(target_os = "macos")]
+    {
+        let mut class: libc::qos_class_t = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+        let mut relative = 0;
+        // SAFETY: this thread's own QoS, written into two locals.
+        let got = unsafe {
+            libc::pthread_get_qos_class_np(libc::pthread_self(), &mut class, &mut relative)
+        };
+        // SAFETY: getpriority reads this thread's and this process's own state.
+        let (thread_bg, process_bg) = unsafe {
+            (
+                libc::getpriority(libc::PRIO_DARWIN_THREAD, 0),
+                libc::getpriority(libc::PRIO_DARWIN_PROCESS, 0),
+            )
+        };
+        line.push_str(&format!(
+            ", writer thread QoS {class:?} (relative {relative}, call {got}), \
+             PRIO_DARWIN_THREAD {thread_bg}, PRIO_DARWIN_PROCESS {process_bg}"
+        ));
+    }
+    line.push('\n');
+    // The threads' scheduling priorities as the kernel has them (macOS's
+    // `ps -M`): a QoS clamp the requested class above does not show is in
+    // these -- 31 at the default, 20 at utility, 4 in the background.
+    #[cfg(target_os = "macos")]
+    if let Ok(listed) = xfx::process::output(
+        support::command("ps")
+            .args(["-M", "-o", "pri=", "-p"])
+            .arg(std::process::id().to_string()),
+    ) {
+        let threads = String::from_utf8_lossy(&listed.stdout);
+        let priorities: Vec<&str> = threads
+            .lines()
+            .skip(1)
+            .filter_map(|row| row.split_whitespace().last())
+            .collect();
+        line.push_str(&format!(
+            "this test process's thread priorities: {priorities:?}\n"
+        ));
+    }
+    line
+}
+
+/// Asks for the user-interactive QoS on this thread; whether it was granted.
+#[cfg(target_os = "macos")]
+fn probe_raise_qos() -> bool {
+    // SAFETY: sets this thread's own QoS.
+    let got = unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
+    };
+    got == 0
+}
+
+/// No QoS to ask for off macOS.
+#[cfg(not(target_os = "macos"))]
+fn probe_raise_qos() -> bool {
+    false
+}
+
+/// One kevent timer of `wait`, which the kernel is asked not to coalesce.
+#[cfg(target_os = "macos")]
+fn probe_kqueue_wait(wait: std::time::Duration) {
+    // SAFETY: a private kqueue, one timer on it, one event back, closed.
+    unsafe {
+        let queue = libc::kqueue();
+        assert!(queue >= 0, "kqueue");
+        let mut change: libc::kevent = std::mem::zeroed();
+        change.ident = 1;
+        change.filter = libc::EVFILT_TIMER;
+        change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+        change.fflags = libc::NOTE_USECONDS | libc::NOTE_CRITICAL;
+        change.data = wait.as_micros() as libc::intptr_t;
+        let mut event: libc::kevent = std::mem::zeroed();
+        let got = libc::kevent(queue, &change, 1, &mut event, 1, std::ptr::null());
+        libc::close(queue);
+        assert_eq!(got, 1, "the kqueue timer");
+    }
+}
+
+/// Waits until the pty master is writable, up to a second.
+fn probe_pollout(session: &Session) {
+    use std::os::fd::AsRawFd;
+    let mut fd = libc::pollfd {
+        fd: session.master.as_raw_fd(),
+        events: libc::POLLOUT,
+        revents: 0,
+    };
+    // SAFETY: one pollfd, owned here, for a descriptor the session holds open.
+    unsafe { libc::poll(&mut fd, 1, 1000) };
+}
+
+/// One named wait of the probe's.
+type ProbeWait = (&'static str, Box<dyn Fn()>);
+
+/// One session of the probe: the TUI launched as the paced case launches it,
+/// the hostile paste written in parts with a timed wait before each part from
+/// the second on, every full queue waited out and timed, every write timed.
+fn probe_session(label: &str) -> String {
+    use std::io::Write;
+    use std::time::{Duration, Instant};
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-PROBE"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let session = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    let twelve = Duration::from_millis(12);
+    let waits: Vec<ProbeWait> = vec![
+        ("sleep 12ms", Box::new(move || std::thread::sleep(twelve))),
+        (
+            "spin 12ms",
+            Box::new(move || {
+                let start = Instant::now();
+                while start.elapsed() < twelve {
+                    std::hint::spin_loop();
+                }
+            }),
+        ),
+        (
+            "yield 12ms",
+            Box::new(move || {
+                let start = Instant::now();
+                while start.elapsed() < twelve {
+                    std::thread::yield_now();
+                }
+            }),
+        ),
+        (
+            "1ms steps to 12ms",
+            Box::new(move || {
+                let start = Instant::now();
+                while let Some(left) = twelve.checked_sub(start.elapsed()) {
+                    if left.is_zero() {
+                        break;
+                    }
+                    std::thread::sleep(left.min(Duration::from_millis(1)));
+                }
+            }),
+        ),
+        #[cfg(target_os = "macos")]
+        (
+            "kqueue NOTE_CRITICAL 12ms",
+            Box::new(move || probe_kqueue_wait(twelve)),
+        ),
+    ];
+    let mut samples: Vec<(String, Vec<Duration>)> = waits
+        .iter()
+        .map(|(name, _)| (name.to_string(), Vec::new()))
+        .chain(
+            ["full queue: sleep 2ms", "full queue: poll POLLOUT", "write"]
+                .into_iter()
+                .map(|name| (name.to_string(), Vec::new())),
+        )
+        .collect();
+    let waited = waits.len();
+    let started = Instant::now();
+    for (at, part) in hostile_paste(false).chunks(4096).enumerate() {
+        if at > 0 {
+            let which = (at - 1) % waited;
+            let before = Instant::now();
+            (waits[which].1)();
+            samples[which].1.push(before.elapsed());
+        }
+        let mut rest = part;
+        while !rest.is_empty() {
+            let before = Instant::now();
+            let wrote = (&*session.master).write(rest);
+            samples[waited + 2].1.push(before.elapsed());
+            match wrote {
+                Ok(written) => rest = &rest[written..],
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    let before = Instant::now();
+                    if at % 2 == 0 {
+                        std::thread::sleep(IDLE_POLL);
+                        samples[waited].1.push(before.elapsed());
+                    } else {
+                        probe_pollout(&session);
+                        samples[waited + 1].1.push(before.elapsed());
+                    }
+                }
+                Err(err) => panic!("write to the terminal: {err}"),
+            }
+        }
+    }
+    let mut out = format!("== {label}: the paste took {:?}\n", started.elapsed());
+    for (name, mut times) in samples {
+        times.sort();
+        if times.is_empty() {
+            out.push_str(&format!("{name}: no samples\n"));
+            continue;
+        }
+        let at = |q: f64| times[((times.len() - 1) as f64 * q).round() as usize];
+        let over = |bar: u64| {
+            times
+                .iter()
+                .filter(|t| **t >= Duration::from_millis(bar))
+                .count()
+        };
+        out.push_str(&format!(
+            "{name}: n {}, min {:?}, median {:?}, p95 {:?}, max {:?}, >=20ms {}, >=50ms {}\n",
+            times.len(),
+            times[0],
+            at(0.5),
+            at(0.95),
+            times[times.len() - 1],
+            over(20),
+            over(50)
+        ));
+    }
+    drop(session);
+    out
+}
+
 /// The hostile paste at an empty composer, `pause` before each part in
 /// `before`: the
 /// composer holds the paste's `x` and the test's own `z`, nothing of the body
