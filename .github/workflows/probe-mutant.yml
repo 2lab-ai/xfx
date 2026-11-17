@@ -1,0 +1,51 @@
+"on":
+  push:
+    branches: ["probe/p5-cpw-mutant3-*"]
+
+name: CPW mutant probe
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  paced:
+    name: paced case under a quarantine mutant (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
+      - name: Build the tui tests
+        run: cargo test --locked --test tui --no-run
+      - name: The paced case, 10 runs
+        run: |
+          set +e -u
+          mutant="$(git log -1 --format=%s)"
+          echo "commit: $(git rev-parse HEAD) -- $mutant"
+          pass=0; fail_accepted=0; fail_allpaused=0; fail_other=0
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            out="$(cargo test --locked --test tui a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing -- --exact --nocapture 2>&1)"
+            if printf '%s\n' "$out" | grep -q 'test result: ok\.'; then pass=$((pass+1)); v=green
+            elif printf '%s\n' "$out" | grep -q 'no session tested the paste'; then fail_allpaused=$((fail_allpaused+1)); v="red, every session paused"
+            elif printf '%s\n' "$out" | grep -q "the paste's longest pause:"; then fail_accepted=$((fail_accepted+1)); v="red on an accepted session"
+            else fail_other=$((fail_other+1)); v="red, other"; fi
+            echo "run $i: $v"
+            printf '%s\n' "$out" | grep -E "^running [0-9]+ test|test result|longest pause|timing-indeterminate|panicked at|paused for" | cut -c1-300 | head -12
+          done
+          echo "SUMMARY $mutant: green $pass, red on an accepted session $fail_accepted, red every session paused $fail_allpaused, red other $fail_other"
