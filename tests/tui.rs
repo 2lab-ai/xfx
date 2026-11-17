@@ -3696,7 +3696,9 @@ fn paste_unpaced(session: &Session, bytes: &[u8], size: (usize, usize)) -> Resul
 
 /// [`paste_unpaced`] with the terminal pausing `pause` before each part
 /// whose index is in `before` -- a pause it means to take, counted in the
-/// measure like any other.
+/// measure like any other, and taken on a timer the system does not stretch
+/// ([`support::pty::sleep_on_time`]): CI's macOS runners slept a 12 ms
+/// `thread::sleep` for up to 109 ms (CI-PTY-WAIT §13).
 fn paste_with_pauses(
     session: &Session,
     bytes: &[u8],
@@ -3712,7 +3714,7 @@ fn paste_with_pauses(
         let mut planned = None;
         if before.contains(&at) {
             let asleep = std::time::Instant::now();
-            std::thread::sleep(pause);
+            support::pty::sleep_on_time(pause);
             planned = Some(asleep.elapsed());
         }
         let written = session.write_raw_traced(part, &mut previous);
@@ -3848,15 +3850,18 @@ const PASTE_QUIET: std::time::Duration = std::time::Duration::from_millis(50);
 /// libtest starts a binary's tests in name order, and the three hostile-paste
 /// cases are neighbours (`a_mebibyte_of_hostile_clipboard_...`): on a runner
 /// with three threads they start together and run together, each writing a
-/// mebibyte through a TUI that decodes it. Beside one another the writer's
-/// `write` calls slow to 20-30 ms each, and a pause the measure counts
-/// spans two of them and the sleep between -- 50 ms, with no help from the
-/// sleep (CI-PTY-WAIT §12: twelve suites at once rejected 75% of sessions
-/// with each suite's three together, and none with them one at a time). PR
-/// #103's first CI run is the same shape: the paced case's three sessions
-/// were all rejected while the two unpaced cases, started right behind it,
-/// ran; their own longest pauses were 43 and 28 ms. The other tests still
-/// run beside one hostile paste; none of them writes a mebibyte.
+/// mebibyte through a TUI that decodes it. On a developer's machine, twelve
+/// suites at once -- 36 such pastes -- slowed the writer's `write` calls to
+/// 20-30 ms each, two of which make a 50 ms pause with no help from any
+/// wait: 75% of sessions were rejected with each suite's three together,
+/// and none with them one at a time (CI-PTY-WAIT §12). That is the lock's
+/// reason, and it was measured there only. CI's numbers do not decide it
+/// (§13): what rejected the paced case's sessions on its macOS rows was the
+/// planned pause's own sleep, 50-110 ms with the lock and 59-97 ms without,
+/// and with the lock the writes on either side of those pauses took under a
+/// millisecond. It stays: what it costs is the three cases waiting for one
+/// another, and the suite was no slower with it (§12). The other tests
+/// still run beside one hostile paste; none of them writes a mebibyte.
 static ONE_PASTE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// How many sessions a case about an unpaced paste runs before it gives up on
@@ -3920,9 +3925,9 @@ fn unpaced_case(mut case: impl FnMut() -> Result<(), Rejected>) {
         .collect();
     panic!(
         "each of {UNPACED_ATTEMPTS} pastes paused for {PASTE_QUIET:?} or more ({:?}): \
-         the harness was not scheduled while it wrote, and the TUI ends a paste's \
-         quarantine at such a pause by design, so no session tested the paste; what \
-         each screen held a second later: {held:#?}",
+         the harness was that late between two of its writes (each says where), and \
+         the TUI ends a paste's quarantine at such a pause by design, so no session \
+         tested the paste; what each screen held a second later: {held:#?}",
         paused
             .iter()
             .map(|rejected| rejected.gap)
@@ -3947,6 +3952,65 @@ fn the_harness_measures_a_pause_between_two_writes_of_one_paste() {
     std::thread::sleep(PASTE_QUIET * 2);
     let gap = session.write_raw_measured(b"b", &mut previous);
     assert!(gap >= PASTE_QUIET * 2, "{gap:?}");
+}
+
+#[test]
+fn a_wait_on_time_is_never_short_with_signals_landing_on_it() {
+    // `support::pty::sleep_on_time`, for the two waits the paste measure
+    // counts -- a full queue's 2 ms poll and the paced paste's 12 ms pause --
+    // with a signal sent to the waiting thread every millisecond. A signal
+    // ends macOS's `kevent` early (`EINTR`), and a wait that returned there
+    // would make the paced case's pauses shorter than it says they are.
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    static CAUGHT: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn caught(_: libc::c_int) {
+        CAUGHT.fetch_add(1, Ordering::SeqCst);
+    }
+    // SAFETY: `action` is a zeroed `sigaction` owned here, given a handler
+    // that only adds to an atomic, an empty mask, and no `SA_RESTART`, so the
+    // signal ends the call it lands in. `SIGURG` is ignored by default and
+    // nothing else in this binary sends or handles it.
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = caught as *const () as usize;
+        libc::sigemptyset(&mut action.sa_mask);
+        assert_eq!(
+            libc::sigaction(libc::SIGURG, &action, std::ptr::null_mut()),
+            0
+        );
+    }
+    // SAFETY: `pthread_self` takes nothing and cannot fail.
+    let waiter = unsafe { libc::pthread_self() } as usize;
+    let waiting = std::sync::Arc::new(AtomicBool::new(true));
+    let signaller = {
+        let waiting = std::sync::Arc::clone(&waiting);
+        std::thread::spawn(move || {
+            while waiting.load(Ordering::SeqCst) {
+                // SAFETY: `waiter` is the test's thread, which joins this one
+                // before it returns, so it is alive for every call.
+                unsafe { libc::pthread_kill(waiter as libc::pthread_t, libc::SIGURG) };
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        })
+    };
+    let mut short = Vec::new();
+    for wait in [2, 12].map(std::time::Duration::from_millis) {
+        for _ in 0..40 {
+            let started = std::time::Instant::now();
+            support::pty::sleep_on_time(wait);
+            let took = started.elapsed();
+            if took < wait {
+                short.push((wait, took));
+            }
+        }
+    }
+    waiting.store(false, Ordering::SeqCst);
+    signaller.join().expect("the signaller");
+    assert!(short.is_empty(), "waits that ended short: {short:?}");
+    assert!(
+        CAUGHT.load(Ordering::SeqCst) > 0,
+        "no signal landed on the waiting thread"
+    );
 }
 
 #[test]
