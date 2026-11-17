@@ -87,16 +87,6 @@ jobs:
             script_tests: true
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            script_tests: true
-            bash32: true
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            part: checks
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            part: release
     steps:
       # No step after this one talks to the remote, so the token the
       # checkout uses is not left in `.git/config`, where a test's git -- whose

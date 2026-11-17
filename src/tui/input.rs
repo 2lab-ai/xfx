@@ -980,7 +980,7 @@ impl Decoder {
             return Delivery::Quiet;
         };
         match quarantine.quiet_since {
-            Some(since) if whole && now.saturating_duration_since(since) >= Self::PASTE_QUIET => {
+            Some(since) if whole && now.saturating_duration_since(since) >= Duration::from_millis(5) => {
                 if self.following == 1 {
                     self.following = 0;
                     // The Escape is dropped input. If nothing has been said
