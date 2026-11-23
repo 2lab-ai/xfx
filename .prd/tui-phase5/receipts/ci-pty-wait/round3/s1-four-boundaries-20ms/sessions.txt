@@ -1,0 +1,591 @@
+head.@suite.1.1.log:the paste's longest pause: 31.225417test a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt ... ok
+head.@suite.1.1.log:the paste's longest pause: 11.230042ms (pauses of test a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words ... ok
+head.@suite.1.1.log:the paste's longest pause: 11.953416ms (pauses of 0ns)
+head.@suite.1.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.1.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.40s
+head.@suite.1.2.log:test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... the paste's longest pause: ok31
+head.@suite.1.2.log:the paste's longest pause: 11.806667ms (pauses of 0ns)
+head.@suite.1.2.log:the paste's longest pause: 11.619792ms (pauses of 0ns)
+head.@suite.1.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.1.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.00s
+head.@suite.10.2.log:a timing-indeterminate session: the paste paused for 58.804584ms (pauses of 20ms); a second later the screen held:
+head.@suite.10.2.log:the paste's longest pause: 16.171458ms (pauses of 0ns)
+head.@suite.10.2.log:the paste's longest pause: 34.198708ms (pauses of 20ms)
+head.@suite.10.2.log:the paste's longest pause: 18.070917ms (pauses of 0ns)
+head.@suite.10.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.10.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.09s
+head.@suite.10.1.log:the paste's longest pause: 48.855459ms (pauses of 20ms)
+head.@suite.10.1.log:the paste's longest pause: 17.934833ms (pauses of 0ns)
+head.@suite.10.1.log:test a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back ... okthe paste's longest pause:
+head.@suite.10.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.10.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.16s
+head.@suite.11.2.log:the paste's longest pause: 35.526333ms (pauses of 20ms)
+head.@suite.11.2.log:the paste's longest pause: 15.68225ms (pauses of 0nstest a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+head.@suite.11.2.log:the paste's longest pause: 16.693375ms (pauses of 0ns)
+head.@suite.11.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.11.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.72s
+head.@suite.11.1.log:the paste's longest pause: 42.963791ms (pauses of 20ms)
+head.@suite.11.1.log:the paste's longest pause: 15.528792ms (pauses of 0ns)
+head.@suite.11.1.log:the paste's longest pause: 15.49075ms (pauses of 0ns)
+head.@suite.11.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.11.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.94s
+head.@suite.12.2.log:a timing-indeterminate session: the paste paused for 94.test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... 954625msok
+head.@suite.12.2.log:a timing-indeterminate session: the paste paused for 59.783042ms (pauses of 20ms); a second later the screen held:
+head.@suite.12.2.log:the paste's longest pause: 27.945125ms (pauses of 0ns)
+head.@suite.12.2.log:the paste's longest pause: 29.959542ms (pauses of 0ns)
+head.@suite.12.2.log:the paste's longest pause: 34.913334ms (pauses of 20ms)
+head.@suite.12.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.12.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.86s
+head.@suite.13.2.log:the paste's longest pause: 32.548666ms (pauses of 20ms)
+head.@suite.13.2.log:the paste's longest pause: 20.159042ms (pauses of 0ns)
+head.@suite.13.2.log:the paste's longest pause: 21.707959ms (pauses of 0ns)
+head.@suite.13.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.13.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.10s
+head.@suite.13.1.log:the paste's longest pause: 31.315291ms (pauses of 20ms)
+head.@suite.13.1.log:the paste's longest pause: 15.166875ms (pauses of 0ns)
+head.@suite.13.1.log:the paste's longest pause: 17.630667ms (pauses of 0ns)
+head.@suite.13.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.13.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.04s
+head.@suite.14.2.log:a timing-indeterminate session: the paste paused for 52.537958ms (pauses of 20ms); a second later the screen held:
+head.@suite.14.2.log:a timing-indeterminate session: the paste paused for 69.927042ms (pauses of 0ns); a second later the screen held:
+head.@suite.14.2.log:a timing-indeterminate session: the paste paused for 79.272ms (pauses of 0ns); a second later the screen held:
+head.@suite.14.2.log:the paste's longest pause: 42.507208ms (pauses of 20ms)
+head.@suite.14.2.log:the paste's longest pause: 41.385625ms (pauses of 0ns)
+head.@suite.14.2.log:the paste's longest pause: 7.734166ms (pauses of 0ns)
+head.@suite.14.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.14.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.78s
+head.@suite.15.2.log:the paste's longest pause: 45.132083ms (pauses of 20ms)
+head.@suite.15.2.log:the paste's longest pause: 35.041167ms (pauses of 0ns)
+head.@suite.15.2.log:the paste's longest pause: 23.254791ms (pauses of 0ns)
+head.@suite.15.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.15.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.87s
+head.@suite.15.1.log:a timing-indeterminate session: the paste paused for 50.795583ms (pauses of 20ms); a second later the screen held:
+head.@suite.15.1.log:a timing-indeterminate session: the paste paused for 52.092542ms (pauses of 0test a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ns); a second later the screen held:
+head.@suite.15.1.log:the paste's longest pause: 37.900042ms (pauses of 20ms)
+head.@suite.15.1.log:the paste's longest pause: 40.320041ms (pauses of 0ns)
+head.@suite.15.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.15.1.log:the paste's longest pause: 12.001291ms (pauses of 0ns)
+head.@suite.15.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.89s
+head.@suite.16.2.log:the paste's longest pause: 36.107875ms (pauses of 20ms)
+head.@suite.16.2.log:test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... okthe paste's longest pause:
+head.@suite.16.2.log:the paste's longest pause: 17.055917ms (pauses of 0ns)
+head.@suite.16.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.16.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.84s
+head.@suite.17.2.log:the paste's longest pause: 31.862708ms (pauses of 20ms)
+head.@suite.17.2.log:the paste's longest pause: 12.596333ms (pauses of 0ns)
+head.@suite.17.2.log:the paste's longest pause: 13.301292ms (pauses of test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.17.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.67s
+head.@suite.18.2.log:the paste's longest pause: 38.549959ms (pauses of 20ms)
+head.@suite.18.2.log:the paste's longest pause: 18.585416ms (pauses of 0ns)
+head.@suite.18.2.log:the paste's longest pause: 16.451041ms (pauses of 0ns)
+head.@suite.18.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.18.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.99s
+head.@suite.17.1.log:the paste's longest pause: 44.032166ms (pauses of test a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_it ... 20ms)
+head.@suite.17.1.log:the paste's longest pause: 13.085958ms (pauses of 0ns)
+head.@suite.17.1.log:the paste's longest pause: 8.340458ms (pauses of 0nstest a_permission_question_rings_the_bell_when_it_opens ... ok
+head.@suite.17.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.17.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.98s
+head.@suite.2.2.log:the paste's longest pause: 40.956334ms (pauses of 20ms)
+head.@suite.2.2.log:the paste's longest pause: 13.02775ms (pauses of 0ns)
+head.@suite.2.2.log:the paste's longest pause: 12.99025ms (pauses of 0ns)
+head.@suite.2.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.2.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.07s
+head.@suite.19.2.log:the paste's longest pause: 41.681917ms (pauses of 20ms)
+head.@suite.19.2.log:the paste's longest pause: 15.966667ms (pauses of 0ns)
+head.@suite.19.2.log:the paste's longest pause: 14.834541ms (pauses of test a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation ... ok
+head.@suite.19.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.19.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.86s
+head.@suite.19.1.log:the paste's longest pause: 44.787584ms (pauses of 20ms)
+head.@suite.19.1.log:the paste's longest pause: 17.448333ms (pauses of 0ns)
+head.@suite.19.1.log:the paste's longest pause: 18.411041ms (pauses of 0ns)
+head.@suite.19.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.19.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.34s
+head.@suite.12.1.log:a timing-indeterminate session: the paste paused for 63.3695ms (pauses of 20ms); a second later the screen held:
+head.@suite.12.1.log:a timing-indeterminate session: the paste paused for 57.97775ms (pauses of 0ns); a second later the screen held:
+head.@suite.12.1.log:the paste's longest pause: 31.131667mstest a_resize_moves_the_band_to_the_foot_of_the_new_screen ... ok (pauses of
+head.@suite.12.1.log:the paste's longest pause: 32.571875ms (pauses of 20ms)
+head.@suite.12.1.log:the paste's longest pause: 13.815042ms (pauses of 0ns)
+head.@suite.12.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.12.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.47s
+head.@suite.3.2.log:the paste's longest pause: 36.960708ms (pauses of 20ms)
+head.@suite.3.2.log:the paste's longest pause: 10.606375ms (pauses of test a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own ... 0okns)
+head.@suite.3.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.3.2.log:the paste's longest pause: 8.283792ms (pauses of 0ns)
+head.@suite.3.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.95s
+head.@suite.20.2.log:the paste's longest pause: 33.393667ms (pauses of 20ms)
+head.@suite.20.2.log:the paste's longest pause: 14.83075ms (pauses of 0ns)
+head.@suite.20.2.log:the paste's longest pause: 14.473709ms (pauses of 0ns)
+head.@suite.20.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.20.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.47s
+head.@suite.20.1.log:the paste's longest pause: 31.901959ms (pauses of 20test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... ok
+head.@suite.20.1.log:test a_refusal_in_the_band_leaves_the_file_alone ... okthe paste's longest pause:
+head.@suite.20.1.log:the paste's longest pause: 15.483958ms (pauses of 0ns)
+head.@suite.20.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.20.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.35s
+head.@suite.14.1.log:the paste's longest pause: 44.214292ms (pauses of 20ms)
+head.@suite.14.1.log:a timing-indeterminate session: the paste paused for 55.555167ms (pauses of test a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced ... 0nsok
+head.@suite.14.1.log:the paste's longest pause: 37.392458ms (pauses of 0ns)
+head.@suite.14.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.14.1.log:the paste's longest pause: 8.118875ms (pauses of 0ns)
+head.@suite.14.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.46s
+head.@suite.5.2.log:the paste's longest pause: 36.962834ms (pauses of 20test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ms)
+head.@suite.5.2.log:the paste's longest pause: 15.958625ms (pauses of test a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire ... ok0
+head.@suite.5.2.log:the paste's longest pause: 14.897792ms (pauses of 0ns)
+head.@suite.5.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.5.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.79s
+head.@suite.4.2.log:test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... okthe paste's longest pause: 34
+head.@suite.4.2.log:a timing-indeterminate session: the paste paused for 56.test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+head.@suite.4.2.log:the paste's longest pause: 25.904666ms (pauses of 0ns)
+head.@suite.4.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.4.2.log:the paste's longest pause: 5.858958ms (pauses of 0ns)
+head.@suite.4.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.64s
+head.@suite.4.1.log:the paste's longest pause: 43.32225ms (pauses of 20ms)
+head.@suite.4.1.log:test a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words ... okthe paste's longest pause:
+head.@suite.4.1.log:the paste's longest pause: 22.156083ms (pauses of 0ns)
+head.@suite.4.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.4.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.52s
+head.@suite.16.1.log:the paste's longest pause: 33.280375ms (pauses of 20ms)
+head.@suite.16.1.log:the paste's longest pause: 21.034916ms (pauses of 0ns)
+head.@suite.16.1.log:the paste's longest pause: test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... 23.ok653625ms (pauses of
+head.@suite.16.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.16.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.79s
+head.@suite.7.2.log:a timing-indeterminate session: the paste paused for 73.796792ms (pauses of 20ms); a second later the screen held:
+head.@suite.7.2.log:the paste's longest pause: 36.523792ms (pauses of 20ms)
+head.@suite.7.2.log:test a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it ... okthe paste's longest pause: 24.
+head.@suite.7.2.log:the paste's longest pause: 17.549916ms (pauses of 0ns)
+head.@suite.7.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.7.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.45s
+head.@suite.6.2.log:the paste's longest pause: 41.704958ms (pauses of 20ms)
+head.@suite.6.2.log:the paste's longest pause: 18.test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... 589708msok
+head.@suite.6.2.log:the paste's longest pause: 15.1435ms (pauses of 0ns)
+head.@suite.6.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.6.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.72s
+head.@suite.6.1.log:a timing-indeterminate session: the paste paused for 51.511834ms (pauses of 20ms); a second later the screen held:
+head.@suite.6.1.log:the paste's longest pause: 39.370291ms (pauses of 20ms)
+head.@suite.6.1.log:the paste's longest pause: 16.410167mstest a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok (pauses of 0ns)
+head.@suite.6.1.log:the paste's longest pause: 18.945417ms (pauses of 0ns)
+head.@suite.6.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.6.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.46s
+head.@suite.9.2.log:the paste's longest pause: 37.461708ms (pauses of 20ms)
+head.@suite.9.2.log:the paste's longest pause: 14.254083ms (pauses of 0ns)
+head.@suite.9.2.log:the paste's longest pause: 15.372417ms (pauses of 0ns)
+head.@suite.9.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.9.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.93s
+head.@suite.18.1.log:the paste's longest pause: 38.5155mstest a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ...  (pauses of 20okms
+head.@suite.18.1.log:the paste's longest pause: 14.771167ms (pauses of 0ns)
+head.@suite.18.1.log:the paste's longest pause: 22.389792ms (pauses of 0ns)
+head.@suite.18.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.18.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.85s
+head.@suite.8.2.log:the paste's longest pause: 34.394833ms (pauses of 20ms)
+head.@suite.8.2.log:the paste's longest pause: 14.414ms (pauses of 0ns)
+head.@suite.8.2.log:the paste's longest pause: 14.313041ms (pauses of 0ns)
+head.@suite.8.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.8.2.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.20s
+head.@suite.8.1.log:the paste's longest pause: 43.51925ms (pauses of 20ms)
+head.@suite.8.1.log:the paste's longest pause: 14.638083ms (pauses of 0ns)
+head.@suite.8.1.log:the paste's longest pause: 14.276459ms (pauses of 0ns)
+head.@suite.8.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.8.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.46s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 47.146458ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.63s
+head.@suite.2.1.log:the paste's longest pause: 36.815ms (pauses of 20ms)
+head.@suite.2.1.log:the paste's longest pause: 13.015083ms (pauses of 0ns)
+head.@suite.2.1.log:the paste's longest pause: 12.972375ms (pauses of 0ns)
+head.@suite.2.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.2.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.99s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.1.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 30.890667ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.1.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.04s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.1.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 32.290708ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.1.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.51s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 73.02125ms (pauses of 20ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.2.log:a timing-indeterminate session: the paste paused for 58.102416ms (pauses of 20ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.2.log:the paste's longest pause: 34.737ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 12.94s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.11.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 34.498041ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.11.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.64s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.11.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 38.687125ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.11.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.24s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.14.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 47.89175ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.14.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.72s
+head.@suite.3.1.log:the paste's longest pause: 31.730209ms (pauses of 20ms)
+head.@suite.3.1.log:the paste's longest pause: 10.715ms (pauses of 0ns)
+head.@suite.3.1.log:the paste's longest pause: 9.690833ms (pauses of 0ns)
+head.@suite.3.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.3.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.93s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.13.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 36.29ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.13.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.30s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.16.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 34.395084ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.16.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.10s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.13.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 37.760417ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.13.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.93s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.15.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 48.695208ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.15.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.73s
+head.@suite.5.1.log:the paste's longest pause: 40.743375ms (pauses of 20ms)
+head.@suite.5.1.log:the paste's longest pause: 20.317416ms (pauses of 0ns)
+head.@suite.5.1.log:the paste's longest pause: test a_resize_mid_answer_keeps_what_the_document_already_holds ... 18.963209okms (pauses of
+head.@suite.5.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.5.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.40s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.18.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 38.855417ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.18.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.21s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.15.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 49.176459ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.15.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.98s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.17.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 38.335542ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.17.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.22s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.2.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 33.744667ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.2.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.56s
+head.@suite.7.1.log:a timing-indeterminate session: the paste paused for 55.17725ms (pauses of 20ms); a second later the screen held:
+head.@suite.7.1.log:the paste's longest pause: 35.518416ms (pauses of 20ms)
+head.@suite.7.1.log:the paste's longest pause: 16.989042ms (pauses of test a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it ... ok
+head.@suite.7.1.log:the paste's longest pause: 17.363083ms (pauses of 0ns)
+head.@suite.7.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.7.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 27.84s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.19.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 33.744208ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.19.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.58s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.17.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 29.344125ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.17.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.38s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.3.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 32.165167ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.3.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.53s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.20.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 34.481834ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.20.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.57s
+head.@suite.9.1.log:the paste's longest pause: 35.315041ms (pauses of 20ms)
+head.@suite.9.1.log:the paste's longest pause: 14.836917mstest a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript ...  (pauses of 0nsok
+head.@suite.9.1.log:the paste's longest pause: 19test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+head.@suite.9.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... ok
+head.@suite.9.1.log:test result: ok. 195 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.85s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.5.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.530291ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.5.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.39s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.4.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.957042ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.4.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.40s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 37.920833ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.35s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.6.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 37.424916ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.6.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.48s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.127666ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.14s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 51.633959ms (pauses of 20ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.2.log:the paste's longest pause: 38.66975ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.46s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 33.94275ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.18s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.19.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 45.619958ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.19.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.99s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 57.56625ms (pauses of 20ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.1.log:the paste's longest pause: 34.278ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.12.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.48s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 20.610917ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.93s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.14.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 55.019375ms (pauses of 20ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.14.1.log:the paste's longest pause: 45.961458ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.14.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.67s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.20.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 32.654791ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.20.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.71s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.1.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 11.376459ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.1.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.57s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.12.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 71.235542ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.12.1.log:the paste's longest pause: 23.20575ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.12.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 12.74s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.11.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.936625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.11.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.98s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.4.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 36.86775ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.4.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.14s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.16.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 33.519667ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.16.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.29s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.14.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 49.0885ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.14.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.22s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.6.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 44.559583ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.6.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.88s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.13.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 18.405958ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.13.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.74s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.18.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 34.681958ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.18.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.65s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.16.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.839667ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.16.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.57s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.611083ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.02s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.15.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 60.681167ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.15.1.log:the paste's longest pause: 12.719125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.15.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 12.20s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.2.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 36.140042ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.2.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.76s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.18.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 16.08875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.18.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.87s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.17.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 13.963ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.17.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.43s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.3.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 30.884583ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.3.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.41s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.2.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 13.574042ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.2.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.57s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.1.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 12.131667ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.1.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.93s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.19.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 17.486541ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.19.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.82s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.5.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 32.839125ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.5.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.55s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.3.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 10.787917ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.3.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 14.91s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.083583ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.32s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.20.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.397709ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.20.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.25s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 57.139875ms (pauses of 20ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.1.log:the paste's longest pause: 37.515917ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.47s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.12.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 56.128375ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.12.2.log:the paste's longest pause: 11.311125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.12.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 13.57s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 73.925ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.2.log:the paste's longest pause: 3.381083ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 14.27s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.3.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 11.005667ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.3.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.17s
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.1.log:test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 39.201458ms (pauses of 20ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.14s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.14.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 41.16175ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.14.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.91s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.7.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 19.4015ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.7.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.93s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.5.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 20.773375ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.5.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.01s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.11.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.268ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.11.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.37s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.16.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 22.802458ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.16.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.70s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 16.800042ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.78s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.13.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.955459ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.13.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.78s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.7.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 17.336833ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.7.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.88s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.18.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 16.653041ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.18.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.30s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 39.065875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.41s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 14.843667ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.01s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.2.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 12.776209ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.2.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.36s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.15.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 40.322292ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.15.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.83s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 67.410334ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.1.log:a timing-indeterminate session: the paste paused for 132.007417ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.1.log:the paste's longest pause: 35.968083ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.95s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.17.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 14.348917ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.17.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.84s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.11.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 20.861958ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.11.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.57s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.5.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 14.314959ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.5.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.88s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.14.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 86.504ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.14.1.log:the paste's longest pause: 30.375ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.14.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.93s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.19.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.085084ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.19.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.54s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.6.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 15.601125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.6.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.99s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.13.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 47.396459ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.13.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.77s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.16.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 23.725958ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.16.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.61s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.20.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 14.743125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.20.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.72s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 14.370042ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.49s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.15.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 55.336208ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.15.1.log:the paste's longest pause: 11.651375ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.15.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.77s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.17.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 49.892291ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.17.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.66s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 21.339541ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.35s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.1.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 17.120666ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.1.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.31s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.16.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 34.370583ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.16.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.29s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 30.184125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.74s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.6.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 17.621875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.6.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.18s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.18.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 19.681084ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.18.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.35s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.3.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 19.502416ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.3.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.98s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 14.90675ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.10s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 24.951625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.40s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 20.582375ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.58s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 24.264875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.24s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.1.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 12.317708ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.1.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.39s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 64.014084ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.2.log:the paste's longest pause: 44.676416ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.12.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.86s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.20.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 21.208541ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.20.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.82s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 75.203625ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.2.log:the paste's longest pause: 18.845334ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 10.29s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.14.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 46.26525ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.14.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.35s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.11.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 17.851792ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.11.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.68s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.5.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 19.277125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.5.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.01s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 15.80775ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.63s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.18.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 29.494125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.18.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.72s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.13.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 35.054375ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.13.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.03s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.7.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 23.889083ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.7.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.41s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.1.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 6.32s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.19.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 19.405083ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.19.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.85s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.15.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 121.370875ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.15.2.log:the paste's longest pause: 21.322666ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.15.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 11.66s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.2.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 38.061917ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.21s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.11.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.57s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.20.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 15.538125ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.20.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.76s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.17.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 30.349625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.17.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.96s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.10.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.39s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.13.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.55s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 24.477417ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.51s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.19.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 21.084459ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.19.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 9.08s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.12.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.18s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.15.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.90s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.14.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.84s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.5.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 17.747167ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.5.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.14s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.3.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 15.641666ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.3.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.98s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.17.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.17s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.7.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 25.908292ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.7.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.79s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 41.834875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.60s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.19.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.63s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.16.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.79s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 37.983625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 8.18s
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.1.log:test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 17.483584ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 7.98s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.20.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 6.00s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.18.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.14s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.10.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.79s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.1.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 6.11s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.4.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.08s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.2.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.58s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.12.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.18s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.11.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.19s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.3.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 6.54s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.14.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.98s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.6.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.71s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.5.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.86s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.13.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.48s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.16.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.61s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.8.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.57s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.7.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.30s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.15.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.73s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.18.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.27s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.1.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.34s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.9.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.98s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.2.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.68s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.11.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.35s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.17.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 6.91s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.10.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.08s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.3.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 6.04s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.13.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.39s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.19.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.85s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.12.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.34s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.5.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.00s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.15.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.39s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.20.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.27s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.14.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.39s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.7.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.41s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.17.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.17s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.4.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.70s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.16.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.37s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.9.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.02s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.19.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.17s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.18.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.04s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.6.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 5.11s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.10.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.08s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.20.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.09s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.2.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 0.87s
+head.ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes.8.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.84s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.12.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.37s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.4.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.50s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.3.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.31s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.1.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.36s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.14.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.49s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.6.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.12s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.5.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.18s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.15.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.56s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.11.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.08s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.8.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.02s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.7.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.11s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.17.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.23s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.13.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.34s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.1.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.87s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.9.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.29s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.19.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.98s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.16.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.38s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.11.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.87s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.10.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.16s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.20.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.11s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.18.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.06s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.13.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.21s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.12.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.05s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.4.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.11s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.2.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 0.95s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.15.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.64s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.6.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.22s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.3.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.36s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.17.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.96s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.14.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.21s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.8.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.09s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.5.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.24s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.16.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.31s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.1.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 4.91s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.19.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.55s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.18.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.46s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.7.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.07s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.11.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.94s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.20.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.86s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.2.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.45s
+head.slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network.9.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.18s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.13.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.46s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.3.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.98s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.3.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.88s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.10.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.50s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.5.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.65s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.12.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.68s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.15.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.00s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.4.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.77s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.7.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.19s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.14.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.24s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.17.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.25s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.9.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.18s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.6.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.53s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.19.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.25s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.16.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.22s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.18.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.82s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.8.1.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.28s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.20.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.35s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.2.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.98s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.5.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.27s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.4.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 1.78s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.7.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.35s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.6.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 3.52s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.9.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.74s
+head.the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out.8.2.log:test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 194 filtered out; finished in 2.18s

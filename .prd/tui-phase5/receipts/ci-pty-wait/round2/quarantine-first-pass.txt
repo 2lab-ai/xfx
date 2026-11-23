@@ -1,0 +1,30 @@
+Round 2, first pass of quarantine_mutants.py on a clone at d4f660f7, the two unpaced cases only, 3 runs each, one at a time:
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['3.170958ms']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['4.816458ms']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['7.675583ms']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['5.102333ms']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['4.573333ms']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['4.189291ms']; rejected sessions 0; 
+baseline: {'green': 6}
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['6.863042ms']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['5.9505ms']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['7.124042ms']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['7.284417ms']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['4.503208ms']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['6.171834ms']; rejected sessions 0; 
+quarantine-ends-at-any-quiet: {'green': 6}
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['6.049208ms']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['5.804875ms']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['4.306167ms']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['6.165834ms']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['5.949917ms']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['7.437292ms']; rejected sessions 0; 
+quarantine-quiet-5ms: {'green': 6}
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['5.050584ms']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['3.547958ms']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['4.860708ms']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['6.119334ms']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['8.068791ms']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['6.097959ms']; rejected sessions 0; 
+quarantine-quiet-20ms: {'green': 6}
+exit 1

@@ -1,0 +1,22 @@
+Base (dcfa5146) tests/tui.rs binary, TMPDIR set to a directory whose name holds `foo`:
+  <bin> --exact slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network
+
+running 1 test
+test slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network ... FAILED
+
+failures:
+
+---- slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network stdout ----
+
+panicked at tests/support/pty.rs:409:13:
+timed out waiting for ["Skills 1", "  foo    xfx · Global"] on the screen, ["  demo "] off it; terminal so far:
+
+The last frame it drew (the `$foo` frame):
+␛[?2026h␛[?25l␛[11;3H$foo␛[12;1H␛[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────␛[13;1H␛[0m␛[1m␛[38;5;255mSkills 3␛[0m  ␛[1m␛[38;5;255m[All]␛[0m  ␛[38;5;245mxfx␛[0m  ␛[38;5;245mWorkspace␛[0m␛[K␛[15;1H  ␛[1m␛[38;5;255mfoo              xfx · Global␛[16;1H␛[0m  ␛[38;5;245mdemo             xfx · Workspace␛[17;1H␛[0m  ␛[38;5;245mrelease-notes    xfx · Workspace␛[18;1H␛[0m␛[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────␛[19;1H␛[0m␛[38;5;245m↑↓ navigate     tab source     enter use     esc close␛[0m␛[11;7H␛[?2026l
+
+CI job 130267239024's last frame, from its own dump:
+␛[?2026h␛[?25l␛[11;3H$foo␛[12;1H␛[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────␛[13;1H␛[0m␛[1m␛[38;5;255mSkills 3␛[0m  ␛[1m␛[38;5;255m[All]␛[0m  ␛[38;5;245mxfx␛[0m  ␛[38;5;245mWorkspace␛[0m␛[K␛[15;1H  ␛[1m␛[38;5;255mfoo              xfx · Global␛[16;1H␛[0m  ␛[38;5;245mdemo             xfx · Workspace␛[17;1H␛[0m  ␛[38;5;245mrelease-notes    xfx · Workspace␛[18;1H␛[0m␛[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────␛[19;1H␛[0m␛[38;5;245m↑↓ navigate     tab source     enter use     esc close␛[0m␛[11;7H␛[?2026l
+
+byte-identical: True
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 187 filtered out; finished in 22.57s

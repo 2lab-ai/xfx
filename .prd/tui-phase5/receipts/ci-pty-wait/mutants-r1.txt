@@ -1,0 +1,11 @@
+Round 1 of mutants.py, on a clone at a70dcd89 (before a77fad76 added the shell case and this runner's two fixes):
+drain-never-stops: killed by tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+drain-stops-after-any-event: killed by tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+owed-only-when-held: killed by tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+owed-only-when-keyed: SURVIVED
+measure-not-carried: killed by the_harness_measures_a_pause_between_two_writes_of_one_paste
+measure-never-grows: killed by the_harness_measures_a_pause_between_two_writes_of_one_paste
+retry-gives-up-quietly: BUILD OR RUN ERROR (exit 101): ['error: could not compile `xfx` (test "tui") due to 1 previous error']
+retry-runs-once: killed by an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused
+name-check-case-sensitive: killed by a_skills_sandbox_root_is_never_named_with_what_its_case_searches
+exit 1

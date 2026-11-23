@@ -1,0 +1,7 @@
+merge exit 1 (1 = stopped on a conflict)
+CONFLICT (content): Merge conflict in docs/parity.md
+resolved: train 16's OSC 7501 row, with this branch's sentence after its anchor
+unmerged left: 0
+redone tree    e57a53890aea7ba62ac35e8ffc8e5bf28a31b863
+merge's tree   e57a53890aea7ba62ac35e8ffc8e5bf28a31b863
+same tree

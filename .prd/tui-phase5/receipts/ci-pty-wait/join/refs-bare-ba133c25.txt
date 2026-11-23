@@ -1,0 +1,154 @@
+# head ba133c25; sides: ours ef595df2, theirs 8be4693b
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:329: :16512 (after src/tui/event_loop.rs)
+    ours MOVED -> :16513
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:329: :16565 (after src/tui/event_loop.rs)
+    ours MOVED -> :16566
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:330: :3725 (after tests/tui.rs)
+    ours MOVED -> :3846
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:331: :3579 (after tests/tui.rs)
+    ours MOVED -> :3700
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:332: :11542 (after src/tui/shell.rs)
+    ours MOVED -> :11722
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:332: :22274 (after src/tui/shell.rs)
+    ours MOVED -> :22726
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:333: :16743 (after src/tui/event_loop.rs)
+    ours MOVED -> :16744
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:334: :14513 (after tests/tui.rs)
+    ours MOVED -> :14631
+.prd/tui-phase5/receipts/ci-pty-wait/README.md:334: :14536 (after tests/tui.rs)
+    ours MOVED -> :14654
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1297 (after tests/gateway.rs)
+    ours MOVED -> :1277
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1320 (after tests/gateway.rs)
+    ours MOVED -> :1300
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1345 (after tests/gateway.rs)
+    ours MOVED -> :1325
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,1280 (after tests/tool_loop.rs)
+    ours MOVED -> :1271
+docs/superpowers/plans/2026-08-24-provider-frame.md:1044: ,2535 (after tests/permissions.rs)
+    ours MOVED -> :2530
+docs/superpowers/plans/2026-08-24-provider-frame.md:1436: ,1197 (after tests/sessions.rs)
+    ours MOVED -> :1199
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1942-1948 (after src/tui/shell.rs)
+    ours MOVED -> :1948-1954
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:36: :1911 (after src/tui/shell.rs)
+    ours MOVED -> :1917
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :584 (after src/tui/shell.rs)
+    ours MOVED -> :589
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2170 (after src/tui/shell.rs)
+    ours MOVED -> :2176
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2546 (after src/tui/shell.rs)
+    ours MOVED -> :2552
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:82: :2571 (after src/tui/shell.rs)
+    ours MOVED -> :2577
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2130 (after src/tui/shell.rs)
+    ours MOVED -> :2136
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2188 (after src/tui/shell.rs)
+    ours MOVED -> :2194
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2207 (after src/tui/shell.rs)
+    ours MOVED -> :2213
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2263 (after src/tui/shell.rs)
+    ours MOVED -> :2269
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:203: :2313 (after src/tui/shell.rs)
+    ours MOVED -> :2319
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2208 (after src/tui/shell.rs)
+    ours MOVED -> :2214
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:207: :2264 (after src/tui/shell.rs)
+    ours MOVED -> :2270
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2314 (after src/tui/shell.rs)
+    ours MOVED -> :2320
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:208: :2555 (after src/tui/shell.rs)
+    ours MOVED -> :2561
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:276: :4013 (after src/tui/shell.rs)
+    ours MOVED -> :4023
+docs/superpowers/plans/2026-09-10-tui-phase3-edit-history.md:277: :4074 (after src/tui/shell.rs)
+    ours MOVED -> :4084
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:33: :2858 (after src/tui/shell.rs)
+    ours MOVED -> :2865
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:34: ,194 (after tests/tool_loop.rs)
+    ours MOVED -> :185
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:35: :349-380 (after tests/parity.rs)
+    ours MOVED -> :352-383
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:35: :330 (after tests/parity.rs)
+    ours MOVED -> :333
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:36: :634 (after src/output.rs)
+    ours MOVED -> :640
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2585 (after src/tui/worker.rs)
+    ours MOVED -> :2618
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:631: :2820 (after src/tui/worker.rs)
+    ours MOVED -> :2853
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :544-549 (after src/tui/shell.rs)
+    ours MOVED -> :549-554
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :640-655 (after src/tui/shell.rs)
+    ours MOVED -> :645-660
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :790-795 (after src/tui/shell.rs)
+    ours MOVED -> :795-800
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1040-1060 (after src/tui/shell.rs)
+    ours MOVED -> :1045-1065
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1220 (after src/tui/shell.rs)
+    ours MOVED -> :1225
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :1792-1810 (after src/tui/shell.rs)
+    ours MOVED -> :1798-1816
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:642: :2777 (after src/tui/shell.rs)
+    ours MOVED -> :2784
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:796: :7039 (after src/tui/shell.rs)
+    ours MOVED -> :7078
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:851: :6004 (after src/tui/shell.rs)
+    ours MOVED -> :6043
+docs/superpowers/plans/2026-09-10-tui-phase3-question.md:895: :1287-1304 (after src/tui/worker.rs)
+    ours MOVED -> :1302-1331
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:428: :770-789 (after src/output.rs)
+    ours MOVED -> :776-795
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:429: :873-878 (after src/output.rs)
+    ours MOVED -> :879-884
+docs/superpowers/plans/2026-09-11-tui-approval-amendment.md:724: :185-191 (after src/tui/approval_readiness.rs)
+    ours MOVED -> :212-223
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1202-1266 (after src/tui/shell.rs)
+    ours MOVED -> :1207-1271
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:296: :1520-1533 (after src/tui/shell.rs)
+    ours MOVED -> :1525-1539
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:315: :374-375 (after src/tui/approval_screen.rs)
+    ours MOVED -> :376-377
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:316: :372 (after src/tui/approval_screen.rs)
+    ours MOVED -> :374
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :743-754 (after src/tui/shell.rs)
+    ours MOVED -> :748-759
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:337: :755 (after src/tui/shell.rs)
+    ours MOVED -> :760
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :1013-1112 (after src/tui/event_loop.rs)
+    theirs MOVED -> :1042-1141
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:470: :619-622 (after src/tui/event_loop.rs)
+    theirs MOVED -> :648-651
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:485: :1048-1076 (after src/tui/event_loop.rs)
+    theirs MOVED -> :1077-1105
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1078-1108 (after src/tui/event_loop.rs)
+    theirs MOVED -> :1107-1137
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:486: :1090-1093 (after src/tui/event_loop.rs)
+    theirs MOVED -> :1119-1122
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:487: :1027-1045 (after src/tui/event_loop.rs)
+    theirs MOVED -> :1056-1074
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:488: :619 (after src/tui/event_loop.rs)
+    theirs MOVED -> :648
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3239 (after src/tui/shell.rs)
+    ours MOVED -> :3249
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:494: :3187 (after src/tui/shell.rs)
+    ours MOVED -> :3197
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1246 (after src/tui/approval.rs)
+    ours MOVED -> :1262
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1199-1218 (after src/tui/approval.rs)
+    ours MOVED -> :1215-1234
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:560: :1180-1196 (after src/tui/approval.rs)
+    ours MOVED -> :1196-1212
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5577 (after src/tui/shell.rs)
+    ours MOVED -> :5590
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5590 (after src/tui/shell.rs)
+    ours MOVED -> :5603
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :5600 (after src/tui/shell.rs)
+    ours MOVED -> :5613
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :1180-1218 (after src/tui/event_loop.rs)
+    theirs MOVED -> :1209-1247
+docs/superpowers/plans/2026-09-11-tui-approval-readiness.md:722: :755 (after src/tui/approval.rs)
+    ours MOVED -> :774
+scripts/fxcap/parity-ledger.toml:984: :116 (after docs/parity.md)
+    ours CHANGED
+# 120 bare continuations after a reference into a changed file; 76 moved or changed on some side that holds them

@@ -1,0 +1,22 @@
+The probe (probe/p5-cpw-timer f0d609e1's test, its first form: no thread-priority line) run alone, under taskpolicy -b, under the suite lock.
+environment: 18 CPUs, load [27.810546875, 26.28369140625, 21.8115234375] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 1
+== the writer at its default QoS: the paste took 114.142699708s
+sleep 12ms: n 51, min 122.01ms, median 205.950791ms, p95 211.996ms, max 312.9215ms, >=20ms 51, >=50ms 51
+spin 12ms: n 51, min 12.0005ms, median 12.00125ms, p95 45.001791ms, max 206.835292ms, >=20ms 3, >=50ms 2
+yield 12ms: n 51, min 12.000791ms, median 12.001667ms, p95 109.587ms, max 312.039042ms, >=20ms 4, >=50ms 4
+1ms steps to 12ms: n 51, min 13.100875ms, median 60.349208ms, p95 101.976417ms, max 117.319291ms, >=20ms 49, >=50ms 41
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.017583ms, median 12.0315ms, p95 12.316167ms, max 103.853209ms, >=20ms 2, >=50ms 1
+full queue: sleep 2ms: n 561, min 72.298875ms, median 126.125042ms, p95 207.914625ms, max 415.313541ms, >=20ms 561, >=50ms 561
+full queue: poll POLLOUT: n 1606, min 1.458µs, median 191.959µs, p95 3.0945ms, max 1.249763166s, >=20ms 60, >=50ms 47
+write: n 4572, min 500ns, median 9.416µs, p95 129.209µs, max 102.989625ms, >=20ms 4, >=50ms 3
+environment: 18 CPUs, load [11.345703125, 21.80615234375, 20.69580078125] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 1
+== the writer asking for user-interactive QoS: the paste took 131.096618416s
+sleep 12ms: n 51, min 164.330541ms, median 206.991292ms, p95 211.323958ms, max 212.0225ms, >=20ms 51, >=50ms 51
+spin 12ms: n 51, min 12.000708ms, median 12.001333ms, p95 102.930791ms, max 104.4845ms, >=20ms 3, >=50ms 3
+yield 12ms: n 51, min 12.000792ms, median 12.0015ms, p95 102.29425ms, max 103.850625ms, >=20ms 5, >=50ms 3
+1ms steps to 12ms: n 51, min 13.719125ms, median 61.602334ms, p95 69.130209ms, max 103.612334ms, >=20ms 50, >=50ms 45
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.020209ms, median 12.036208ms, p95 12.121167ms, max 105.124209ms, >=20ms 2, >=50ms 2
+full queue: sleep 2ms: n 648, min 14.566791ms, median 126.724416ms, p95 208.747583ms, max 312.87825ms, >=20ms 647, >=50ms 644
+full queue: poll POLLOUT: n 1579, min 1.292µs, median 173.708µs, p95 5.547125ms, max 1.140945875s, >=20ms 67, >=50ms 63
+write: n 4599, min 500ns, median 9.417µs, p95 129.5µs, max 103.812ms, >=20ms 1, >=50ms 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 200 filtered out; finished in 246.38s

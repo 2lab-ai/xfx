@@ -1,0 +1,8 @@
+job 130258279160 (run 42939692388 attempt 1, aarch64-apple-darwin, step Tests), a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing, its terminal dump:
+  composer rows holding a paste-body line typed as keys: 1206 (distinct 1206), first K00008221, last K00019041
+  'one prompt is already queued; this one was not sent' notices: 449
+  gateway answers 'fake server: unscripted request' (requests the script did not expect): 71
+job 130320282880 (run 42958837984 attempt 1, x86_64-apple-darwin (checks), step Tests, with the fault injector), a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing, its terminal dump:
+  composer rows holding a paste-body line typed as keys: 304 (distinct 304), first K00017431, last K00020461
+  'one prompt is already queued; this one was not sent' notices: 0
+  gateway answers 'fake server: unscripted request' (requests the script did not expect): 2

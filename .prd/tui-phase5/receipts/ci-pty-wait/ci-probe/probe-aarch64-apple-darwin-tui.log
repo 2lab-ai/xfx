@@ -1,0 +1,367 @@
+# excerpt of probe-aarch64-apple-darwin-failed.log: lines 5986-6351 of 6351, the tests/tui.rs part; the whole log's sha256 56e5ebb9823d8aecb05fbb6118aed90c7a8c914b9868022f003f35448b957ca6
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:04.6670830Z      Running tests/tui.rs (target/debug/deps/tui-346292188c3f4f1e)
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:04.7063110Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:04.7063580Z running 201 tests
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:04.7221510Z test a_bare_invocation_whose_input_is_not_a_terminal_is_refused_not_taken ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:04.7228130Z test a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:05.7460620Z test a_badge_numbered_like_words_in_its_prompt_is_sent_and_logged_under_a_fresh_number ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:06.3067890Z test a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:07.0800310Z test a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band_comes_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:08.0818730Z test a_clipboard_read_goes_under_the_real_tmp_whatever_tmpdir_says ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:10.0091680Z test a_code_panels_label_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:10.0331560Z test a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:10.3739210Z test a_burst_of_winches_costs_one_frame ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:11.2209150Z test a_command_the_tui_runs_keeps_a_sigint_ignore_and_only_that ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:11.7327650Z test a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:11.7472360Z test a_compaction_that_fails_between_steps_keeps_the_steps_and_says_nothing_of_its_own ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:11.7487010Z test a_document_append_moves_the_band_off_its_rows_until_the_next_frame ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:12.5475520Z test a_dollar_token_sends_upstreams_catalog_and_the_skills_whole_instructions ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:13.1551000Z test a_double_escape_clears_the_composer_and_warns_before_it_does ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:13.2968020Z test a_copy_running_at_the_end_is_given_up_after_the_last_frame_and_before_the_restore ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:13.9166500Z test a_fresh_sessions_first_prompt_is_titled_by_a_model_in_the_window_and_the_log ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:14.1627470Z test a_keystroke_that_arrived_with_the_answer_is_typed_rather_than_scanned ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:14.3215970Z test a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:14.8574950Z test a_compaction_whose_notes_fail_says_so_on_the_row_and_keeps_the_conversation ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:15.0957440Z test a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:15.2322620Z test a_level_chosen_on_llmux_rides_as_output_config_effort ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:15.2625840Z test a_live_theme_notification_repaints_the_band_without_losing_the_draft ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:17.2299830Z test a_fork_of_a_fork_keeps_the_deny_and_a_revoke_there_spends_its_own_generation ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:36:58.7553610Z test a_mebibyte_of_hostile_clipboard_timer_probe ... FAILED
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:00.0333210Z a timing-indeterminate session: the paste paused for 81.900625ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 81.569375ms; the write that ended it took 258.625µs, and the rest, 72.625µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:00.0469850Z x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:00.0471430Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:00.0591960Z ┃ x
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:00.0714490Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:01.5122530Z a timing-indeterminate session: the paste paused for 97.883542ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 97.616042ms; the write that ended it took 205.167µs, and the rest, 62.333µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:01.5133990Z x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:01.5134610Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:01.5135060Z ┃ x
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:01.5135500Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:02.7867920Z a timing-indeterminate session: the paste paused for 53.502417ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 53.214166ms; the write that ended it took 237.083µs, and the rest, 51.168µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:02.7874230Z x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:02.7874860Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:02.7875480Z ┃ x
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:02.7875770Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:04.2090720Z a timing-indeterminate session: the paste paused for 52.4195ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 52.12175ms; the write that ended it took 227µs, and the rest, 70.75µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:04.2093200Z x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:04.2093660Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:04.2094080Z ┃ x
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:04.2095200Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:05.5458600Z a timing-indeterminate session: the paste paused for 79.166625ms (pauses of 12ms), between parts 0 and 1 of 256, across a planned 12ms pause that slept 78.84925ms; the write that ended it took 239.541µs, and the rest, 77.834µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:05.5473110Z x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:05.5577480Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:05.5680650Z ┃ x
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:05.5784550Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:05.6064860Z test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... FAILED
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:07.1009510Z test a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:07.6141870Z test a_model_the_catalog_lists_without_vision_is_told_why_the_tool_image_is_not_there ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:08.4841450Z test a_model_the_daemons_catalog_does_not_list_is_applied_and_the_next_turn_uses_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:09.0143140Z test a_normal_exit_gives_the_terminal_back_byte_for_byte ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:09.0150670Z test a_notice_wrapped_onto_the_row_under_it_is_held_and_another_notice_is_not ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:09.4134840Z test a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_paints_in ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:09.6603960Z test a_palette_the_user_named_is_not_overruled_by_the_terminal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:10.8337820Z test a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:12.1173270Z test a_paste_with_enter_behind_its_marker_on_page_ten_of_twenty_is_kept_and_answers_nothing ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:13.2295750Z test a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:13.3318040Z test a_pause_is_said_to_fall_between_parts_or_inside_one_with_its_sleep ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:14.1719680Z test a_permission_question_rings_the_bell_when_it_opens ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:16.2139370Z test a_profile_fx_refuses_is_refused_before_the_terminal_is_taken ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:17.3585500Z test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval has been running for over 60 seconds
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:18.0618410Z test a_profile_only_ask_refuses_starts_the_tui ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:18.5771560Z test a_profile_that_goes_bad_after_the_launch_is_a_panel_row_not_a_refusal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:19.3486620Z test a_prompt_sent_while_an_answer_streams_cuts_it_and_the_turn_goes_on_with_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0586890Z a timing-indeterminate session: the paste paused for 52.081083ms (pauses of 0ns), inside part 226 of 256, at its write attempt 7 of 9, behind a full queue's 2ms poll that slept 51.948125ms; the write that ended it took 126.75µs, and the rest, 6.208µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0670660Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0775180Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0862410Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0919810Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0940560Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0949500Z ────────────────────────────────────────────────────────────────────────────────
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0950820Z       1 - alpha
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0951600Z       1 + beta
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0952680Z ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0954380Z   Permission needed · Review change                              Edit · +1  -1
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0960060Z   notes.txt  ·  Apply this change?
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0964470Z   ❯ 1  Apply once
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0965200Z     2  Apply + allow future edits to this file for this session
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0965670Z     3  Don't apply
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0967620Z   2 = allow every future edit_file to `notes.txt` for the rest of this session,
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0969560Z   whatever its contents, and in every later `xfx ask --resume-id
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0971150Z   1794875825616-ac800148f4980c44` of this saved session
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0972050Z ────────────────────────────────────────────────────────────────────────────────
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:20.0977100Z   1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:22.3323960Z test a_prompt_still_too_large_after_a_compaction_is_not_sent_and_ends_in_upstreams_words ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:22.8891390Z test a_prompt_typed_behind_a_provider_switch_is_titled_by_the_provider_switched_to ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:23.8656460Z test a_provider_switch_keeps_the_conversation_and_the_next_request_carries_it_in_the_new_wire ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:23.8665760Z test a_question_still_being_painted_is_not_a_painted_question ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:25.3798530Z test a_quit_right_after_slash_trace_leaves_the_whole_report_and_no_clipboard_tool_behind ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:26.0282810Z test a_refusal_in_the_band_leaves_the_file_alone ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:27.8938080Z test a_remembered_deny_still_refuses_its_read_in_a_fork_in_ask ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1578380Z a timing-indeterminate session: the paste paused for 57.546083ms (pauses of 0ns), inside part 132 of 256, at its write attempt 3 of 9, behind a full queue's 2ms poll that slept 57.470875ms; the write that ended it took 72.208µs, and the rest, 3µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1679580Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1746640Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1811360Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1824070Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1832450Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1840800Z ────────────────────────────────────────────────────────────────────────────────
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1842550Z       1 - alpha
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1844970Z       1 + beta
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1877450Z ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1883150Z   Permission needed · Review change                              Edit · +1  -1
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1885620Z   notes.txt  ·  Apply this change?
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1888070Z   ❯ 1  Apply once
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1892650Z     2  Apply + allow future edits to this file for this session
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1896210Z     3  Don't apply
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1898280Z   2 = allow every future edit_file to `notes.txt` for the rest of this session,
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1905220Z   whatever its contents, and in every later `xfx ask --resume-id
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1907340Z   1794875840093-3c33e7ab99758a85` of this saved session
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1909150Z ────────────────────────────────────────────────────────────────────────────────
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.1917550Z   1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:29.4915720Z test a_remembered_deny_still_refuses_its_write_in_a_fork_in_auto ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:31.3283970Z test a_reply_a_terminal_draws_wider_is_named_on_the_screen_and_kept_as_written_everywhere_else ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:32.1665220Z test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:33.1159080Z test a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:35.3647330Z test a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:36.0330680Z test a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:36.9507790Z test a_resize_mid_answer_keeps_what_the_document_already_holds ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:37.5343870Z test a_resize_moves_the_band_to_the_foot_of_the_new_screen ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:38.4273430Z test a_resize_while_a_question_is_up_keeps_the_question_and_the_decision_still_lands ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:38.4834240Z test a_resume_of_a_session_a_prompt_images_copy_is_gone_from_is_refused_in_upstreams_words ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:38.5609290Z test a_resume_that_names_no_session_is_refused_before_the_terminal_is_taken ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:39.7440240Z test a_resumed_session_keeps_its_model_and_opening_it_writes_nothing ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:40.2824010Z test a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:40.8942990Z test a_return_typed_before_the_session_is_a_newline_in_the_composer_as_upstreams_is ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:41.9799880Z test a_rule_remembered_before_the_first_prompt_decides_that_prompts_call_without_a_question ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:42.6697590Z test a_rule_that_asks_before_a_read_puts_the_read_band_up_in_auto_and_a_no_is_denied_to_the_model ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:44.6861900Z the paste's longest pause: 38.00175ms (pauses of 0ns), inside part 66 of 256, at its write attempt 9 of 9, behind a full queue's 2ms poll that slept 37.971375ms; the write that ended it took 27.875µs, and the rest, 2.5µs, is the write before it and the time this thread was off a CPU;
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:45.1152930Z test a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:45.9454540Z test a_save_that_fails_is_said_once_for_fast_and_for_effort ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:46.1591900Z test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:47.4869110Z test a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:48.8539590Z test a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:48.9623680Z test a_session_resumed_onto_a_provider_with_nothing_to_authenticate_with_says_so_and_stays_there ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:49.8649720Z test a_session_s_first_turn_too_large_for_the_window_compacts_its_own_reads_when_refused ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:51.4407000Z test a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:51.8563500Z test a_session_with_no_credential_is_told_so_before_it_spends_a_prompt ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:52.1044510Z test a_session_resumed_under_an_unreadable_provider_asks_the_gateway_nothing ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:52.1055210Z test a_skills_sandbox_path_never_holds_what_its_case_searches ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:52.7803470Z test a_slash_word_opens_a_menu_that_completes_without_taking_the_caret ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:52.7908970Z test a_sigint_the_launcher_ignored_stays_ignored ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4273310Z a timing-indeterminate session: the paste paused for 52.458917ms (pauses of 0ns), inside part 107 of 256, at its write attempt 7 of 9, behind a full queue's 2ms poll that slept 52.288959ms; the write that ended it took 166.917µs, and the rest, 3.041µs, is the write before it and the time this thread was off a CPU; a second later the screen held:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4275070Z test a_small_change_is_still_asked_in_the_band_and_takes_no_plane ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4300490Z x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4304390Z ! input: Input that arrived right after the paste was ignored.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4321490Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4327220Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4327820Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4328210Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4329200Z ! input: Keys ignored until input stops.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4330280Z ┃ x
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.4330820Z auto · glm-5.2
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:53.6040460Z test a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:54.1043260Z test a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:54.8868170Z test a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:55.2260450Z test a_stop_at_a_twenty_question_panel_is_one_cancelled_row_and_the_next_turn_carries_its_prompt ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:55.2835950Z test a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:56.2637620Z test a_streamed_answer_grows_the_document_only_inside_the_update_that_paints_the_band ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:56.3324850Z test a_subcommand_is_never_the_tui_however_the_variable_is_set ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:56.6313600Z test a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:56.9441950Z test a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:57.0354760Z test a_terminal_too_small_for_a_band_is_refused_with_a_reason ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:57.3094680Z test a_theme_notification_repaints_the_band_with_no_keystroke_behind_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:57.7191950Z test a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:57.8485550Z test a_title_the_gateway_is_slow_to_name_never_holds_up_the_turn ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:58.4828140Z test a_tool_a_global_deny_covers_is_left_out_of_the_request_until_allowlist_lets_it_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:58.7791150Z test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing has been running for over 60 seconds
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:59.0791220Z test a_turn_of_two_requests_counts_both_in_its_summary_live_and_resumed ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:37:59.2210110Z test a_turn_that_reaches_the_compaction_point_is_compacted_before_it_is_sent ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:00.1631880Z test a_very_large_paste_collapses_on_screen_and_expands_on_submit ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:00.5119480Z test a_turn_whose_tool_result_reaches_the_compaction_point_is_compacted_before_its_next_step ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:00.7312750Z test a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:01.5844470Z test a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:01.6642550Z test after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:02.2696000Z test alias_is_offered_under_extensions_and_answers_every_form_with_upstreams_notice ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:02.3378190Z test after_a_switch_the_context_meter_keeps_the_tokens_against_the_new_providers_window ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:03.0262510Z test an_answer_lands_even_with_a_prompt_already_queued ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:03.1066470Z test an_ask_on_a_terminal_reports_no_program_status ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:03.6150620Z test an_always_answered_in_the_band_is_written_where_a_resume_will_read_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:04.4681670Z test an_attached_image_is_a_file_part_on_the_gateway_and_rides_with_the_history_even_after_a_resume ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:04.9880350Z test an_automatic_compaction_that_fails_leaves_no_turn_and_a_resume_shows_nothing_of_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:05.4757520Z test an_enter_one_read_behind_a_paste_s_end_marker_is_behind_it_too ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:05.5508980Z test an_escape_sequence_in_an_answer_reaches_the_terminal_disarmed ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:06.0888790Z test an_external_sigint_is_not_swallowed_because_isig_is_off ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:06.1197470Z test an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really_has ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:06.8747150Z test an_image_wider_than_a_request_permits_is_withheld_with_upstreams_note_on_every_request ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:07.0930230Z test an_image_path_pasted_or_typed_into_a_prompt_is_attached_where_it_stood ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:07.4166510Z test an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:07.4286520Z test an_ordinary_exit_leaves_no_independent_diagnostic_behind ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:08.5986720Z the paste's longest pause: 38.165208ms (pauses of 0ns), inside part 26 of 256, at its write attempt 5 of 9, behind a full queue's 2ms poll that slept 37.51175ms; the write that ended it took 650.75µs, and the rest, 2.708µs, is the write before it and the time this thread was off a CPU;
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:08.6528570Z test an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn_is_over ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:10.0396990Z test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:10.0477320Z test an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:10.0617840Z test an_unpaced_case_whose_every_paste_paused_fails_saying_so ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:10.3261310Z test any_value_but_zero_is_the_tui ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:10.5710890Z test an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:11.0016520Z test ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:11.1761260Z test captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:11.3443210Z test an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:12.6395340Z test compact_with_no_credential_is_not_started_and_asks_nobody ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:12.8242400Z test compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:13.4264270Z test credits_while_a_turn_runs_with_the_queue_full_is_answered_after_a_ctrl_c ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:13.5101790Z test ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:14.1156420Z test ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130 ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:14.4525340Z test ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:14.6226170Z test compact_of_one_turn_has_nothing_to_compact_and_asks_nobody ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:15.2173130Z test ctrl_o_reads_its_headers_in_the_local_zone_and_never_prints_a_zone_files_escapes ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:15.4179940Z test ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:15.5739690Z test ctrl_c_stops_an_automatic_compaction_and_its_turn_and_the_log_says_the_turn_stopped ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:16.3390760Z test edit_history_undo_and_yank_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:16.4196100Z test escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:16.8222770Z test escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:17.2121500Z test every_size_puts_the_composer_over_the_rule_and_the_hint_on_its_last_row ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:17.2428570Z test herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:17.9677550Z test leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:18.0975820Z test every_slash_command_is_answered_by_the_session_rather_than_by_the_model ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:18.2337970Z test llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:18.6320870Z test no_two_unpaced_cases_run_at_once ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:18.8679000Z test paste_reads_the_clipboard_through_the_tool_on_the_path_and_badges_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:19.3071130Z test one_turn_too_large_for_the_window_compacts_its_own_reads_and_goes_on ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:19.6834000Z test quit_leaves_the_way_ctrl_d_does ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:19.7046470Z test quit_before_any_prompt_names_nothing_and_keeps_no_session ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:20.2073580Z test quit_after_a_conversation_names_the_session_and_resume_continues_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:20.3830930Z test shell_output_from_before_the_launch_is_still_readable_afterwards ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:20.4611300Z test read_file_of_an_image_shows_it_to_the_model_on_every_later_request ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:20.6651580Z test quitting_with_a_usage_fetch_in_flight_cancels_it_and_exits_promptly ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:20.7899090Z test sighup_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:21.0165360Z test sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:21.0680110Z test sigterm_restores_the_line_discipline_and_dies_by_the_signal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:21.2395680Z test sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:21.4820380Z test sigtstp_really_stops_the_process_with_the_terminal_given_back ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:22.1342560Z test slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:22.2113580Z test six_questions_open_the_panel_and_twenty_one_or_none_are_refused_in_upstreams_words ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:22.9782010Z test slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:23.0627870Z test slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:23.1884670Z test slash_sound_saves_both_switches_and_moves_what_the_next_turn_rings ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:23.7172940Z test the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_terminal ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:23.8347720Z test switching_provider_sends_the_next_prompt_only_to_the_new_fixture ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:23.8451020Z test the_bell_counter_skips_the_titles_terminator ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:24.1115550Z test status_counts_the_turn_the_live_conversation_just_held ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:24.3096750Z test the_band_is_painted_under_the_welcome_inside_one_synchronized_frame ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:24.6269400Z test the_composer_stops_growing_at_half_the_content_area ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:24.7397060Z test the_harness_measures_a_pause_between_two_writes_of_one_paste ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:25.1095650Z test the_catalog_is_read_at_launch_and_a_session_s_first_turn_is_sized_by_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:25.5035140Z test the_hint_row_says_what_mode_and_which_model_a_turn_will_use ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:25.5136890Z test the_last_bytes_of_a_stream_start_at_a_character ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:25.8967630Z test the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:25.9806100Z test the_launch_asks_for_the_background_then_the_mode_and_the_cursor_report_fences_both ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:26.0496590Z test the_launch_probe_asks_where_the_cursor_is_and_does_not_eat_the_answer ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:26.5018730Z test the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:26.7131830Z test the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:27.1733550Z test the_request_after_an_interrupt_says_the_last_turn_ended_early_as_upstreams_does ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:27.3198490Z test the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:27.5954940Z test the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_launch ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:27.8851840Z test the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:28.3061260Z test the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:28.4685430Z test the_speed_column_and_the_switches_ride_as_upstreams_provider_options ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:29.5565590Z test twenty_questions_are_one_panel_and_their_answers_reach_the_next_request_in_order ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:29.7567770Z test trace_records_a_failed_compaction_and_the_one_after_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:30.1337930Z test under_tmux_the_kitty_keyboard_push_is_omitted ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:30.2655140Z test typing_appears_in_the_composer_and_the_cursor_follows_it ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:31.4962450Z test the_thinking_clock_is_frozen_while_the_panel_is_up ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:31.7516280Z test undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:32.8929320Z test usage_reads_the_gateways_report_only_while_open_and_draws_its_names_inert ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:32.9637770Z test what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:33.0245920Z test with_no_usable_home_a_resume_has_nothing_to_continue ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:33.5327120Z test what_was_typed_before_the_session_took_the_terminal_is_in_the_composer ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:33.9344670Z test with_no_usable_home_an_attached_files_copy_never_lands_under_a_relative_tmpdir ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:34.0569000Z test with_no_usable_home_a_tool_runs_under_the_session_authority_alone ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:34.6108780Z test with_session_titles_off_nothing_is_asked_and_the_prompt_titles_the_session ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:34.8010310Z test with_startup_scrollback_off_the_launch_starts_under_the_shells_output ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:34.9812210Z test what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:35.2000620Z test without_the_variable_a_bare_xfx_is_the_tui ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:35.2953330Z test zero_is_the_line_shell ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:35.7430630Z test xfx_sound_off_keeps_a_session_silent ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7238390Z test with_no_usable_home_the_session_runs_unsaved_and_writes_nothing ... ok
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7242910Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7243000Z failures:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7243140Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7244380Z ---- a_mebibyte_of_hostile_clipboard_timer_probe stdout ----
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7252620Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7254570Z thread 'a_mebibyte_of_hostile_clipboard_timer_probe' (136965) panicked at tests/tui.rs:4173:5:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7255200Z CI-PTY-WAIT timer probe; this test fails on purpose so libtest prints it
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7255970Z environment: 3 CPUs, load [11.93115234375, 20.09912109375, 21.0888671875] (3), nice -10, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7257140Z this test process's thread priorities: ["20T", "20T", "20T", "20T", "20T", "20T", "20T"]
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7258690Z == the writer at its default QoS: the paste took 22.426239667s
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7259270Z sleep 12ms: n 51, min 14.626292ms, median 57.045375ms, p95 103.696ms, max 109.115792ms, >=20ms 43, >=50ms 31
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7261790Z spin 12ms: n 51, min 12.00175ms, median 12.003167ms, p95 12.660833ms, max 12.948834ms, >=20ms 0, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7262520Z yield 12ms: n 51, min 12.002417ms, median 12.007958ms, p95 20.049125ms, max 21.261875ms, >=20ms 3, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7263570Z 1ms steps to 12ms: n 51, min 12.115459ms, median 17.697542ms, p95 20.477959ms, max 22.302125ms, >=20ms 3, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7264200Z kqueue NOTE_CRITICAL 12ms: n 51, min 12.061458ms, median 12.247459ms, p95 14.13525ms, max 14.873292ms, >=20ms 0, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7264880Z full queue: sleep 2ms: n 905, min 2.0415ms, median 16.439209ms, p95 19.1235ms, max 24.34375ms, >=20ms 23, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7265610Z full queue: poll POLLOUT: n 1126, min 833ns, median 1.144875ms, p95 7.407209ms, max 159.796583ms, >=20ms 21, >=50ms 15
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7286170Z write: n 3945, min 500ns, median 10.042µs, p95 205.334µs, max 5.915916ms, >=20ms 0, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7287270Z environment: 3 CPUs, load [9.33251953125, 18.974609375, 20.66162109375] (3), nice -10, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7287990Z this test process's thread priorities: ["20T", "19T", "20T", "20T"]
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7288670Z == the writer asking for user-interactive QoS: the paste took 20.823647458s
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7289250Z sleep 12ms: n 51, min 15.611917ms, median 43.729375ms, p95 107.717583ms, max 108.271792ms, >=20ms 47, >=50ms 20
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7290020Z spin 12ms: n 51, min 12.001916ms, median 12.003125ms, p95 12.041375ms, max 12.072ms, >=20ms 0, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7290650Z yield 12ms: n 51, min 12.002208ms, median 12.003541ms, p95 12.683291ms, max 20.185208ms, >=20ms 1, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7291260Z 1ms steps to 12ms: n 51, min 12.085917ms, median 16.923584ms, p95 20.605708ms, max 23.979875ms, >=20ms 4, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7292010Z kqueue NOTE_CRITICAL 12ms: n 51, min 12.048166ms, median 12.193125ms, p95 13.837709ms, max 18.06475ms, >=20ms 0, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7292970Z full queue: sleep 2ms: n 815, min 2.104625ms, median 16.833792ms, p95 19.608834ms, max 25.67275ms, >=20ms 29, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7300730Z full queue: poll POLLOUT: n 974, min 1.875µs, median 1.161833ms, p95 7.028709ms, max 178.197959ms, >=20ms 21, >=50ms 13
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7301610Z write: n 3542, min 500ns, median 13.042µs, p95 210.666µs, max 2.061042ms, >=20ms 0, >=50ms 0
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7301950Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7302090Z stack backtrace:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7303910Z    0: __rustc::rust_begin_unwind
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7306900Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7308460Z    1: core::panicking::panic_fmt
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7310090Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7311400Z    2: tui::a_mebibyte_of_hostile_clipboard_timer_probe
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7311750Z              at ./tests/tui.rs:4173:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7316260Z    3: tui::a_mebibyte_of_hostile_clipboard_timer_probe::{closure#0}
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7317880Z              at ./tests/tui.rs:4163:49
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7413870Z    4: <tui::a_mebibyte_of_hostile_clipboard_timer_probe::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7426820Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7427510Z    5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7428240Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7428800Z note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7430090Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7431080Z ---- a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing stdout ----
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7432160Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7432580Z thread 'a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing' (136988) panicked at tests/tui.rs:3921:5:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7434090Z each of 5 pastes paused for 50ms or more ([81.900625ms, 97.883542ms, 53.502417ms, 52.4195ms, 79.166625ms]): the harness was not scheduled while it wrote, and the TUI ends a paste's quarantine at such a pause by design, so no session tested the paste; what each screen held a second later: [
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7440000Z     "after 81.900625ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 81.569375ms; the write that ended it took 258.625µs, and the rest, 72.625µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7442460Z     "after 97.883542ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 97.616042ms; the write that ended it took 205.167µs, and the rest, 62.333µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7444980Z     "after 53.502417ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 53.214166ms; the write that ended it took 237.083µs, and the rest, 51.168µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7447140Z     "after 52.4195ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 52.12175ms; the write that ended it took 227µs, and the rest, 70.75µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7449340Z     "after 79.166625ms (between parts 0 and 1 of 256, across a planned 12ms pause that slept 78.84925ms; the write that ended it took 239.541µs, and the rest, 77.834µs, is the write before it and the time this thread was off a CPU): x𝒇x v0.2.0 (debug 2026-11-17-0002-f0d609e16369) · Run /help for commands | ! input: Input that arrived right after the paste was ignored. | ┃ x | auto · glm-5.2",
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7450680Z ]
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7450950Z stack backtrace:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7451200Z    0: __rustc::rust_begin_unwind
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7451600Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/std/src/panicking.rs:679:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7452170Z    1: core::panicking::panic_fmt
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7452580Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/panicking.rs:80:14
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7453100Z    2: tui::unpaced_case::<tui::hostile_paste_types_nothing::{closure#0}>
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7453430Z              at ./tests/tui.rs:3921:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7455110Z    3: tui::hostile_paste_types_nothing
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7455350Z              at ./tests/tui.rs:4406:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7456020Z error: test failed, to rerun pass `--test tui`
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7456520Z    4: tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7457010Z              at ./tests/tui.rs:4139:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7457550Z    5: tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing::{closure#0}
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7458150Z              at ./tests/tui.rs:4107:97
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7458770Z    6: <tui::a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7460500Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7462440Z    7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7464060Z              at /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67/library/core/src/ops/function.rs:250:5
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7469190Z note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7473070Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7473080Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7477480Z failures:
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7478110Z     a_mebibyte_of_hostile_clipboard_timer_probe
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7484210Z     a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7484870Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7485150Z test result: FAILED. 199 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 152.02s
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7486770Z 
+gate (aarch64-apple-darwin)	Tests	2026-11-17T00:38:36.7774830Z ##[error]Process completed with exit code 101.

@@ -1,0 +1,8 @@
+recipe B failures, by build, test and what failed (from each run's own log):
+ 18  base   a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval: 20 s wait timed out; paste-body lines typed as keys on the screen: yes
+ 18  base   a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing: 20 s wait timed out; paste-body lines typed as keys on the screen: yes
+ 18  head   a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval: each of 3 pastes paused >= 50 ms: no session tested the paste (the harness says so)
+ 16  head   a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing: each of 3 pastes paused >= 50 ms: no session tested the paste (the harness says so)
+  2  head   a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing: other: panicked at tests/support/pty.rs:385:21:
+ 18  study  a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval: 20 s wait timed out; paste-body lines typed as keys on the screen: yes
+ 18  study  a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing: 20 s wait timed out; paste-body lines typed as keys on the screen: yes

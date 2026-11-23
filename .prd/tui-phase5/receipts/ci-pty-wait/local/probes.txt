@@ -1,0 +1,11 @@
+Single sequential runs of the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out at base (dcfa5146), no suite lock (single tests), 2026-11-11 ~04:35Z:
+taskpolicy -b, plain tui binary: test result: ok. 1 passed; 0 failed
+taskpolicy -b, plain tui binary: test result: ok. 1 passed; 0 failed
+taskpolicy -b, plain tui binary: test result: ok. 1 passed; 0 failed
+taskpolicy -b, plain tui binary: test result: ok. 1 passed; 0 failed
+taskpolicy -b, plain tui binary: test result: ok. 1 passed; 0 failed
+taskpolicy -b, plain tui binary: test result: ok. 1 passed; 0 failed
+XFX_TUI_FAULT=slow-ui (the UI sleeps 40 ms after each frame), fault-injection binary: test result: ok. 1 passed; 0 failed
+XFX_TUI_FAULT=slow-ui (the UI sleeps 40 ms after each frame), fault-injection binary: test result: ok. 1 passed; 0 failed
+XFX_TUI_FAULT=slow-ui (the UI sleeps 40 ms after each frame), fault-injection binary: test result: ok. 1 passed; 0 failed
+None failed. [hypothesis, not measured] a 40 ms UI stall is shorter than the turn takes here, so the drain still read the start alone.

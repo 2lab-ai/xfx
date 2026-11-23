@@ -1,0 +1,37 @@
+count.py over red.sh's logs (red-runs.txt).
+## idle, after: 20 runs, seconds per run 10.0-11.0 s, median 10.0 (n 20)
+  paced: green 20 / 20
+  unpaced-types: green 20 / 20
+  unpaced-approval: green 20 / 20
+  red runs failed by an accepted session's assertion: 0
+  paced sessions: accepted 20, rejected, CI's signature 0, rejected otherwise 0; accepted longest pause 12.1-12.2 ms, median 12.1 (n 20)
+  unpaced sessions: accepted 40, rejected, CI's signature 0, rejected otherwise 0; accepted longest pause 2.2-10.9 ms, median 5.1 (n 40)
+  planned pauses that ended a session's longest pause slept 12.0-12.1 ms, median 12.0 (n 20)
+  2 ms polls that ended a session's longest pause slept 2.0-10.9 ms, median 5.0 (n 40)
+## idle, before: 20 runs, seconds per run 13.0-13.0 s, median 13.0 (n 20)
+  paced: green 20 / 20
+  unpaced-types: green 20 / 20
+  unpaced-approval: green 20 / 20
+  red runs failed by an accepted session's assertion: 0
+  paced sessions: accepted 20, rejected, CI's signature 0, rejected otherwise 0; accepted longest pause 16.0-18.1 ms, median 18.1 (n 20)
+  unpaced sessions: accepted 40, rejected, CI's signature 0, rejected otherwise 0; accepted longest pause 3.2-11.2 ms, median 6.2 (n 40)
+  planned pauses that ended a session's longest pause slept 16.0-18.0 ms, median 18.0 (n 20)
+  2 ms polls that ended a session's longest pause slept 3.0-11.2 ms, median 6.2 (n 40)
+## utility, after: 20 runs, seconds per run 11.0-13.0 s, median 11.0 (n 20)
+  paced: green 20 / 20
+  unpaced-types: green 20 / 20
+  unpaced-approval: green 20 / 20
+  red runs failed by an accepted session's assertion: 0
+  paced sessions: accepted 20, rejected, CI's signature 0, rejected otherwise 0; accepted longest pause 12.1-30.0 ms, median 12.2 (n 20)
+  unpaced sessions: accepted 40, rejected, CI's signature 0, rejected otherwise 1; accepted longest pause 2.6-36.1 ms, median 6.6 (n 40)
+  planned pauses that ended a session's longest pause slept 12.0-13.0 ms, median 12.0 (n 15)
+  2 ms polls that ended a session's longest pause slept 2.4-68.8 ms, median 5.8 (n 46)
+## utility, before: 20 runs, seconds per run 32.0-39.0 s, median 36.0 (n 20)
+  paced: green 0 / 20
+  unpaced-types: green 20 / 20
+  unpaced-approval: green 20 / 20
+  red runs failed by an accepted session's assertion: 0
+  paced sessions: accepted 0, rejected, CI's signature 100, rejected otherwise 0; accepted longest pause none
+  unpaced sessions: accepted 40, rejected, CI's signature 0, rejected otherwise 0; accepted longest pause 18.1-42.3 ms, median 21.3 (n 40)
+  planned pauses that ended a session's longest pause slept 50.8-107.8 ms, median 100.3 (n 100)
+  2 ms polls that ended a session's longest pause slept 7.8-42.2 ms, median 19.9 (n 40)

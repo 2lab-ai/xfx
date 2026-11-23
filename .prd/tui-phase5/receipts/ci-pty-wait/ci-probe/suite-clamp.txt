@@ -1,0 +1,11 @@
+whole_suite.sh at e4b591d2's fault-injection tui test binary (red.sh's after build), 2 runs under taskpolicy -c utility and 2 with no clamp, alternating, under the suite lock, 2026-11-17. The machine's load was about 20-35 from other work.
+utility run 1: test result: FAILED. 214 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.45s; failed: a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it 
+none run 1: test result: ok. 215 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.71s; failed: none
+utility run 2: test result: ok. 215 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 28.34s; failed: none
+none run 2: test result: ok. 215 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.08s; failed: none
+## the clamped failure, as libtest printed it
+---- a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it stdout ----
+
+thread 'a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it' (673951430) panicked at tests/tui.rs:2426:28:
+the unfinished line was not pushed away: "PRIOR-OUTPUT-MARKER\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t\u{1b}]11;?\u{1b}\\\u{1b}[?996n\u{1b}[6n\u{1b}]2;xfx v0.2.0 | workspace\u{7}\u{1b}]7501;state=idle:app=xfx\u{1b}\\\u{1b}[?2026h\u{1b}[?25l\u{1b}[1;1H\u{1b}[1;38;5;255mx𝒇x\u{1b}[0m\u{1b}[38;5;245m v0.2.0 (debug 2026-11-17-0106-e4b591d27397) · Run /help for commands\u{1b}[0m\u{1b}[K\u{1b}[2;1H\u{1b}[K\u{1b}[2;1H\u{1b}[K\u{1b}[3;1H\u{1b}[J\u{1b}[3;1H\u{1b}[38;5;255m┃\u{1b}[0m \u{1b}[5;1H\u{1b}[38;5;245mrun `xfx setup` · \u{1b}[0m\u{1b}[38;5;252mauto\u{1b}[0m\u{1b}[38;5;245m · glm-5.2\u{1b}[0m\u{1b}[3;3H\u{1b}[?2026l\u{1b}[?25h\u{1b}[?2026l\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}]7501;state=clear\u{1b}\\\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h\u{1b}[3;1H\u{1b}[J\u{1b}[?25h\r\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

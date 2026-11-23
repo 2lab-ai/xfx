@@ -1,0 +1,42 @@
+quarantine_mutants.py (this folder's) on a git clone --no-local at f8bc123a (12 ms before four parts), under the suite lock after s1-four-boundaries-12ms, 3 runs of each case one at a time. 'red on an unpaced session' = red on a session the harness accepted. Exit 1 = green runs under mutants: the unpaced cases under all three, and the paced case under the 20 ms one, whose 18 ms gaps never reach 20 ms (README section 8; the lib pins that threshold: lib-threshold.txt).
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['4.275208ms (pauses of 0ns)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['6.282667ms (pauses of 0ns)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['6.549958ms (pauses of 0ns)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['4.549375ms (pauses of 0ns)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['3.317209ms (pauses of 0ns)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['3.484375ms (pauses of 0ns)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['18.002292ms (pauses of 12ms)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['16.567167ms (pauses of 12ms)']; rejected sessions 0; 
+baseline a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['15.772792ms (pauses of 12ms)']; rejected sessions 0; 
+baseline: {'green': 9}
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['4.9345ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['5.425792ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['3.806208ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['3.544792ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['5.965ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['5.919209ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 1: red on an unpaced session; unpaced sessions' pauses ['18.054291ms (pauses of 12ms)']; rejected sessions 0; tests/support/pty.rs:427:13:
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 2: red on an unpaced session; unpaced sessions' pauses ['18.084167ms (pauses of 12ms)']; rejected sessions 0; tests/support/pty.rs:427:13:
+quarantine-ends-at-any-quiet a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 3: red on an unpaced session; unpaced sessions' pauses ['18.061667ms (pauses of 12ms)']; rejected sessions 0; tests/support/pty.rs:427:13:
+quarantine-ends-at-any-quiet: {'green': 6, 'red on an unpaced session': 3}
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['3.185709ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['3.346834ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['3.328625ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['6.26325ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['5.648542ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['8.329959ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 1: red on an unpaced session; unpaced sessions' pauses ['18.091042ms (pauses of 12ms)']; rejected sessions 0; tests/support/pty.rs:427:13:
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 2: red on an unpaced session; unpaced sessions' pauses ['18.064167ms (pauses of 12ms)']; rejected sessions 0; tests/support/pty.rs:427:13:
+quarantine-quiet-5ms a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 3: red on an unpaced session; unpaced sessions' pauses ['18.162ms (pauses of 12ms)']; rejected sessions 0; tests/support/pty.rs:427:13:
+quarantine-quiet-5ms: {'green': 6, 'red on an unpaced session': 3}
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['3.197417ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['28.980042ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['7.664959ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 1: green; unpaced sessions' pauses ['3.818458ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 2: green; unpaced sessions' pauses ['3.200916ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval run 3: green; unpaced sessions' pauses ['5.443458ms (pauses of 0ns)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 1: green; unpaced sessions' pauses ['18.129042ms (pauses of 12ms)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 2: green; unpaced sessions' pauses ['18.105166ms (pauses of 12ms)']; rejected sessions 0; 
+quarantine-quiet-20ms a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing run 3: green; unpaced sessions' pauses ['18.074041ms (pauses of 12ms)']; rejected sessions 0; 
+quarantine-quiet-20ms: {'green': 9}
+exit 1

@@ -1,0 +1,1101 @@
+[
+ {
+  "run": 42942450215,
+  "attempt": 1,
+  "job": 130267239024,
+  "sha": "c5cf594b",
+  "conclusion": "failure",
+  "tests_step_s": 465,
+  "fault_step_s": 156,
+  "tui_plain": [
+   "ok",
+   188,
+   73.03
+  ],
+  "tui_fault": [
+   "FAILED",
+   202,
+   83.53
+  ],
+  "failed": [
+   [
+    "slash_skills_lists_installs_from_a_local_directory_and_never_from_the_network",
+    "tests/support/pty.rs:409"
+   ]
+  ],
+  "failed_step": [
+   "Tests, with the fault injector"
+  ]
+ },
+ {
+  "run": 42939692388,
+  "attempt": 1,
+  "job": 130258279160,
+  "sha": "1012f418",
+  "conclusion": "failure",
+  "tests_step_s": 479,
+  "fault_step_s": 0,
+  "tui_plain": [
+   "FAILED",
+   188,
+   84.51
+  ],
+  "tui_fault": null,
+  "failed": [
+   [
+    "a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing",
+    "tests/support/pty.rs:409"
+   ],
+   [
+    "the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out",
+    "tests/tui.rs:857"
+   ]
+  ],
+  "failed_step": [
+   "Tests"
+  ]
+ },
+ {
+  "run": 42939692388,
+  "attempt": 2,
+  "job": 130270115640,
+  "sha": "1012f418",
+  "conclusion": "failure",
+  "tests_step_s": 459,
+  "fault_step_s": 164,
+  "tui_plain": [
+   "ok",
+   188,
+   74.18
+  ],
+  "tui_fault": [
+   "FAILED",
+   202,
+   77.87
+  ],
+  "failed": [
+   [
+    "the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out",
+    "tests/tui.rs:852"
+   ]
+  ],
+  "failed_step": [
+   "Tests, with the fault injector"
+  ]
+ },
+ {
+  "run": 42939692388,
+  "attempt": 3,
+  "job": 130276081022,
+  "sha": "1012f418",
+  "conclusion": "failure",
+  "tests_step_s": 404,
+  "fault_step_s": 172,
+  "tui_plain": [
+   "ok",
+   188,
+   73.12
+  ],
+  "tui_fault": [
+   "FAILED",
+   202,
+   78.19
+  ],
+  "failed": [
+   [
+    "the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out",
+    "tests/tui.rs:857"
+   ]
+  ],
+  "failed_step": [
+   "Tests, with the fault injector"
+  ]
+ },
+ {
+  "run": 42934923132,
+  "attempt": 1,
+  "job": 130242499566,
+  "sha": "08066ac9",
+  "conclusion": "success",
+  "tests_step_s": 582,
+  "fault_step_s": 435,
+  "tui_plain": [
+   "ok",
+   189,
+   73.53
+  ],
+  "tui_fault": [
+   "ok",
+   203,
+   77.57
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42934923132,
+  "attempt": 2,
+  "job": 130258438957,
+  "sha": "08066ac9",
+  "conclusion": "success",
+  "tests_step_s": 582,
+  "fault_step_s": 435,
+  "tui_plain": [
+   "ok",
+   189,
+   73.53
+  ],
+  "tui_fault": [
+   "ok",
+   203,
+   77.57
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42880581900,
+  "attempt": 1,
+  "job": 130055471921,
+  "sha": "dcfa5146",
+  "conclusion": "failure",
+  "tests_step_s": 492,
+  "fault_step_s": 463,
+  "tui_plain": [
+   "ok",
+   188,
+   75.12
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   78.23
+  ],
+  "failed": [],
+  "failed_step": [
+   "The local-path check refuses what it exists for"
+  ]
+ },
+ {
+  "run": 42863297443,
+  "attempt": 2,
+  "job": 130015620008,
+  "sha": "4ad6405e",
+  "conclusion": "failure",
+  "tests_step_s": 437,
+  "fault_step_s": 443,
+  "tui_plain": [
+   "ok",
+   188,
+   74.89
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   78.44
+  ],
+  "failed": [],
+  "failed_step": [
+   "The local-path check refuses what it exists for"
+  ]
+ },
+ {
+  "run": 42863297443,
+  "attempt": 3,
+  "job": 130028308390,
+  "sha": "4ad6405e",
+  "conclusion": "success",
+  "tests_step_s": 465,
+  "fault_step_s": 457,
+  "tui_plain": [
+   "ok",
+   188,
+   76.16
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   76.49
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42852951714,
+  "attempt": 1,
+  "job": 129958280886,
+  "sha": "ef89b72a",
+  "conclusion": "success",
+  "tests_step_s": 451,
+  "fault_step_s": 403,
+  "tui_plain": [
+   "ok",
+   181,
+   61.89
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   62.65
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42844785601,
+  "attempt": 1,
+  "job": 129929254493,
+  "sha": "d2b2ca75",
+  "conclusion": "success",
+  "tests_step_s": 430,
+  "fault_step_s": 392,
+  "tui_plain": [
+   "ok",
+   188,
+   73.99
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   77.37
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42826560660,
+  "attempt": 1,
+  "job": 129865311093,
+  "sha": "208a8dd4",
+  "conclusion": "success",
+  "tests_step_s": 349,
+  "fault_step_s": 325,
+  "tui_plain": [
+   "ok",
+   188,
+   73.05
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   76.39
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42817840118,
+  "attempt": 1,
+  "job": 129835388375,
+  "sha": "3c4b519d",
+  "conclusion": "success",
+  "tests_step_s": 428,
+  "fault_step_s": 434,
+  "tui_plain": [
+   "ok",
+   181,
+   61.36
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   63.43
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42814831910,
+  "attempt": 1,
+  "job": 129825160458,
+  "sha": "8f921425",
+  "conclusion": "success",
+  "tests_step_s": 362,
+  "fault_step_s": 412,
+  "tui_plain": [
+   "ok",
+   188,
+   72.88
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   77.98
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42805858084,
+  "attempt": 1,
+  "job": 129794666902,
+  "sha": "c2739369",
+  "conclusion": "success",
+  "tests_step_s": 408,
+  "fault_step_s": 462,
+  "tui_plain": [
+   "ok",
+   188,
+   74.18
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   76.87
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42804085086,
+  "attempt": 1,
+  "job": 129788689639,
+  "sha": "71d3e02b",
+  "conclusion": "success",
+  "tests_step_s": 454,
+  "fault_step_s": 421,
+  "tui_plain": [
+   "ok",
+   188,
+   72.55
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   76.58
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42762620279,
+  "attempt": 1,
+  "job": 129651662792,
+  "sha": "3943d667",
+  "conclusion": "success",
+  "tests_step_s": 502,
+  "fault_step_s": 490,
+  "tui_plain": [
+   "ok",
+   188,
+   75.72
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   79.31
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42748982261,
+  "attempt": 1,
+  "job": 129607808466,
+  "sha": "1b15dad9",
+  "conclusion": "success",
+  "tests_step_s": 452,
+  "fault_step_s": 436,
+  "tui_plain": [
+   "ok",
+   188,
+   74.08
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   78.31
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42734376456,
+  "attempt": 1,
+  "job": 129559882527,
+  "sha": "f53606d1",
+  "conclusion": "success",
+  "tests_step_s": 435,
+  "fault_step_s": 475,
+  "tui_plain": [
+   "ok",
+   188,
+   73.77
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   77.55
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42692705003,
+  "attempt": 1,
+  "job": 129416346998,
+  "sha": "df46777e",
+  "conclusion": "failure",
+  "tests_step_s": 352,
+  "fault_step_s": 0,
+  "tui_plain": [
+   "FAILED",
+   188,
+   72.73
+  ],
+  "tui_fault": null,
+  "failed": [
+   [
+    "the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out",
+    "tests/tui.rs:852"
+   ]
+  ],
+  "failed_step": [
+   "Tests"
+  ]
+ },
+ {
+  "run": 42687370202,
+  "attempt": 1,
+  "job": 129397678561,
+  "sha": "d542be02",
+  "conclusion": "success",
+  "tests_step_s": 446,
+  "fault_step_s": 460,
+  "tui_plain": [
+   "ok",
+   188,
+   75.08
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   76.82
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42659620079,
+  "attempt": 1,
+  "job": 129307326966,
+  "sha": "3be49c15",
+  "conclusion": "success",
+  "tests_step_s": 457,
+  "fault_step_s": 505,
+  "tui_plain": [
+   "ok",
+   188,
+   76.61
+  ],
+  "tui_fault": [
+   "ok",
+   202,
+   77.48
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42591969012,
+  "attempt": 1,
+  "job": 129075491128,
+  "sha": "32afd307",
+  "conclusion": "success",
+  "tests_step_s": 495,
+  "fault_step_s": 521,
+  "tui_plain": [
+   "ok",
+   186,
+   60.98
+  ],
+  "tui_fault": [
+   "ok",
+   200,
+   65.3
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42586855495,
+  "attempt": 1,
+  "job": 129058645176,
+  "sha": "5daf7401",
+  "conclusion": "success",
+  "tests_step_s": 324,
+  "fault_step_s": 300,
+  "tui_plain": [
+   "ok",
+   186,
+   58.52
+  ],
+  "tui_fault": [
+   "ok",
+   200,
+   63.59
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42563221125,
+  "attempt": 1,
+  "job": 128983999361,
+  "sha": "6bb9fd90",
+  "conclusion": "success",
+  "tests_step_s": 423,
+  "fault_step_s": 399,
+  "tui_plain": [
+   "ok",
+   186,
+   59.44
+  ],
+  "tui_fault": [
+   "ok",
+   200,
+   64.04
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42560271938,
+  "attempt": 1,
+  "job": 128974945447,
+  "sha": "a32c75da",
+  "conclusion": "success",
+  "tests_step_s": 369,
+  "fault_step_s": 414,
+  "tui_plain": [
+   "ok",
+   186,
+   61.39
+  ],
+  "tui_fault": [
+   "ok",
+   200,
+   63.86
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42522547442,
+  "attempt": 1,
+  "job": 128858993941,
+  "sha": "ccced1f5",
+  "conclusion": "success",
+  "tests_step_s": 403,
+  "fault_step_s": 420,
+  "tui_plain": [
+   "ok",
+   181,
+   59.63
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   64.09
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42519442508,
+  "attempt": 1,
+  "job": 128849503647,
+  "sha": "ddb172f3",
+  "conclusion": "success",
+  "tests_step_s": 433,
+  "fault_step_s": 422,
+  "tui_plain": [
+   "ok",
+   181,
+   60.04
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   63.76
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42516862980,
+  "attempt": 1,
+  "job": 128841674072,
+  "sha": "712dd8d1",
+  "conclusion": "success",
+  "tests_step_s": 394,
+  "fault_step_s": 416,
+  "tui_plain": [
+   "ok",
+   181,
+   61.48
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   63.31
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42514019582,
+  "attempt": 1,
+  "job": 128832978245,
+  "sha": "312f4550",
+  "conclusion": "success",
+  "tests_step_s": 409,
+  "fault_step_s": 374,
+  "tui_plain": [
+   "ok",
+   181,
+   59.3
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   61.75
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42510623169,
+  "attempt": 1,
+  "job": 128822673652,
+  "sha": "5709934e",
+  "conclusion": "success",
+  "tests_step_s": 391,
+  "fault_step_s": 385,
+  "tui_plain": [
+   "ok",
+   181,
+   57.66
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   62.61
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42507366430,
+  "attempt": 1,
+  "job": 128812788998,
+  "sha": "58c92ba2",
+  "conclusion": "failure",
+  "tests_step_s": 306,
+  "fault_step_s": 102,
+  "tui_plain": [
+   "ok",
+   181,
+   57.32
+  ],
+  "tui_fault": [
+   "FAILED",
+   195,
+   60.44
+  ],
+  "failed": [
+   [
+    "the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out",
+    "tests/tui.rs:852"
+   ]
+  ],
+  "failed_step": [
+   "Tests, with the fault injector"
+  ]
+ },
+ {
+  "run": 42504623140,
+  "attempt": 1,
+  "job": 128804465162,
+  "sha": "9298583e",
+  "conclusion": "success",
+  "tests_step_s": 379,
+  "fault_step_s": 361,
+  "tui_plain": [
+   "ok",
+   181,
+   60.12
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   62.47
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42497362126,
+  "attempt": 1,
+  "job": 128782486677,
+  "sha": "f096c163",
+  "conclusion": "success",
+  "tests_step_s": 362,
+  "fault_step_s": 353,
+  "tui_plain": [
+   "ok",
+   181,
+   60.37
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   62.0
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42493215843,
+  "attempt": 1,
+  "job": 128769851856,
+  "sha": "4be02361",
+  "conclusion": "success",
+  "tests_step_s": 364,
+  "fault_step_s": 329,
+  "tui_plain": [
+   "ok",
+   181,
+   59.23
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   61.83
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42492993774,
+  "attempt": 1,
+  "job": 128769180150,
+  "sha": "978a28fa",
+  "conclusion": "success",
+  "tests_step_s": 355,
+  "fault_step_s": 301,
+  "tui_plain": [
+   "ok",
+   181,
+   59.53
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   60.18
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42485857189,
+  "attempt": 1,
+  "job": 128747443572,
+  "sha": "fdc5ac0b",
+  "conclusion": "failure",
+  "tests_step_s": 336,
+  "fault_step_s": 151,
+  "tui_plain": [
+   "ok",
+   181,
+   57.98
+  ],
+  "tui_fault": [
+   "FAILED",
+   195,
+   70.21
+  ],
+  "failed": [
+   [
+    "ctrl_c_stops_a_compaction_that_is_waiting_for_its_notes",
+    "tests/support/pty.rs:367"
+   ]
+  ],
+  "failed_step": [
+   "Tests, with the fault injector"
+  ]
+ },
+ {
+  "run": 42485857189,
+  "attempt": 2,
+  "job": 128761043056,
+  "sha": "fdc5ac0b",
+  "conclusion": "success",
+  "tests_step_s": 403,
+  "fault_step_s": 362,
+  "tui_plain": [
+   "ok",
+   181,
+   60.8
+  ],
+  "tui_fault": [
+   "ok",
+   195,
+   62.03
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42455910805,
+  "attempt": 1,
+  "job": 128654761727,
+  "sha": "690aa505",
+  "conclusion": "success",
+  "tests_step_s": 323,
+  "fault_step_s": 265,
+  "tui_plain": [
+   "ok",
+   179,
+   56.17
+  ],
+  "tui_fault": [
+   "ok",
+   193,
+   59.47
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42452819077,
+  "attempt": 1,
+  "job": 128645473708,
+  "sha": "0f7bd6eb",
+  "conclusion": "success",
+  "tests_step_s": 348,
+  "fault_step_s": 274,
+  "tui_plain": [
+   "ok",
+   179,
+   58.01
+  ],
+  "tui_fault": [
+   "ok",
+   193,
+   61.13
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42424476213,
+  "attempt": 1,
+  "job": 128559689768,
+  "sha": "884497c0",
+  "conclusion": "success",
+  "tests_step_s": 316,
+  "fault_step_s": 295,
+  "tui_plain": [
+   "ok",
+   176,
+   58.98
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   59.34
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42420693734,
+  "attempt": 1,
+  "job": 128548274678,
+  "sha": "7589ec42",
+  "conclusion": "success",
+  "tests_step_s": 345,
+  "fault_step_s": 310,
+  "tui_plain": [
+   "ok",
+   176,
+   57.21
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   61.21
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42389951417,
+  "attempt": 1,
+  "job": 128455239468,
+  "sha": "e6cde019",
+  "conclusion": "success",
+  "tests_step_s": 377,
+  "fault_step_s": 331,
+  "tui_plain": [
+   "ok",
+   176,
+   58.97
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   60.43
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42386246149,
+  "attempt": 1,
+  "job": 128444143288,
+  "sha": "e1324939",
+  "conclusion": "success",
+  "tests_step_s": 341,
+  "fault_step_s": 297,
+  "tui_plain": [
+   "ok",
+   176,
+   57.85
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   61.33
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42380904306,
+  "attempt": 1,
+  "job": 128428112847,
+  "sha": "6c93f359",
+  "conclusion": "success",
+  "tests_step_s": 348,
+  "fault_step_s": 319,
+  "tui_plain": [
+   "ok",
+   176,
+   57.59
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   61.95
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42377632229,
+  "attempt": 1,
+  "job": 128418385810,
+  "sha": "45d99f52",
+  "conclusion": "success",
+  "tests_step_s": 341,
+  "fault_step_s": 321,
+  "tui_plain": [
+   "ok",
+   176,
+   57.73
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   61.43
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42366099857,
+  "attempt": 1,
+  "job": 128384387576,
+  "sha": "e51685d6",
+  "conclusion": "success",
+  "tests_step_s": 378,
+  "fault_step_s": 272,
+  "tui_plain": [
+   "ok",
+   176,
+   60.45
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   60.17
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42363141244,
+  "attempt": 1,
+  "job": 128375514304,
+  "sha": "0b374ce7",
+  "conclusion": "success",
+  "tests_step_s": 419,
+  "fault_step_s": 316,
+  "tui_plain": [
+   "ok",
+   176,
+   58.58
+  ],
+  "tui_fault": [
+   "ok",
+   190,
+   62.1
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42358853155,
+  "attempt": 1,
+  "job": 128362729311,
+  "sha": "24a6b912",
+  "conclusion": "success",
+  "tests_step_s": 277,
+  "fault_step_s": 301,
+  "tui_plain": [
+   "ok",
+   175,
+   56.83
+  ],
+  "tui_fault": [
+   "ok",
+   189,
+   59.11
+  ],
+  "failed": [],
+  "failed_step": []
+ },
+ {
+  "run": 42356047728,
+  "attempt": 1,
+  "job": 128354258953,
+  "sha": "58b463c8",
+  "conclusion": "success",
+  "tests_step_s": 289,
+  "fault_step_s": 270,
+  "tui_plain": [
+   "ok",
+   175,
+   56.43
+  ],
+  "tui_fault": [
+   "ok",
+   189,
+   58.25
+  ],
+  "failed": [],
+  "failed_step": []
+ }
+]

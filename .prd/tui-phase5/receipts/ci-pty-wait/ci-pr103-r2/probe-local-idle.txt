@@ -1,0 +1,22 @@
+The probe (probe/p5-cpw-timer f0d609e1's test, its first form: no thread-priority line) run alone, as it is, under the suite lock.
+environment: 18 CPUs, load [26.76025390625, 25.66845703125, 21.1748046875] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+== the writer at its default QoS: the paste took 4.8367485s
+sleep 12ms: n 51, min 12.018375ms, median 16.0125ms, p95 18.009666ms, max 18.019875ms, >=20ms 0, >=50ms 0
+spin 12ms: n 51, min 12.000125ms, median 12.000375ms, p95 12.001291ms, max 12.001917ms, >=20ms 0, >=50ms 0
+yield 12ms: n 51, min 12.000208ms, median 12.000583ms, p95 18.760792ms, max 20.13425ms, >=20ms 2, >=50ms 0
+1ms steps to 12ms: n 51, min 12.002666ms, median 12.064ms, p95 12.230375ms, max 12.34575ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.010917ms, median 12.018209ms, p95 12.049625ms, max 12.0515ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 508, min 2.011084ms, median 3.005167ms, p95 3.017166ms, max 3.086583ms, >=20ms 0, >=50ms 0
+full queue: poll POLLOUT: n 1106, min 625ns, median 6.584µs, p95 14.75µs, max 2.824459ms, >=20ms 0, >=50ms 0
+write: n 4374, min 375ns, median 6.875µs, p95 41.833µs, max 103.917µs, >=20ms 0, >=50ms 0
+environment: 18 CPUs, load [26.6591796875, 25.66650390625, 21.22509765625] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+== the writer asking for user-interactive QoS: the paste took 4.895055042s
+sleep 12ms: n 51, min 12.022167ms, median 16.085875ms, p95 18.013208ms, max 18.05925ms, >=20ms 0, >=50ms 0
+spin 12ms: n 51, min 12.000084ms, median 12.000417ms, p95 12.001125ms, max 12.001792ms, >=20ms 0, >=50ms 0
+yield 12ms: n 51, min 12.000208ms, median 12.000583ms, p95 20.024625ms, max 21.269791ms, >=20ms 4, >=50ms 0
+1ms steps to 12ms: n 51, min 12.008375ms, median 12.046917ms, p95 12.297041ms, max 12.412667ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.010583ms, median 12.016625ms, p95 12.054708ms, max 12.074708ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 513, min 2.016709ms, median 3.005375ms, p95 3.017083ms, max 3.047584ms, >=20ms 0, >=50ms 0
+full queue: poll POLLOUT: n 1170, min 583ns, median 7.5µs, p95 14.917µs, max 2.88825ms, >=20ms 0, >=50ms 0
+write: n 4434, min 375ns, median 6.583µs, p95 44.75µs, max 101.75µs, >=20ms 0, >=50ms 0
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 200 filtered out; finished in 10.75s

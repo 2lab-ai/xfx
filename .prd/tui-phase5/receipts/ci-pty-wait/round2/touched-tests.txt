@@ -1,0 +1,26 @@
+Round 2's touched test files at 62ea9f56, on a git clone --no-local snapshot (not the worktree), under the suite lock, once (plain and with the fault injector). The same run at d4f660f7 is below it.
+
+tree: 62ea9f5676d6f70c803cc557fc31b3e70dfbf08b
+lib: exit 0
+    test result: ok. 4933 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 59.24s
+tui: exit 0
+    test result: ok. 194 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.29s
+lib-fault: exit 0
+    test result: ok. 4956 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 63.24s
+tui-fault: exit 0
+    test result: ok. 208 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.20s
+interactive: exit 0
+    test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.18s
+
+--- at d4f660f7 ---
+tree: d4f660f7a4380b130e881780524e7bcf6ea2c3fb
+lib: exit 0
+    test result: ok. 4932 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 62.77s
+tui: exit 0
+    test result: ok. 193 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.93s
+lib-fault: exit 0
+    test result: ok. 4955 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 57.97s
+tui-fault: exit 0
+    test result: ok. 207 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.45s
+interactive: exit 0
+    test result: ok. 79 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.81s

@@ -1,0 +1,14 @@
+train 16's linux-clippy.sh at d0115e72, on a fresh --no-local clone, with rustup's own multiplexer as its proxy dir, in one hold of the suite lock: both Linux targets, plain and with fault-injection.
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 36.42s
+### exit 0
+### cargo clippy --locked --all-targets --target x86_64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.46s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu  -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 22.83s
+### exit 0
+### cargo clippy --locked --all-targets --target aarch64-unknown-linux-gnu --features fault-injection -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.28s
+### exit 0
+# 0 of 4 runs failed

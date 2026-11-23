@@ -33,6 +33,90 @@ pub const WAIT: Duration = Duration::from_secs(20);
 /// How long the harness sleeps when a non-blocking descriptor has nothing yet.
 pub const IDLE_POLL: Duration = Duration::from_millis(2);
 
+/// Waits `wait` out on a timer the system does not fire late on purpose,
+/// and never returns before it is out.
+///
+/// For a wait the paste measure counts ([`Session::write_raw_traced`]): a
+/// full queue's [`IDLE_POLL`], and a paced paste's planned pause. A
+/// `thread::sleep` is a timer macOS may coalesce with others and fire late,
+/// by as much as the thread's QoS allows, and CI's macOS runners run every
+/// test thread at the priority of a utility clamp (20T). There a 12 ms
+/// sleep took 12.1-109 ms (median 31-57), a full queue's 2 ms sleep up to
+/// 30 ms, and the paced paste's planned pause was the whole of every pause
+/// that rejected its sessions (CI-PTY-WAIT §13). A kqueue timer marked
+/// `NOTE_CRITICAL` is held to its deadline instead: 12.0-18.1 ms for 12 ms
+/// on the same rows. A wait that spins would be as exact, but the full
+/// queue's poll runs for most of a paste, and the TUI that drains the queue
+/// needs the CPU it would take.
+///
+/// A signal landing on the thread ends the `kevent` early (`EINTR`); the
+/// timer is set again for what is left, so the wait is never short. Linux
+/// does not stretch a sleep (12.04-12.14 ms for 12 ms on CI), so there it
+/// is `thread::sleep`.
+#[cfg(target_os = "macos")]
+pub fn sleep_on_time(wait: Duration) {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    let deadline = Instant::now() + wait;
+    // SAFETY: `kqueue` takes nothing and returns a new descriptor or -1. A
+    // kqueue is not inherited by a child created with fork(2), so no start
+    // in another thread carries it.
+    let queue = unsafe { libc::kqueue() };
+    assert!(queue >= 0, "kqueue: {}", io::Error::last_os_error());
+    // SAFETY: `queue` is a descriptor just opened here and owned by nothing
+    // else; `OwnedFd` closes it once, on any way out.
+    let queue = unsafe { OwnedFd::from_raw_fd(queue) };
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        // SAFETY: `kevent` is plain data, for which all zeroes is a value.
+        let (mut change, mut event): (libc::kevent, libc::kevent) =
+            unsafe { (std::mem::zeroed(), std::mem::zeroed()) };
+        change.ident = 1;
+        change.filter = libc::EVFILT_TIMER;
+        change.flags = libc::EV_ADD | libc::EV_ONESHOT;
+        change.fflags = libc::NOTE_USECONDS | libc::NOTE_CRITICAL;
+        change.data = libc::intptr_t::try_from(left.as_micros().max(1)).expect("a wait in range");
+        // SAFETY: one change to read and room for one event to write, both
+        // alive for the call; a null timeout waits for the event.
+        let got = unsafe {
+            libc::kevent(
+                queue.as_raw_fd(),
+                &change,
+                1,
+                &mut event,
+                1,
+                std::ptr::null(),
+            )
+        };
+        if got < 0 {
+            let err = io::Error::last_os_error();
+            assert_eq!(
+                err.kind(),
+                io::ErrorKind::Interrupted,
+                "the kqueue timer: {err}"
+            );
+            continue;
+        }
+        assert_eq!(got, 1, "the kqueue timer returned {got} events");
+        assert_eq!(
+            event.flags & libc::EV_ERROR,
+            0,
+            "the kqueue timer: {}",
+            io::Error::from_raw_os_error(i32::try_from(event.data).unwrap_or(0))
+        );
+    }
+}
+
+/// [`sleep_on_time`] where a sleep is not stretched: `thread::sleep`, which
+/// already sleeps again for what is left when a signal ends it early.
+#[cfg(not(target_os = "macos"))]
+pub fn sleep_on_time(wait: Duration) {
+    thread::sleep(wait);
+}
+
 /// How long [`Session::type_bytes`] lets the terminal stay quiet after a write
 /// that ended a bracketed paste, before it types anything more.
 ///
@@ -358,10 +442,46 @@ impl Session {
     /// quarantine. Bounded as `type_bytes` is: [`WAIT`] for the terminal to
     /// take each part of it.
     pub fn write_raw(&self, bytes: &[u8]) {
+        self.write_raw_measured(bytes, &mut None);
+    }
+
+    /// [`Self::write_raw`], and the longest the terminal can have gone
+    /// without a byte from this writer: from the start of one write attempt
+    /// to the return of the next, `previous` carrying the last attempt's start
+    /// from one call to the next. Every attempt finds the input queue holding
+    /// something -- one that took bytes has just put them there, one that
+    /// would block found it full -- so it was empty, if ever, only between two
+    /// attempts, and never for longer than this.
+    pub fn write_raw_measured(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Duration {
+        self.write_raw_traced(bytes, previous).longest
+    }
+
+    /// [`Self::write_raw_measured`], and where its longest gap fell: at this
+    /// call's first attempt -- a gap that spans the end of the last call, and
+    /// whatever its caller did between the two -- or at a later one, behind
+    /// a full queue's [`IDLE_POLL`] sleep ([`sleep_on_time`]), with how long
+    /// that sleep took.
+    pub fn write_raw_traced(&self, bytes: &[u8], previous: &mut Option<Instant>) -> Written {
         let deadline = Instant::now() + WAIT;
+        let mut longest = Duration::ZERO;
+        let mut traced = Written::default();
+        let mut slept = Duration::ZERO;
         let mut rest = bytes;
         while !rest.is_empty() {
-            match (&*self.master).write(rest) {
+            let started = Instant::now();
+            let wrote = (&*self.master).write(rest);
+            let returned = started.elapsed();
+            traced.attempts += 1;
+            if let Some(before) = previous.replace(started) {
+                let gap = before.elapsed();
+                if gap > longest {
+                    traced.at = traced.attempts;
+                    traced.slept = slept;
+                    traced.wrote = returned;
+                }
+                longest = longest.max(gap);
+            }
+            match wrote {
                 Ok(0) => panic!("the terminal accepted nothing"),
                 Ok(written) => rest = &rest[written..],
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
@@ -370,11 +490,15 @@ impl Session {
                         "the terminal never accepted input; terminal so far:\n{}",
                         self.text()
                     );
-                    thread::sleep(IDLE_POLL);
+                    let polled = Instant::now();
+                    sleep_on_time(IDLE_POLL);
+                    slept = polled.elapsed();
                 }
                 Err(err) => panic!("write to the terminal: {err}"),
             }
         }
+        traced.longest = longest;
+        traced
     }
 
     /// Types a line and presses Return. Return is a carriage return on a
@@ -844,4 +968,22 @@ impl Pty {
         let slave = self.slave.as_ref().expect("the harness retains a slave");
         rustix::termios::tcsetwinsize(slave.as_fd(), size).expect("set the pty size");
     }
+}
+
+/// What one [`Session::write_raw_traced`] call came to: the longest the
+/// terminal can have gone without a byte from this writer (as
+/// [`Session::write_raw_measured`] says it), the attempt it fell at (1 is
+/// the call's first: the gap since the last call; 0, no gap measured), the
+/// [`IDLE_POLL`] sleep right before that attempt, if a full queue made one,
+/// how long that attempt's own `write` took to return, and how many attempts
+/// the call made. What the gap holds besides the sleep and that write is the
+/// attempt before it -- its `write` -- and whatever held this thread off a
+/// CPU in between.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Written {
+    pub longest: Duration,
+    pub at: usize,
+    pub slept: Duration,
+    pub wrote: Duration,
+    pub attempts: usize,
 }

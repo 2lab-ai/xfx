@@ -1,0 +1,22 @@
+The probe (probe/p5-cpw-timer f0d609e1's test, its first form: no thread-priority line) run alone, under taskpolicy -c utility, under the suite lock.
+environment: 18 CPUs, load [28.162109375, 26.0224609375, 21.4033203125] (3), nice 0, writer thread QoS QOS_CLASS_DEFAULT (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+== the writer at its default QoS: the paste took 32.981816458s
+sleep 12ms: n 51, min 15.842708ms, median 93.311375ms, p95 107.35875ms, max 107.735708ms, >=20ms 50, >=50ms 45
+spin 12ms: n 51, min 12.00075ms, median 12.001417ms, p95 12.002292ms, max 12.0025ms, >=20ms 0, >=50ms 0
+yield 12ms: n 51, min 12.001708ms, median 20.122125ms, p95 21.878375ms, max 22.385334ms, >=20ms 38, >=50ms 0
+1ms steps to 12ms: n 51, min 12.040917ms, median 15.023208ms, p95 19.28125ms, max 20.062958ms, >=20ms 1, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.017917ms, median 12.078166ms, p95 12.96225ms, max 13.561791ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 1256, min 2.0315ms, median 11.822084ms, p95 18.018458ms, max 24.473458ms, >=20ms 7, >=50ms 0
+full queue: poll POLLOUT: n 1034, min 1.959µs, median 9.647709ms, p95 16.377416ms, max 702.461542ms, >=20ms 11, >=50ms 5
+write: n 4429, min 583ns, median 10.917µs, p95 77.5µs, max 2.491ms, >=20ms 0, >=50ms 0
+environment: 18 CPUs, load [27.5966796875, 26.07470703125, 21.60546875] (3), nice 0, writer thread QoS QOS_CLASS_USER_INTERACTIVE (relative 0, call 0), PRIO_DARWIN_THREAD 0, PRIO_DARWIN_PROCESS 0
+== the writer asking for user-interactive QoS: the paste took 26.326855667s
+sleep 12ms: n 51, min 48.251459ms, median 95.554584ms, p95 107.653875ms, max 107.968041ms, >=20ms 51, >=50ms 50
+spin 12ms: n 51, min 12.000625ms, median 12.001333ms, p95 12.002208ms, max 12.009417ms, >=20ms 0, >=50ms 0
+yield 12ms: n 51, min 12.001084ms, median 20.049542ms, p95 21.457292ms, max 22.732292ms, >=20ms 36, >=50ms 0
+1ms steps to 12ms: n 51, min 12.113958ms, median 14.2915ms, p95 18.065375ms, max 19.2415ms, >=20ms 0, >=50ms 0
+kqueue NOTE_CRITICAL 12ms: n 51, min 12.019167ms, median 12.0465ms, p95 12.825291ms, max 13.915459ms, >=20ms 0, >=50ms 0
+full queue: sleep 2ms: n 951, min 2.046833ms, median 11.442875ms, p95 18.014916ms, max 21.4095ms, >=20ms 1, >=50ms 0
+full queue: poll POLLOUT: n 979, min 2.083µs, median 6.329167ms, p95 10.881292ms, max 453.041042ms, >=20ms 9, >=50ms 9
+write: n 3817, min 542ns, median 10.5µs, p95 89.709µs, max 1.374125ms, >=20ms 0, >=50ms 0
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 200 filtered out; finished in 59.55s

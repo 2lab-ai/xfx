@@ -1,0 +1,157 @@
+head.@suite.1.1: the paste's longest pause: 29.239583ms (pauses of 12ms)
+head.@suite.1.1: the paste's longest pause: 20.471209ms (pauses of 0ns)
+head.@suite.1.1: the paste's longest pause: 18.082333ms (pauses of 0ns)
+head.@suite.1.2: the paste's longest pause: 23.705333ms (pauses of 12ms)
+head.@suite.1.2: the paste's longest pause: 23.972583ms (pauses of 0ns)
+head.@suite.1.2: the paste's longest pause: 17.848792ms (pauses of 0ns)
+head.@suite.10.1: a timing-indeterminate session: the paste paused for 53.784333ms (pauses of 12ms); a second later the screen held:
+head.@suite.10.1: a timing-indeterminate session: the paste paused for 60.126792ms (pauses of 0ns); a second later the screen held:
+head.@suite.10.1: the paste's longest pause: 48.555792ms (pauses of 0ns)
+head.@suite.10.1: the paste's longest pause: 40.540917ms (pauses of 0ns)
+head.@suite.10.1: the paste's longest pause: 35.316792ms (pauses of 12ms)
+head.@suite.10.2: a timing-indeterminate session: the paste paused for 64.641917ms (pauses of 12ms); a second later the screen held:
+head.@suite.10.2: a timing-indeterminate session: the paste paused for 71.503417ms (pauses of 0ns); a second later the screen held:
+head.@suite.10.2: a timing-indeterminate session: the paste paused for 73.290708ms (pauses of 0ns); a second later the screen held:
+head.@suite.10.2: the paste's longest pause: 43.086125ms (pauses of 12ms)
+head.@suite.10.2: the paste's longest pause: 33.301875ms (pauses of 0ns)
+head.@suite.10.2: the paste's longest pause: 28.987583ms (pauses of 0ns)
+head.@suite.2.1: the paste's longest pause: 45.065667ms (pauses of 12ms)
+head.@suite.2.1: the paste's longest pause: 22.885084ms (pauses of 0ns)
+head.@suite.2.1: the paste's longest pause: 23.539292ms (pauses of 0ns)
+head.@suite.2.2: the paste's longest pause: 21.490666ms (pauses of 12ms)
+head.@suite.2.2: the paste's longest pause: 21.052125ms (pauses of 0ns)
+head.@suite.2.2: the paste's longest pause: 24.948833ms (pauses of 0ns)
+head.@suite.3.1: the paste's longest pause: 33.190292ms (pauses of 12ms)
+head.@suite.3.1: the paste's longest pause: 22.81275ms (pauses of 0ns)
+head.@suite.3.1: the paste's longest pause: 27.623208ms (pauses of 0ns)
+head.@suite.3.2: the paste's longest pause: 35.484833ms (pauses of 12ms)
+head.@suite.3.2: the paste's longest pause: 32.012458ms (pauses of 0ns)
+head.@suite.3.2: the paste's longest pause: 28.266292ms (pauses of 0ns)
+head.@suite.4.1: the paste's longest pause: 28.831958ms (pauses of 12ms)
+head.@suite.4.1: the paste's longest pause: 22.969208ms (pauses of 0ns)
+head.@suite.4.1: the paste's longest pause: 21.339583ms (pauses of 0ns)
+head.@suite.4.2: the paste's longest pause: 23.170375ms (pauses of 12ms)
+head.@suite.4.2: the paste's longest pause: 24.154667ms (pauses of 0ns)
+head.@suite.4.2: the paste's longest pause: 24.892167ms (pauses of 0ns)
+head.@suite.5.1: the paste's longest pause: 31.131958ms (pauses of 12ms)
+head.@suite.5.1: the paste's longest pause: 21.9575ms (pauses of 0ns)
+head.@suite.5.1: the paste's longest pause: 31.081417ms (pauses of 0ns)
+head.@suite.5.2: the paste's longest pause: 25.479083ms (pauses of 12ms)
+head.@suite.5.2: the paste's longest pause: 24.055959ms (pauses of 0ns)
+head.@suite.5.2: the paste's longest pause: 25.446375ms (pauses of 0ns)
+head.@suite.6.1: the paste's longest pause: 25.427916ms (pauses of 12ms)
+head.@suite.6.1: the paste's longest pause: 20.576709ms (pauses of 0ns)
+head.@suite.6.1: the paste's longest pause: 20.090334ms (pauses of 0ns)
+head.@suite.6.2: the paste's longest pause: 30.770959ms (pauses of 12ms)
+head.@suite.6.2: the paste's longest pause: 21.609083ms (pauses of 0ns)
+head.@suite.6.2: the paste's longest pause: 20.068958ms (pauses of 0ns)
+head.@suite.7.1: the paste's longest pause: 35.209917ms (pauses of 12ms)
+head.@suite.7.1: the paste's longest pause: 23.400625ms (pauses of 0ns)
+head.@suite.7.1: the paste's longest pause: 21.711917ms (pauses of 0ns)
+head.@suite.7.2: the paste's longest pause: 29.15475ms (pauses of 12ms)
+head.@suite.7.2: the paste's longest pause: 23.195541ms (pauses of 0ns)
+head.@suite.7.2: the paste's longest pause: 21.857667ms (pauses of 0ns)
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 53.396291ms (pauses of 12ms); a second later the screen held:
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 78.343917ms (pauses of 12ms); a second later the screen held:
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 67.639542ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 78.358875ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 60.579666ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 62.815542ms (pauses of 12ms); a second later the screen held:
+head.@suite.8.1: a timing-indeterminate session: the paste paused for 51.387667ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.1: test a_prompt_sent_while_an_answer_streams_cuts_it_and_the_turn_goes_on_with_it ... oka timing-indeterminate session: the paste paused for 82.051667ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.1: the paste's longest pause: 7.43025ms (pauses of 0ns)
+head.@suite.8.2: a timing-indeterminate session: the paste paused for 63.714209ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.2: a timing-indeterminate session: the paste paused for 59.226709ms (pauses of 12ms); a second later the screen held:
+head.@suite.8.2: a timing-indeterminate session: the paste paused for 79.918916ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.2: a timing-indeterminate session: the paste paused for 62.278834ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.2: the paste's longest pause: 39.945292ms (pauses of 12ms)
+head.@suite.8.2: a timing-indeterminate session: the paste paused for 129.145833ms (pauses of 0ns); a second later the screen held:
+head.@suite.8.2: the paste's longest pause: 13.774208ms (pauses of 0ns)
+head.@suite.9.1: the paste's longest pause: 49.42175ms (pauses of 12ms)
+head.@suite.9.1: the paste's longest pause: 32.149959ms (pauses of 0ns)
+head.@suite.9.1: test a_request_the_provider_refuses_as_too_large_is_compacted_and_sent_again ... the paste's longest pause: 30.955917ms (pauses of 0ns)
+head.@suite.9.2: the paste's longest pause: 29.390625ms (pauses of 12ms)
+head.@suite.9.2: a timing-indeterminate session: the paste paused for 51.595875ms (pauses of 0ns); a second later the screen held:
+head.@suite.9.2: the paste's longest pause: 40.539792ms (pauses of 0ns)
+head.@suite.9.2: the paste's longest pause: 7.608334ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.1.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 34.334917ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.1.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 36.001459ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 57.497875ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.1: a timing-indeterminate session: the paste paused for 72.372458ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.1: the paste's longest pause: 21.162667ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.10.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 43.388709ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.2.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 19.487666ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.2.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 39.811042ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.3.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.744333ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.3.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 28.389875ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.4.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.378125ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.4.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 36.566916ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.5.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 40.114833ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.5.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 29.866958ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.6.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 25.842833ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.6.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 24.004958ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 39.789542ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.7.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 41.857166ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 53.356042ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1: a timing-indeterminate session: the paste paused for 74.93325ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.1: a timing-indeterminate session: the paste paused for 57.487792ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 91.525916ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2: a timing-indeterminate session: the paste paused for 54.853084ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.8.2: a timing-indeterminate session: the paste paused for 60.780542ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.1: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 55.471875ms (pauses of 12ms); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.1: the paste's longest pause: 18.181666ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing.9.2: test a_mebibyte_of_hostile_clipboard_with_pauses_under_the_quiet_types_nothing_and_sends_nothing ... the paste's longest pause: 35.30275ms (pauses of 12ms)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.1.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 21.964834ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.1.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 21.704792ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 54.554208ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.1: the paste's longest pause: 17.994ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.10.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 44.759291ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.2.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 21.586625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.2.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 20.31875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.3.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 25.138209ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.3.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 29.775875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 27.021625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.4.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 24.766458ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.5.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 25.300708ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.5.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 21.876416ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.6.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 22.150833ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.6.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 17.173ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.7.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 25.056041ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.7.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 25.760875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 59.905125ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.1: a timing-indeterminate session: the paste paused for 124.636083ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.1: the paste's longest pause: 11.911458ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 58.8295ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.8.2: the paste's longest pause: 43.160625ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... the paste's longest pause: 35.1715ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval ... a timing-indeterminate session: the paste paused for 60.255708ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval.9.2: the paste's longest pause: 9.80675ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.1.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 24.815375ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.1.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 28.746917ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 62.657458ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.1: the paste's longest pause: 35.106958ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 52.776792ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.10.2: the paste's longest pause: 38.928875ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 50.440625ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.1: the paste's longest pause: 22.220084ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.2.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 43.858833ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.3.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 25.650542ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.3.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 33.993959ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 69.231709ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.1: the paste's longest pause: 22.967541ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.4.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 42.061167ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.5.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 33.914583ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.5.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 40.315792ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 33.214209ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.6.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 35.780667ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.7.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 40.634ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.7.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 29.145417ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 91.931375ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.1: a timing-indeterminate session: the paste paused for 58.430667ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.1: a timing-indeterminate session: the paste paused for 65.839667ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 93.185167ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.2: a timing-indeterminate session: the paste paused for 61.866667ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.8.2: a timing-indeterminate session: the paste paused for 61.737917ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.1: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... a timing-indeterminate session: the paste paused for 53.902ms (pauses of 0ns); a second later the screen held:
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.1: the paste's longest pause: 21.468709ms (pauses of 0ns)
+head.a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing.9.2: test a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing ... the paste's longest pause: 37.615792ms (pauses of 0ns)

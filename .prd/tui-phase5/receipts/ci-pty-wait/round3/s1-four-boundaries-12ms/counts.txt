@@ -1,0 +1,11 @@
+paced case runs (single = its own process, suite = inside a whole parallel tui suite):
+  single green: 40
+  suite green: 40
+single runs, sessions with pauses of 0ns: 83, accepted 80, rejected 3 (3.6% rejected); accepted longest pauses: min 4.8 ms, median 17.4 ms, max 47.7 ms; rejected pauses: 51 ms, 54 ms, 54 ms
+single runs, sessions with pauses of 12ms: 43, accepted 40, rejected 3 (7.0% rejected); accepted longest pauses: min 18.2 ms, median 25.8 ms, max 45.8 ms; rejected pauses: 58 ms, 59 ms, 65 ms
+suite runs, sessions with pauses of 0ns: 80, accepted 80, rejected 0 (0.0% rejected); accepted longest pauses: min 4.9 ms, median 14.9 ms, max 30.2 ms
+suite runs, sessions with pauses of 12ms: 43, accepted 40, rejected 3 (7.0% rejected); accepted longest pauses: min 18.7 ms, median 25.1 ms, max 48.4 ms; rejected pauses: 54 ms, 63 ms, 83 ms
+diagnostic lines another test's output cut (not counted above): 0
+paced reds: none
+other tests failed in suite runs:
+  a_streamed_answer_grows_the_document_only_inside_the_update_that_paints_the_band: 1

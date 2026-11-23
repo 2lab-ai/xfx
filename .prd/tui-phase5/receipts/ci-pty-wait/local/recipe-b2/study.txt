@@ -1,0 +1,16 @@
+study build (a diagnostic: the working tree between f79f5e5b and f311ad79 -- the product fix in, the harness measuring the paste's longest pause and asserting whatever it was, no retry): one line per hostile-paste run --
+outcome, longest pause inside the paste (ms), and for a failure what failed
+FAIL gap_ms=10419.7 a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval tests/support/pty.rs:427:13: timed out waiting for ["❯ 2  "] on the screen, [] off it; terminal so far: | body tokens on the screen: 1426
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 88
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 68
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 91
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 15
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_answers_no_approval tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 15
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 99
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 135
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 86
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 37
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 35
+FAIL gap_ms=none a_mebibyte_of_hostile_clipboard_written_unpaced_types_nothing_and_sends_nothing tests/support/pty.rs:385:21: the terminal never accepted input; terminal so far: | body tokens on the screen: 0
+
+runs 12; failed 12; paused >= 50 ms 1; failed with a pause >= 50 ms 1; failed with every pause < 50 ms 0; passed with a pause >= 50 ms 0

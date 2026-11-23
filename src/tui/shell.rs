@@ -11665,6 +11665,20 @@ impl Shell {
     /// written again. Only a prompt still waiting, while the runtime still
     /// holds a place: one a stop covered is no work ([`Self::waiting_prompts`]).
     pub(crate) fn take_status_moved_by_input(&mut self) -> Keyed {
+        let keyed = self.keyed();
+        if keyed == Keyed::NotYet {
+            self.status_held = true;
+        } else {
+            self.status_held = false;
+            self.status_moved_by_input = false;
+        }
+        keyed
+    }
+
+    /// What [`Self::take_status_moved_by_input`] answers now, taking nothing:
+    /// the one place the answer is worked out, so the drain's stop
+    /// ([`Self::turn_start_owes_its_frame`]) cannot disagree with it.
+    fn keyed(&self) -> Keyed {
         let compacting = self
             .compaction
             .as_ref()
@@ -11679,14 +11693,36 @@ impl Shell {
                 .next()
                 .is_some_and(|prompt| prompt.queued_at_once);
         if working && !self.activity.working() && !compacting && !behind_a_turn {
-            self.status_held = true;
             return Keyed::NotYet;
         }
-        let started = std::mem::take(&mut self.status_held) && working;
-        if !std::mem::take(&mut self.status_moved_by_input) && !started {
-            return Keyed::No;
+        if self.status_moved_by_input || (self.status_held && working) {
+            Keyed::AfterFrame
+        } else {
+            Keyed::No
         }
-        Keyed::AfterFrame
+    }
+
+    /// Whether a turn's start read now is owed a frame of its own: whether
+    /// this tick writes its report after its frame ([`Keyed::AfterFrame`],
+    /// asked through [`Self::keyed`]) -- a prompt held for its turn
+    /// ([`Self::status_held`]) whose turn this is, or one this tick's keys
+    /// sent; not a start a stop covered, which shows nothing of its turn, nor
+    /// one a reset's drain dropped -- unless this tick's keys moved the status,
+    /// when the tick writes its report after its frame whatever the start
+    /// shows, and the drain stops for it too. The drain stops behind such a start
+    /// (`super::event_loop`'s `drain_ui_events`), so that frame shows the
+    /// turn as it began -- `Thinking` -- and the report follows it, however
+    /// much more of the turn the runtime had sent by then: the rest is the
+    /// next tick's. Upstream's order has no race in it -- its keystroke holds
+    /// the worker's next start until the pass that reports `working` with the
+    /// prompt queued (`installPendingSubmission`,
+    /// `input_submit_runtime.zig:1123-1150@481104fd`;
+    /// `finalizePendingSubmission`, `main.zig:1245-1274`; the release,
+    /// `input_submit_runtime.zig:391-405`) -- where here the runtime starts the
+    /// prompt itself, and a UI thread that was not scheduled could read the
+    /// start, the answer and the end in one drain and report `done` alone.
+    pub(crate) fn turn_start_owes_its_frame(&self) -> bool {
+        self.keyed() == Keyed::AfterFrame
     }
 
     /// Somebody else has had the terminal -- a stop, whose restore cleared
@@ -22686,6 +22722,74 @@ mod tests {
             "{:?}",
             shell.band_rows()
         );
+    }
+
+    #[test]
+    fn a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame() {
+        // The drain stops behind a turn's start for the report that tick
+        // writes after its frame (`super::event_loop`'s `drain_ui_events`).
+        // The two agree for every way the report came to be owed -- held for
+        // the turn, sent by this tick's keys, both, neither -- or the drain
+        // reads past a start whose `working` waits for a frame, or stops for
+        // a report that goes ahead of one.
+        for (held, keyed) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(b"ask something\r");
+            shell.status_held = held;
+            shell.status_moved_by_input = keyed;
+            shell.start_turn();
+            // A live start: its report goes after its frame when either flag
+            // owes it -- held for the turn (a prompt no key of this tick sent,
+            // one handed on or held behind other work) or sent by this tick's
+            // keys.
+            assert_eq!(
+                shell.turn_start_owes_its_frame(),
+                held || keyed,
+                "held {held}, keyed {keyed}"
+            );
+            assert_eq!(
+                shell.take_status_moved_by_input() == Keyed::AfterFrame,
+                held || keyed,
+                "held {held}, keyed {keyed}"
+            );
+        }
+        // And a held prompt whose start shows nothing of its turn, in the two
+        // ways one can: a start the stop's count covers, which the band reads
+        // as the stop's (`cancelling`), and a start a reset's drain drops
+        // (`draining`). Held is still set for both. With no key of this tick
+        // behind it -- `keyed` false, the state the round-1 review named -- it
+        // is no report after a frame, and does not stop the drain; with one,
+        // the tick's report goes after its frame and the drain stops for it.
+        for covered in [true, false] {
+            for keyed in [false, true] {
+                let mut shell = shell(24, 80);
+                shell.route_bytes(b"ask something\r");
+                assert_eq!(shell.take_status_moved_by_input(), Keyed::NotYet);
+                let start = shell.turn_starts();
+                if covered {
+                    shell.route_bytes(&[0x03]);
+                } else {
+                    shell.route_bytes(b"/new\r");
+                    assert!(shell.draining.is_some(), "the reset is not draining");
+                }
+                shell.status_moved_by_input = keyed;
+                shell.apply(start);
+                assert!(shell.status_held, "covered {covered}: the hold is gone");
+                if covered {
+                    assert!(shell.cancelling, "the stop does not cover the start");
+                }
+                assert_eq!(
+                    shell.turn_start_owes_its_frame(),
+                    keyed,
+                    "covered {covered}, keyed {keyed}"
+                );
+                assert_eq!(
+                    shell.take_status_moved_by_input() == Keyed::AfterFrame,
+                    keyed,
+                    "covered {covered}, keyed {keyed}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -62440,5 +62544,21 @@ mod tests {
             None,
             "a second message: the draft was sent as well as the cancel"
         );
+    }
+
+    impl Shell {
+        /// [`Shell::route_read`] with the read's instant given rather than
+        /// read off the clock, for a case outside this module that drives the
+        /// loop's own turn (`super::super::event_loop`'s `loop_turn`) and
+        /// needs the decoder's stages on its own clock: a pair stamped ahead
+        /// of the clock is pending however long the thread is held before
+        /// the turn settles it.
+        pub(crate) fn route_read_at(&mut self, bytes: &[u8], now: Instant) {
+            let mut events = Vec::new();
+            for byte in bytes {
+                self.decoder.feed(*byte, now, &mut events);
+            }
+            self.consume(events, now);
+        }
     }
 }

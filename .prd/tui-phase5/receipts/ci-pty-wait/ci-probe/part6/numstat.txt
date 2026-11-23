@@ -1,0 +1,20 @@
+76a7967e..a6071ab1
+  product  +0 -0
+  tests    +77 -31
+  receipt  +4 -4
+  other    +0 -0
+8e2f04c2..a6071ab1
+  product  +0 -0
+  tests    +369 -25
+  receipt  +6826 -33
+  other    +0 -0
+a6071ab1..HEAD
+  product  +0 -0
+  tests    +0 -0
+  receipt  +807 -4
+  other    +0 -0
+1a4cb6b4..HEAD
+  product  +98 -33
+  tests    +2016 -77
+  receipt  +22039 -0
+  other    +14 -14

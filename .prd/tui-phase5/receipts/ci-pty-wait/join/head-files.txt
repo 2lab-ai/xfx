@@ -1,0 +1,8 @@
+The tree-scanning gate steps at the receipt's last commit (run on its clean tree before this file's final content was amended in; this file is the only difference), and what that commit changes outside .prd/ since the gate's ba133c25.
+# HEAD's subject: docs(ci-pty-wait): the join's same-load control, the worker's turn fun; tree clean: yes
+git diff --stat ba133c25 HEAD -- . ':!.prd' (empty: no line outside .prd/):
+(end)
+check-xfx-identity: exit 0 -- check-xfx-identity: ok (25965 tracked file(s) scanned)
+check-no-stubs: exit 0 -- check-no-stubs: ok
+check-no-secrets: exit 0 -- check-no-secrets: ok (25965 tracked file(s) scanned)
+check-no-local-paths: exit 0 -- check-no-local-paths: ok (25965 tracked file(s) scanned; 8 marked fixture line(s), 84 placeholder line(s); 0 symlink(s))

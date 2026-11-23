@@ -1,0 +1,6 @@
+---- the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out stdout ----
+
+thread 'the_session_reports_its_status_between_frames_and_clears_it_on_the_way_out' (60599) panicked at tests/tui.rs:852:5:
+assertion `left == right` failed
+  left: ["␛]7501;state=idle:app=xfx␛\\", "␛]7501;state=done:app=xfx␛\\"]
+ right: ["␛]7501;state=idle:app=xfx␛\\", "␛]7501;state=working:app=xfx␛\\", "␛]7501;state=done:app=xfx␛\\"]

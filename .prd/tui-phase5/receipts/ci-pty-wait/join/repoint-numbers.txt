@@ -1,0 +1,7 @@
+.prd/tui-phase5/receipts/ci-pty-wait/README.md: 23 lines changed, numbers only: yes
+scripts/fxcap/capfile.py: 2 lines changed, numbers only: yes
+scripts/fxcap/parity-ledger.toml: 10 lines changed, numbers only: yes
+scripts/smoke-tui.sh: 1 lines changed, numbers only: yes
+src/tui/event_loop.rs: 1 lines changed, numbers only: yes
+tests/tui.rs: 6 lines changed, numbers only: yes
+# 6 files, 43 lines changed, 0 with more than numbers

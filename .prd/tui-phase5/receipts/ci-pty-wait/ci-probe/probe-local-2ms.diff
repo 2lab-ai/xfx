@@ -1,0 +1,44 @@
+diff --git a/tests/tui.rs b/tests/tui.rs
+index d9e0d591..f8353fa5 100644
+--- a/tests/tui.rs
++++ b/tests/tui.rs
+@@ -4334,7 +4334,7 @@ fn probe_session(label: &str) -> String {
+         .iter()
+         .map(|(name, _)| (name.to_string(), Vec::new()))
+         .chain(
+-            ["full queue: sleep 2ms", "full queue: poll POLLOUT", "write"]
++            ["full queue: sleep 2ms", "full queue: kqueue NOTE_CRITICAL 2ms", "full queue: spin 2ms", "write"]
+                 .into_iter()
+                 .map(|name| (name.to_string(), Vec::new())),
+         )
+@@ -4352,18 +4352,23 @@ fn probe_session(label: &str) -> String {
+         while !rest.is_empty() {
+             let before = Instant::now();
+             let wrote = (&*session.master).write(rest);
+-            samples[waited + 2].1.push(before.elapsed());
++            samples[waited + 3].1.push(before.elapsed());
+             match wrote {
+                 Ok(written) => rest = &rest[written..],
+                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                     let before = Instant::now();
+-                    if at % 2 == 0 {
+-                        std::thread::sleep(IDLE_POLL);
+-                        samples[waited].1.push(before.elapsed());
+-                    } else {
+-                        probe_pollout(&session);
+-                        samples[waited + 1].1.push(before.elapsed());
++                    let way = at % 3;
++                    match way {
++                        0 => std::thread::sleep(IDLE_POLL),
++                        1 => probe_kqueue_wait(IDLE_POLL),
++                        _ => {
++                            let start = Instant::now();
++                            while start.elapsed() < IDLE_POLL {
++                                std::hint::spin_loop();
++                            }
++                        }
+                     }
++                    samples[waited + way].1.push(before.elapsed());
+                 }
+                 Err(err) => panic!("write to the terminal: {err}"),
+             }

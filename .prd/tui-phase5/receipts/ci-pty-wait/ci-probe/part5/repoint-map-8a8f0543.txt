@@ -1,0 +1,11 @@
+tests/tui.rs:1930 -> :1930 (+0), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:2312 -> :2312 (+0), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:2887 -> :2887 (+0), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:3234 -> :3234 (+0), the same line: yes: session.type_bytes(&[0x05, 0x15, 0x04]);
+tests/tui.rs:3357 -> :3357 (+0), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:4718 -> :4722 (+4), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:8438 -> :8442 (+4), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:8512 -> :8516 (+4), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:9299 -> :9303 (+4), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:10000 -> :10004 (+4), the same line: yes: session.type_bytes(&[0x15, 0x04]);
+tests/tui.rs:10196 -> :10200 (+4), the same line: yes: session.type_bytes(&[0x15, 0x04]);

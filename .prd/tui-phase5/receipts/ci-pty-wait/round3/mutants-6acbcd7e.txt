@@ -1,0 +1,19 @@
+Review round 3, mutants.py (this folder's) on a git clone --no-local at 6acbcd7e, under the suite lock (started 2026-11-16T04:27:11Z). The 14 of round 2 and one new (last-bytes-cut-anywhere); the baselines are the GREEN, each kill's tests its RED.
+baseline unit: green, 6 passed, failed []
+baseline harness: green, 5 passed, failed []
+drain-never-stops: killed by tui::event_loop::tests::keys_between_a_split_turns_start_and_its_queued_end_do_what_they_do_when_the_end_is_late, tui::event_loop::tests::under_a_sustained_stream_a_split_turn_stops_the_drain_once_and_every_tick_reads_its_keys, tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+drain-stops-after-any-event: killed by tui::event_loop::tests::the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report
+owed-only-when-held: killed by tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame, tui::event_loop::tests::the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report, tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking
+owed-only-when-keyed: killed by tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame
+measure-not-carried: killed by the_harness_measures_a_pause_between_two_writes_of_one_paste
+measure-never-grows: killed by the_harness_measures_a_pause_between_two_writes_of_one_paste
+retry-gives-up-quietly: killed by an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused, an_unpaced_case_whose_every_paste_paused_fails_saying_so
+retry-runs-once: killed by an_unpaced_case_runs_a_new_session_only_after_a_paste_that_paused
+search-check-case-sensitive: killed by a_skills_sandbox_path_never_holds_what_its_case_searches
+predicate-by-flags-alone: killed by tui::shell::tests::a_turn_start_owes_its_frame_exactly_when_its_tick_writes_working_after_the_frame
+drain-stops-at-every-start: killed by tui::event_loop::tests::the_drain_reads_past_a_start_that_owes_no_frame
+drain-stops-after-every-event: killed by tui::event_loop::tests::a_turn_read_whole_in_one_drain_is_working_after_a_frame_that_shows_its_thinking, tui::event_loop::tests::the_drain_stops_behind_a_start_only_and_not_on_a_tick_whose_keys_owe_a_report, tui::event_loop::tests::under_a_sustained_stream_a_split_turn_stops_the_drain_once_and_every_tick_reads_its_keys, tui::event_loop::tests::the_drain_reads_past_a_start_that_owes_no_frame
+search-check-root-name-only: killed by a_skills_sandbox_path_never_holds_what_its_case_searches
+rejected-screens-unsaid: killed by an_unpaced_case_whose_every_paste_paused_fails_saying_so
+last-bytes-cut-anywhere: killed by the_last_bytes_of_a_stream_start_at_a_character
+exit 0

@@ -1,0 +1,38 @@
+Recipe 1 (starve.sh): 8 whole tui suites at once (--test-threads=3 --nocapture), the fault-injection test binary at 8ab62f69 (the first diagnostics: a rejected pause's location, not an accepted one's), 6 rounds, SUITE_LOCK_EXCLUSIVE. Rounds 1, 3, 4, 5 are counted. Round 2 is not: it ran beside an unlocked build and run of mine (the tui test binary, compiled and run for one case, 20:28-20:30Z), and its 10 timeouts are that build's. Round 6 is void: I deleted the binary's clone, and with it the xfx binary its tests spawn, while it ran. Start, load:
+2026-11-16T20:25:43Z
+{ 16.66 15.02 14.66 }
+2026-11-16T20:25:43Z
+{ 16.66 15.02 14.66 }
+2026-11-16T20:38:42Z
+{ 23.97 24.11 19.91 }
+## rounds 1, 3, 4, 5
+== before: 32 whole-suite runs
+  paced: ok 32
+  unpaced, types nothing: ok 32
+  unpaced, no approval: ok 32
+  status frames: ok 32
+  sessions with pauses of 0ns: 66, rejected 2 (3.0%); accepted longest: median 42.6 ms, max 49.9 ms
+    rejected inside a part, behind a poll: 2; the sleep took 0-4 ms, median 4
+  sessions with pauses of 12ms: 35, rejected 3 (8.6%); accepted longest: median 43.8 ms, max 48.7 ms
+    rejected across a planned pause: 1; the sleep took 19-19 ms, median 19
+    rejected inside a part, behind a poll: 2; the sleep took 0-3 ms, median 3
+## round 2 alone (contaminated, as said)
+== before: 8 whole-suite runs
+  paced: FAILED 3, ok 5
+  unpaced, types nothing: FAILED 7, ok 1
+  unpaced, no approval: ok 8
+  status frames: ok 8
+    red: before.@suite.2.1.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.1.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.2.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.3.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.3.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.4.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.5.log: paced: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.6.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.7.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+    red: before.@suite.2.8.log: unpaced, types nothing: timed out waiting for ["┃ xz", "! input: Input that arrived right after the paste was ignored."] on the screen, ["K0000"] off it; terminal s
+  sessions with pauses of 0ns: 19, rejected 3 (15.8%); accepted longest: median 46.2 ms, max 48.8 ms
+    rejected inside a part, behind a poll: 3; the sleep took 2-3 ms, median 3
+  sessions with pauses of 12ms: 9, rejected 1 (11.1%); accepted longest: median 45.2 ms, max 48.5 ms
+    rejected across a planned pause: 1; the sleep took 12-12 ms, median 12
