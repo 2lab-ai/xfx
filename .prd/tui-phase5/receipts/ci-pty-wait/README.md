@@ -1887,6 +1887,57 @@ binary. Tests only; no product line changed.
   that `8be4693b` does not, through this addendum's commit
   (`part6/pathscan.txt`): **0 matching lines, and 0 files in this folder.**
 
+### Part 7: external review of part 6 (`f0aed67e`, re-points `7082c63b`)
+
+An external review of part 6 (`76a7967e..a6071ab1`) found two test issues,
+both reproduced locally. Tests only; no product line changed (`+0 −0`).
+
+- **MUST — `catch_unwind` masked failing setup checks.**
+  Both SIGURG unwind tests previously asserted only `is_err()` on
+  `catch_unwind`, so an unexpected panic inside the closure — such as
+  `assert_eq!(sigurg_disposition().0, libc::SIG_IGN, ...)` when
+  `ignore_sigurg` was mutated to a no-op — returned `Err` and passed as if
+  it were the simulated unwind.
+  - Both `a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back`
+    and `an_assertion_that_fails_while_sigurg_is_ignored_still_puts_its_disposition_back`
+    now unwind with a private marker type `SimulatedTestUnwind` and re-throw
+    any caught panic payload that is not `SimulatedTestUnwind` via
+    `std::panic::resume_unwind`, preserving the original assertion failure.
+- **SHOULD — sender startup race before unwind.**
+  In `a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back`,
+  the 12 ms `sleep_on_time` could finish before the spawned sender thread
+  ran its first iteration on a loaded CI runner, flaking
+  `assert!(stopped > 0, "nothing was sent during the wait")`.
+  - After the 12 ms wait, the closure now polls with `sleep_on_time(1ms)`
+    up to a 500 ms deadline until `sent.load(SeqCst) > 0` before unwinding.
+- **RED → GREEN & mutants (`mutants.py`):**
+  - Added `sigurg-not-ignored` (replaces `libc::sigaction(libc::SIGURG, &ignore, &mut found)`
+    with `libc::sigaction(libc::SIGURG, std::ptr::null(), &mut found)`).
+  - **RED** at `121e56a3` (before part 7): `sigurg-not-ignored` survived
+    `an_assertion_that_fails_while_sigurg_is_ignored_still_puts_its_disposition_back`.
+  - **GREEN** at `7082c63b`: `mutants.py` on a fresh `--no-local` clone
+    killed **27 of 27** mutants, with both baselines green (unit 9, harness
+    10); `sigurg-not-ignored` is killed by
+    `an_assertion_that_fails_while_sigurg_is_ignored_still_puts_its_disposition_back`.
+- **Checks at `7082c63b`:**
+  - `cargo fmt --check`: clean;
+  - `cargo clippy --locked --all-targets -- -D warnings` (plain and
+    `--features fault-injection`): clean;
+  - targeted SIGURG tests (`cargo test --locked --test tui sigurg` and
+    `cargo test --locked --test tui a_wait_`), 5 runs each: all green;
+  - `linux-clippy.sh` on a fresh `--no-local` clone: **4 of 4** green
+    (`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`, plain and
+    `fault-injection`).
+- **References:** `f0aed67e` moved the same 10 references by +22, and
+  `7082c63b` re-points them, numbers only (5 lines: 6 numbers at
+  `tests/tui.rs:2721` and 4 in this README). At `7082c63b`, code and docs
+  hold the same 9 pre-existing WRONG refs as `a6071ab1`, and this README
+  holds 27 (part 6's 26 plus part 6's mention of `tests/tui.rs:2721`).
+- **Diff (`121e56a3..7082c63b`):** product **+0 −0**, tests `+27 −5`
+  (`tests/tui.rs`), receipt `+4 −4` (re-points).
+- **Paths:** `join/pathscan.sh` through this addendum's commit: **0 matching
+  lines, and 0 files in this folder.**
+
 ## Open questions
 
 1. **The quarantine's clock is read after the readiness check.**

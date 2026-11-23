@@ -23,6 +23,8 @@ mutants of `sleep_on_time` (macOS), with its test in HARNESS. Its review
 disposition left changed, after an unwind. Its re-check (part 6) moved the
 put-back into SigurgRestore, re-aimed sigurg-not-put-back there, and added
 sigurg-left-as-it-was-on-unwind, with the failing-assertion test in HARNESS.
+Part 7 added sigurg-not-ignored (a no-op ignore_sigurg), caught once the
+unwind tests check for their own SimulatedTestUnwind payload.
 """
 import os
 import re
@@ -167,6 +169,12 @@ MUTANTS = [
      "    fn drop(&mut self) {\n        // SAFETY: `self.0` is a disposition `sigaction` handed back.\n",
      "    fn drop(&mut self) {\n        if std::thread::panicking() {\n            return;\n        }\n"
      "        // SAFETY: `self.0` is a disposition `sigaction` handed back.\n", HARNESS),
+    # Part 7 (external review's MUST): a no-op ignore_sigurg fails the setup
+    # assertion inside catch_unwind; rethrowing non-SimulatedTestUnwind panics
+    # stops it from passing as the simulated unwind.
+    ("sigurg-not-ignored", "tests/tui.rs",
+     "            libc::sigaction(libc::SIGURG, &ignore, &mut found),\n",
+     "            libc::sigaction(libc::SIGURG, std::ptr::null(), &mut found),\n", HARNESS),
 ]
 
 
