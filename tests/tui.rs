@@ -2718,7 +2718,7 @@ fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
 
     // `C-u` before `C-d`: the composer holds the draft this case typed into
     // it, and `C-d` on a non-empty draft is not the tested exit gesture
-    // (`tests/tui.rs:1930,2312,2887,3234,3357,4768,8488,8562,9349,10050,10246` all clear the line
+    // (`tests/tui.rs:1930,2312,2887,3234,3357,4790,8510,8584,9371,10072,10268` all clear the line
     // first). The kill takes the line the caret is on.
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));

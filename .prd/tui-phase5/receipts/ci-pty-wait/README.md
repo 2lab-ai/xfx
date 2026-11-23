@@ -204,7 +204,7 @@ was, with no retry.
   estimate: no log shows this run's sandbox name.
 
 **Fix** (`f311ad79`, widened in round 2 `d4f660f7`): `skills_sandbox`
-(`tests/tui.rs:15113`) reads the sandbox's whole `home` and `workspace` paths,
+(`tests/tui.rs:15135`) reads the sandbox's whole `home` and `workspace` paths,
 case folded (`found_in_sandbox`, `:14694`). A word in the root's random name
 draws the root again, as `src/tui/shell.rs`'s own `skilled_in` fixture does; a
 word above the root -- the machine's `TMPDIR`, which no draw changes -- fails
@@ -415,7 +415,7 @@ in pieces, and libtest's `test ... ok` lines landed inside 34 and 31 of them.
 
 | item | change | where | RED → GREEN |
 |---|---|---|---|
-| S2: label the clock defect | The paced case's comment says a red with every pause under 50 ms is not retried and can be the clock-after-poll defect (`src/tui/event_loop.rs:750-751` → `src/tui/shell.rs:11303-11304` → `src/tui/input.rs:983`), which PASTE-QUARANTINE-CLOCK fixes; so does open question 1 here. | `tests/tui.rs:4391-4397` | docs |
+| S2: label the clock defect | The paced case's comment says a red with every pause under 50 ms is not retried and can be the clock-after-poll defect (`src/tui/event_loop.rs:750-751` → `src/tui/shell.rs:11303-11304` → `src/tui/input.rs:983`), which PASTE-QUARANTINE-CLOCK fixes; so does open question 1 here. | `tests/tui.rs:4413-4419` | docs |
 | S3 and gpt6 r2 SHOULD: narrow the claims | The paced comment says acceptance is measured on the writer; the threshold is pinned by `input.rs:5334`/`:5933`, not by this case; and the 20 ms mutant's kill rests on the writer oversleeping. `unpaced_case` now says a regression gives at worst a misleading red, never a green. The round-2 table's row is narrowed the same way. | `tests/tui.rs:4188-4195`, `:3891-3900`; §7 | docs |
 | NIT 1: predicate doc | "unless this tick's keys moved the status, when the tick writes its report after its frame whatever the start shows" | `src/tui/shell.rs:11710` | docs |
 | NIT 2: clock-expiring cues | The equivalence case reads the hint row at the keys' own tick (`cue`) and leaves it out of the end screen. Its cue is asserted per key: "press ctrl+c again to exit" after a stop, the plain hint otherwise. | `src/tui/event_loop.rs:16390`, `:16480`, `:16540` | RED still by `drain-never-stops` (`round3/mutants-f8bc123a.txt`) |
@@ -574,7 +574,7 @@ checks skip.
     `input.rs` and `shell.rs` (six), and the trains' references into
     `shell.rs` that this branch's lines above them moved (+36, or +104 past
     this branch's `shell.rs` test): the parity ledger's ten, `capfile.py`,
-    `smoke-tui.sh` and `tests/tui.rs:10282`.
+    `smoke-tui.sh` and `tests/tui.rs:10304`.
   - Re-pointed with them is one this branch had moved itself before the
     join: `event_loop.rs:1128-1131@04e4491d`, 29 lines below where
     `loop_turn` went in, now `src/tui/event_loop.rs:1157-1160`. The content
@@ -1904,7 +1904,7 @@ binary. Tests only; no product line changed.
      a quiet's start at each of its pauses, so a single reader stall there can
      end the quarantine on a session the harness accepted. That is a red with
      every pause under 50 ms, which reads as a quarantine regression and is
-     not retried. The paced case's comment says so (`tests/tui.rs:4391-4397`).
+     not retried. The paced case's comment says so (`tests/tui.rs:4413-4419`).
      None was seen in round 3's 240 paced runs.
    - It is a candidate follow-up in PASTE-GAP's security area: compare against
      a clock read before the check, and stamp the quiet's start with one read
