@@ -4142,6 +4142,11 @@ fn a_wait_on_time_is_never_short_with_signals_landing_on_it() {
     assert!(landed > 0, "no signal landed on the waiting thread");
 }
 
+/// Payload for the unwinds simulated by the SIGURG tests below: anything else
+/// caught by `catch_unwind` (such as a failed setup check) is resumed so it
+/// fails the test instead of passing for the simulated unwind.
+struct SimulatedTestUnwind;
+
 #[test]
 fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
     // `sleep_on_time` panics on a kqueue, a `kevent` or an `EV_ERROR` it
@@ -4164,10 +4169,22 @@ fn a_wait_that_unwinds_under_signals_stops_their_sender_and_puts_sigurg_back() {
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _: ((), usize) = with_sigurg_every_millisecond(&alone, &sent, || {
             support::pty::sleep_on_time(std::time::Duration::from_millis(12));
-            std::panic::resume_unwind(Box::new("a wait failed"))
+            // On a loaded runner the sender thread can start after the 12 ms
+            // wait; give it a bounded window so at least one send lands before
+            // the unwind.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+            while sent.load(SeqCst) == 0 && std::time::Instant::now() < deadline {
+                support::pty::sleep_on_time(std::time::Duration::from_millis(1));
+            }
+            std::panic::resume_unwind(Box::new(SimulatedTestUnwind))
         });
     }));
-    assert!(unwound.is_err(), "the waits did not unwind");
+    let Err(payload) = unwound else {
+        panic!("the waits did not unwind");
+    };
+    if !payload.is::<SimulatedTestUnwind>() {
+        std::panic::resume_unwind(payload);
+    }
     let stopped = sent.load(SeqCst);
     assert!(stopped > 0, "nothing was sent during the wait");
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -4198,9 +4215,14 @@ fn an_assertion_that_fails_while_sigurg_is_ignored_still_puts_its_disposition_ba
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ignored = ignore_sigurg(&alone);
         assert_eq!(sigurg_disposition().0, libc::SIG_IGN, "SIGURG not ignored");
-        std::panic::resume_unwind(Box::new("an assertion failed"))
+        std::panic::resume_unwind(Box::new(SimulatedTestUnwind))
     }));
-    assert!(failed.is_err(), "the assertion did not fail");
+    let Err(payload) = failed else {
+        panic!("the assertion did not fail");
+    };
+    if !payload.is::<SimulatedTestUnwind>() {
+        std::panic::resume_unwind(payload);
+    }
     assert_eq!(sigurg_disposition(), found, "SIGURG was left ignored");
 }
 
