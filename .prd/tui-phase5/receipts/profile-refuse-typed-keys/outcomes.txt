@@ -1,0 +1,7 @@
+== python3 -I outcomes.py fx-fixtures.txt,fx-edge.txt xfx-head-fixtures.txt (1157fe3e, the code commit: GREEN)
+link-profile: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+dir-group-writable-torn: end at interactive: fx running xfx exit=1; end at line shell: fx running xfx exit=1
+typed-fx-only: refusal at ask: fx InvalidProfileConfiguration xfx None; refusal at interactive: fx InvalidProfileConfiguration xfx None; refusal at line shell: fx InvalidProfileConfiguration xfx None; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+provider-codex: end at status: fx exit=1 xfx exit=0; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+provider-llmux: refusal at ask: fx UnknownConfiguredProvider xfx None; refusal at status: fx UnknownConfiguredProvider xfx None; refusal at interactive: fx UnknownConfiguredProvider xfx None; refusal at line shell: fx UnknownConfiguredProvider xfx None; end at status: fx exit=1 xfx exit=0; end at interactive: fx exit=1 xfx running; end at line shell: fx exit=1 xfx running
+== 90 fixtures: 88 match on refusal at every entry, 85 on how every entry ended

@@ -1,0 +1,53 @@
+== suite-lock.sh gates.sh <repo> <logs> <smoke>, TMPDIR short
+# head 92cbdde6; tree clean: yes
+01 fmt                                exit 0     1s  load 8.73
+02 clippy                             exit 0    12s  load 8.73
+03 clippy-fault                       exit 0     5s  load 9.16
+04 test                               exit 101   143s  load 9.46
+05 test-fault                         exit 0   175s  load 7.20
+06 check-xfx-identity                 exit 0     8s  load 7.05
+07 check-no-stubs                     exit 0    10s  load 6.27
+08 check-no-secrets                   exit 0    54s  load 7.55
+09 check-no-local-paths               exit 0     3s  load 5.82
+10 test-check-no-local-paths          exit 0     3s  load 5.60
+11 check-preview-contract             exit 0     2s  load 5.47
+12 check-tui-preflight-cost           exit 0   114s  load 5.47
+13 check-usage-clock                  exit 0     1s  load 21.60
+14 test-check-no-secrets              exit 0    70s  load 21.60
+15 test-gate-env                      exit 0   158s  load 10.73
+16 test-preview-contract              exit 0    45s  load 7.62
+17 fxcap-test-sweep                   exit 0    13s  load 7.37
+18 fxcap-test-capture                 exit 0   428s  load 6.83
+19 build-release                      exit 0    22s  load 13.13
+20 build-faulty                       exit 0    30s  load 13.39
+21 smoke                              exit 0     3s  load 13.79
+22 smoke-tui                          exit 0    72s  load 12.76
+# 22 steps, 1 failed; tree clean after: no
+
+== from the step logs
+04-test: 5670 passed, 2 failed -- the two failures, both tui::worker catalog-wait clock tests (src/tui/worker.rs: 0 lines changed by this unit):
+  test tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop ... FAILED
+  test tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number ... FAILED
+  4761:thread 'tui::worker::tests::a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop' (497505706) panicked at src/tui/worker.rs:19337:9:
+  4763-  left: [(true, [], [Some("the turn was cancelled")], false, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+  4764- right: [(true, [], [Some("the turn was cancelled")], true, 0, ["asked first", "1 image(s)", "interrupted cancelled"]), (false, [20], [None], true, 2, ["asked first", "1 image(s)", "final stop"])]
+  4768:thread 'tui::worker::tests::a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number' (497505697) panicked at src/tui/worker.rs:18720:9:
+  4770-  left: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), false, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), true, 
+  4771- right: [("the turn's start", true, [1, 2], Some(Some("the turn was cancelled")), true, 2, Some(None)), ("the turn's start", false, [1, 2], Some(None), true, 2, Some(None)), ("the image route", true, [1, 2], Some(Some("the turn was cancelled")), true, 2
+05-test-fault: 5709 passed, 0 failed
+47 check(s), 0 failure(s)
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures
+tree clean after: no -- the one change during the run was refs.txt, this receipt's, written untracked; nothing tracked changed
+
+== rerun.sh under one hold of the suite lock, after the gate, RED and mutants
+# head 92cbdde6; load 5.95
+full cargo test exit 0: 5672 passed, 0 failed
+a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop run 1 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop run 2 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop run 3 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number run 1 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number run 2 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number run 3 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 1 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 2 (held): test result: ok. 1 passed; 0 failed
+a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one run 3 (held): test result: ok. 1 passed; 0 failed

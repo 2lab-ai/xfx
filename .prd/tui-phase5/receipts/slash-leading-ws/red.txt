@@ -1,0 +1,132 @@
+# RED at the base afd891af
+
+## The pairs: fx v0.0.16 (fx/) against the base binary (red/, row 1 x𝒇x v0.1.0-afd891a [debug], sha256 782cf10fe699...), pairs.sh red
+DIFF p5-slash-leading-ws-40x120-esc-space-back
+    row 4: fx []
+    row 4: xfx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 7: fx []
+    row 7: xfx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('bold', True), ('fg', 255))), (3, 'h', (('bold', True), ('fg', 255)))]
+SAME p5-slash-leading-ws-40x120-esc-space
+DIFF p5-slash-leading-ws-40x120-mid
+    row 3: fx [(1, ' ', ()), (2, 's', ()), (3, 'a', ()), (4, 'y', ())]
+    row 3: xfx []
+    row 4: fx []
+    row 4: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 's', ()), (3, 'a', ())]
+    row 5: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 5: xfx []
+DIFF p5-slash-leading-ws-40x120-newline-tab
+    row 3: fx [(1, ' ', ()), (2, '/', ()), (3, 'h', ()), (4, 'e', ())]
+    row 3: xfx []
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, '/', ()), (3, 'h', ())]
+    row 5: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 5: xfx []
+DIFF p5-slash-leading-ws-40x120-newline
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx []
+    row 6: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 6: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('bold', True), ('fg', 255))), (3, 'h', (('bold', True), ('fg', 255)))]
+    row 8: xfx []
+SAME p5-slash-leading-ws-40x120-spaces-esc-grow
+DIFF p5-slash-leading-ws-40x120-spaces
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx []
+    row 5: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 5: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 7: fx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('bold', True), ('fg', 255))), (3, 'h', (('bold', True), ('fg', 255)))]
+    row 7: xfx []
+DIFF p5-slash-leading-ws-40x120-tab
+    row 3: fx [(1, ' ', ()), (2, ' ', ()), (3, ' ', ()), (4, ' ', ())]
+    row 3: xfx []
+    row 4: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 4: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 5: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 5: xfx []
+DIFF p5-slash-leading-ws-40x120-vers-recall  (version row normalized)
+    row 5: fx [(1, ' ', ()), (2, '/', ()), (3, 'v', ()), (4, 'e', ())]
+    row 5: xfx []
+    row 6: fx []
+    row 6: xfx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, ' ', ()), (3, ' ', ())]
+    row 7: fx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 7: xfx []
+SAME p5-slash-leading-ws-40x120-vers-run  (version row normalized)
+DIFF p5-slash-leading-ws-short-18x80-four
+    row 7: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 7: xfx []
+    row 8: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 8: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 10: fx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('bold', True), ('fg', 255))), (3, 'h', (('bold', True), ('fg', 255)))]
+    row 10: xfx []
+SAME p5-slash-leading-ws-short-18x80-one
+DIFF p5-slash-leading-ws-short-18x80-two
+    row 5: fx [(0, '─', (('fg', 240),)), (1, '─', (('fg', 240),)), (2, '─', (('fg', 240),)), (3, '─', (('fg', 240),))]
+    row 5: xfx []
+    row 6: fx [(0, 'C', (('fg', 245),)), (1, 'o', (('fg', 245),)), (2, 'm', (('fg', 245),)), (3, 'm', (('fg', 245),))]
+    row 6: xfx [(0, 'a', (('fg', 252),)), (1, 'u', (('fg', 252),)), (2, 't', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 8: fx [(0, ' ', ()), (1, ' ', ()), (2, '/', (('bold', True), ('fg', 255))), (3, 'h', (('bold', True), ('fg', 255)))]
+    row 8: xfx []
+DIFF p5-slash-leading-ws-skill-40x120-dem-enter
+    row 3: fx [(0, '┃', (('fg', 255),))]
+    row 3: xfx [(0, '✗', (('fg', 252),)), (1, ' ', ()), (2, 'c', (('fg', 252),)), (3, 'o', (('fg', 252),))]
+    row 4: fx [(0, '┃', (('fg', 255),)), (1, ' ', ()), (2, 'd', (('bold', True), ('fg', 255))), (3, 'e', (('bold', True), ('fg', 255)))]
+    row 4: xfx []
+    row 5: fx []
+    row 5: xfx [(0, '┃', (('fg', 255),))]
+DIFF p5-slash-leading-ws-skill-40x120-dem-tab
+    row 3: fx [(4, 'd', (('bold', True), ('fg', 255))), (5, 'e', (('bold', True), ('fg', 255))), (6, 'm', (('bold', True), ('fg', 255))), (7, 'o', (('bold', True), ('fg', 255)))]
+    row 3: xfx [(4, '/', ()), (5, 'd', ()), (6, 'e', ()), (7, 'm', ())]
+    1 rows differ in their cells (row 1 not compared)
+4 of 15 pairs identical
+
+## The tests: this unit's five shell cases, put onto the base's src/tui/shell.rs in a throwaway clone (they use nothing the base lacks),
+## cargo test --locked --lib -- a_slash_word_past_leading_blanks_opens_the_menu a_dismissal_lasts_while tab_and_enter_over_leading the_menu_leaves_a_taller a_skill_row_binds_over
+test tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash ... FAILED
+test tui::shell::tests::tab_and_enter_over_leading_blanks_put_the_bare_name_in_the_composer ... FAILED
+test tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it ... FAILED
+test tui::shell::tests::the_menu_leaves_a_taller_composer_its_rows ... FAILED
+test tui::shell::tests::a_slash_word_past_leading_blanks_opens_the_menu ... FAILED
+thread 'tui::shell::tests::a_dismissal_lasts_while_the_draft_still_begins_with_a_slash' panicked at src/tui/shell.rs:36279:9:
+assertion `left == right` failed: the menu came back after a space
+  left: 8
+ right: 0
+thread 'tui::shell::tests::tab_and_enter_over_leading_blanks_put_the_bare_name_in_the_composer' panicked at src/tui/shell.rs:36318:13:
+assertion `left == right` failed
+  left: "  /vers"
+ right: "/version"
+thread 'tui::shell::tests::a_skill_row_binds_over_the_word_and_keeps_the_blanks_before_it' panicked at src/tui/shell.rs:48232:13:
+assertion `left == right` failed: [32, 32, 47, 100, 101, 109, 9]
+  left: "  /dem"
+ right: "  demo "
+thread 'tui::shell::tests::the_menu_leaves_a_taller_composer_its_rows' panicked at src/tui/shell.rs:36357:13:
+assertion `left == right` failed: [10, 47, 104, 101, 108, 112]
+  left: 0
+ right: 7
+thread 'tui::shell::tests::a_slash_word_past_leading_blanks_opens_the_menu' panicked at src/tui/shell.rs:36254:13:
+assertion `left == right` failed: "  /he"
+  left: []
+ right: ["\u{1b}[38;5;245mCommands 1\u{1b}[0m", "", "\u{1b}[1;38;5;255m  /help   \u{1b}[38;5;245mshow available slash commands                                 \u{1b}[38;5;245mGeneral\u{1b}[0m", "", "", "", "", ""]
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4768 filtered out; finished in 0.02s
+
+## The picker's unit cases (a_slash_word_past_spaces_tabs_and_line_breaks_is_the_query, the_budget_leaves_a_taller_composer_its_rows)
+## call query_of and the two-argument height/rows, which the base does not have: their RED is that they do not compile there.
+
+## Round 2: the three new shell cases, put onto the base's src/tui/shell.rs in a throwaway clone,
+## cargo test --locked --lib -- a_dismissal_lasts_across_a_mcp a_dismissed_slash_line_shows_no_ghost a_blank_edited_before_the_word
+test tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row ... FAILED
+test tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one ... FAILED
+test tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash ... FAILED
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4768 filtered out; finished in 0.02s
+thread 'tui::shell::tests::a_blank_edited_before_the_word_puts_the_mark_back_on_the_first_row' panicked at src/tui/shell.rs:36284:60:
+the menu
+thread 'tui::shell::tests::a_dismissed_slash_line_shows_no_ghost_while_it_is_still_one' panicked at src/tui/shell.rs:36268:9:
+the ghost outlived the dismissal
+thread 'tui::shell::tests::a_dismissal_lasts_across_a_mcp_line_whose_kind_is_still_slash' panicked at src/tui/shell.rs:36245:9:
+a dismissal made over `/mc` was forgotten at `/mcp x`
+## (the mark case fails at its first look: the base opens no menu for `  /e`.)
+## The router case (a_command_led_by_a_no_break_space_runs_with_an_argument_and_is_refused_without) records a
+## difference the base already had: the code it reads (src/tui/router.rs's classify, src/interactive.rs's) is
+## unchanged since afd891af (git diff afd891af 9af11724 -- src/interactive.rs is empty; router.rs gains only the
+## case), so it is not a RED.

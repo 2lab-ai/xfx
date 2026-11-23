@@ -1,0 +1,20 @@
+# round 6, item 2: check-env-reads.py with CARGO scoped, in a clone at a3f8ee26 with round 6's diff (= bbb2c109..23819f7a), rustup's own multiplexer first on PATH, RUSTUP_TOOLCHAIN=1.99.1, TMPDIR through the /tmp link, under the suite lock (round 6's check.sh)
+## cargo: cargo 1.99.1 (5f94df478 2026-08-27)
+## check-env-reads.py
+check-env-reads: 41 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 75 compile-time reads of 7 names; 52 test binaries started with a marker no parent makes
+check-env-reads: OK
+exit 0
+## self-test
+exit 0
+refused   tests/cargo_path_outside_its_place.rs
+accepted  tests/cargo_path_in_its_place.rs
+check-env-reads --self-test: 68 fixtures, 0 not as expected
+refused   tests/cargo_path_outside_its_place.rs
+            a core::env! of CARGO, a compile-time name only tests/support/isolated.rs may read
+            compiled with CARGO from the environment (rustc's dep-info), a compile-time name only crates under tests/ may read
+accepted  tests/cargo_path_in_its_place.rs
+## RED: CARGO global again (round 5's table), the self-test
+NOT REFUSED for ['of CARGO, a compile-time name only tests/support/isolated.rs may read', "compiled with CARGO from the environment (rustc's dep-info), a compile-time name only crates under tests/"] t
+accepted  tests/cargo_path_in_its_place.rs
+check-env-reads --self-test: 68 fixtures, 1 not as expected
+## restored:  M scripts/check-env-reads.py

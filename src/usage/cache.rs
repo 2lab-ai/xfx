@@ -887,7 +887,9 @@ mod fs {
         drop(file);
 
         #[cfg(test)]
-        if std::env::var_os(KILL_BEFORE_RENAME).is_some() {
+        let kill = env_exception!(var_os("XFX_TEST_USAGE_CACHE_KILL_BEFORE_RENAME"));
+        #[cfg(test)]
+        if kill.is_some() {
             let _ = rustix::process::kill_process(
                 rustix::process::getpid(),
                 rustix::process::Signal::KILL,

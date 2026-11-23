@@ -14,7 +14,7 @@ mod support;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -34,26 +34,6 @@ use support::fake_gateway::{
     content_only, finish, finish_with_usage, sse_body, sse_body_without_done, text_delta,
     tool_call, FakeGateway, Reply,
 };
-
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-    // A proxy, or an exemption from one, in the developer's shell would decide
-    // where a request goes; the proxy test sets these itself.
-    "HTTP_PROXY",
-    "http_proxy",
-    "HTTPS_PROXY",
-    "https_proxy",
-    "ALL_PROXY",
-    "all_proxy",
-    "NO_PROXY",
-    "no_proxy",
-];
 
 /// A test secret that must never appear on stdout or stderr.
 const TEST_KEY: &str = "xfx-test-gateway-key-must-not-appear";
@@ -1481,12 +1461,10 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
+        support::sandbox::clear_env(&mut command);
         command.env("HOME", &self.home);
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
         for (key, value) in env {
             command.env(key, value);
         }
@@ -2146,9 +2124,19 @@ fn a_tool_attempt_under(profile: Option<&str>) -> Option<(Run, Vec<String>, bool
     fs::write(sandbox.workspace.join("secrets/key"), SECRET).unwrap();
     let settings = sandbox.home.join(".xfx").join("settings.json");
     fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    // Owner-only whatever the umask: a profile group or other may write to
+    // is one fx does not read, so it would refuse nothing.
+    fs::set_permissions(
+        settings.parent().unwrap(),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
     let key = serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap();
     match profile {
-        Some(text) => fs::write(&settings, text.replace("{ROOT}", &key)).unwrap(),
+        Some(text) => {
+            fs::write(&settings, text.replace("{ROOT}", &key)).unwrap();
+            fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+        }
         None => {
             fs::write(&settings, r#"{"permission":{"read":"allow"}}"#).unwrap();
             fs::set_permissions(&settings, fs::Permissions::from_mode(0o000)).unwrap();
@@ -2195,19 +2183,19 @@ fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
         "{bodies:?}"
     );
     assert!(written, "the control's write ran");
+    // fx v0.0.16 starts with these: its parse of the layer stops first at
+    // `skill_symlink_authorities`, a cause no launch refuses
+    // (`config_runtime.zig:1025-1037@481104fd`).
     for profile in [
-        Some(r#"{"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#),
         Some(
-            r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+            r#"{"skill_symlink_authorities":5,"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#,
         ),
-        Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
-        Some("{ this is not json"),
-        // A real read error, not a parse error.
-        None,
+        Some(
+            r#"{"skill_symlink_authorities":5,"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+        ),
     ] {
         let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
-            eprintln!("skipped the unreadable profile: the mode bits do not stop this reader");
-            continue;
+            unreachable!("a readable profile");
         };
         assert!(
             run.stderr.contains(
@@ -2228,6 +2216,33 @@ fn ask_with_a_permission_table_that_does_not_read_runs_no_tool() {
             "{profile:?}: {}",
             first["tools"]
         );
+    }
+    // A profile that does not read at all, whose entry for this workspace is
+    // not an object, or whose table fx's parse stops at first, is refused
+    // before the turn, as fx v0.0.16 refuses it
+    // (`app_lifecycle.zig:689-703@481104fd`): no request, so no tool and no
+    // secret, and the JSON result names the error.
+    for profile in [
+        Some(r#"{"permission":{"read":"allow","edit":"allow"},"workspaces":{{ROOT}:["x"]}}"#),
+        Some(r#"{"permission":{"read":"allow","edit":"allow","bash":"perhaps"}}"#),
+        Some(
+            r#"{"permission":{"bash":"perhaps"},"workspaces":{{ROOT}:{"permission":{"read":"allow","edit":"allow"}}}}"#,
+        ),
+        Some("{ this is not json"),
+        // A real read error, not a parse error.
+        None,
+    ] {
+        let Some((run, bodies, written)) = a_tool_attempt_under(profile) else {
+            eprintln!("skipped the unreadable profile: the mode bits do not stop this reader");
+            continue;
+        };
+        assert_eq!(run.code, Some(1), "{profile:?}");
+        assert_eq!(
+            run.stdout, "{\"kind\":\"error\",\"message\":\"InvalidProfileConfiguration\"}\n",
+            "{profile:?}"
+        );
+        assert!(bodies.is_empty(), "{profile:?}: a request was sent");
+        assert!(!written, "{profile:?}: the write ran");
     }
 }
 
@@ -2296,6 +2311,7 @@ fn ask_help_advertises_only_the_implemented_flags() {
         "--no-save",
         "--auto",
         "--yolo",
+        "--full-access",
         "--resume",
         "--resume-id",
     ] {
@@ -2307,6 +2323,27 @@ fn ask_help_advertises_only_the_implemented_flags() {
             "ask help must not advertise the deferred flag {deferred}"
         );
     }
+    // fx's two lines for full access, in its order: the flag, then its alias
+    // (`commands.zig:35-37@481104fd`), the product's own name in the first.
+    let lines: Vec<&str> = run.stdout.lines().map(str::trim).collect();
+    let full = lines
+        .iter()
+        .position(|line| {
+            line.starts_with("--full-access ") && line.ends_with(" Disable xfx permission checks")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "ask help must list --full-access as fx does: {}",
+                run.stdout
+            )
+        });
+    assert!(
+        lines[full + 1].starts_with("--yolo ")
+            && lines[full + 1].ends_with(" Alias for --full-access"),
+        "ask help must list --yolo as fx's alias right after it: {}",
+        run.stdout
+    );
+    assert!(!run.stdout.contains("[alias"), "{}", run.stdout);
 }
 
 #[test]

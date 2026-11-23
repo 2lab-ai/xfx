@@ -669,6 +669,13 @@ fn settled(dashboard: &mut crate::usage::dashboard::Dashboard) -> Snapshot {
 /// (none: nothing listens), and the status it ends in.
 type Case<'a> = (&'a str, Option<(u16, String)>, Status);
 
+/// The system clock: what `crate::usage::dashboard::wall_clock` is when no
+/// clock file pins it, without asking the process whether one does, which a
+/// unit test may not (`crate::test_env`).
+fn system_clock() -> crate::usage::dashboard::Clock {
+    std::sync::Arc::new(crate::session::event::system_now_ms)
+}
+
 #[test]
 fn no_screen_the_runtime_reaches_names_the_key() {
     // S3 through the production path: a question carrying a sentinel key,
@@ -691,7 +698,7 @@ fn no_screen_the_runtime_reaches_names_the_key() {
     let holding = std::sync::Arc::clone(&held);
     let mut fetching = Dashboard::new(
         None,
-        crate::usage::dashboard::wall_clock(),
+        system_clock(),
         Box::new(move |job| {
             holding.lock().expect("the jobs").push(job);
             std::thread::Builder::new().spawn(|| {})
@@ -751,7 +758,7 @@ fn no_screen_the_runtime_reaches_names_the_key() {
         let origin = gateway
             .as_ref()
             .map_or_else(|| "http://127.0.0.1:9".to_string(), |g| g.origin.clone());
-        let mut dashboard = Dashboard::new(None, crate::usage::dashboard::wall_clock(), spawn());
+        let mut dashboard = Dashboard::new(None, system_clock(), spawn());
         dashboard.open(question_at(&origin, SENTINEL));
         let snapshot = settled(&mut dashboard);
         assert_eq!(snapshot.status, expected, "{name}");
@@ -763,7 +770,7 @@ fn no_screen_the_runtime_reaches_names_the_key() {
         Unavailable::UnsupportedProvider,
         Unavailable::ProviderRejected,
     ] {
-        let mut dashboard = Dashboard::new(None, crate::usage::dashboard::wall_clock(), spawn());
+        let mut dashboard = Dashboard::new(None, system_clock(), spawn());
         dashboard.open(question_at("http://127.0.0.1:9", SENTINEL));
         dashboard.open_unavailable(reason);
         reached.push((format!("{reason:?}"), dashboard.snapshot()));

@@ -1,0 +1,31 @@
+== suite-lock.sh gates.sh <a git clone --no-local of the branch at 27d57d69> <logs> <smoke>, TMPDIR short (round 3)
+# head 27d57d69; tree clean: yes
+01 fmt                                exit 0     2s  load 11.29
+02 clippy                             exit 0    27s  load 11.29
+03 clippy-fault                       exit 0    30s  load 11.27
+04 test                               exit 0   188s  load 15.22
+05 test-fault                         exit 0   221s  load 12.44
+06 check-xfx-identity                 exit 0     2s  load 11.83
+07 check-no-stubs                     exit 0    15s  load 11.83
+08 check-no-secrets                   exit 0    89s  load 12.66
+09 check-no-local-paths               exit 0     6s  load 20.10
+10 test-check-no-local-paths          exit 0    21s  load 19.37
+11 check-preview-contract             exit 0     5s  load 18.81
+12 check-tui-preflight-cost           exit 0   200s  load 20.26
+13 check-usage-clock                  exit 0     1s  load 23.95
+14 test-check-no-secrets              exit 0   124s  load 23.95
+15 test-gate-env                      exit 0   224s  load 22.37
+16 test-preview-contract              exit 0    67s  load 9.79
+17 fxcap-test-sweep                   exit 0    18s  load 11.20
+18 fxcap-test-capture                 exit 0   384s  load 11.02
+19 build-release                      exit 0    19s  load 9.60
+20 build-faulty                       exit 0    26s  load 11.95
+21 smoke                              exit 0     2s  load 13.81
+22 smoke-tui                          exit 0    69s  load 13.81
+# 22 steps, 0 failed; tree clean after: yes
+
+== from the step logs
+04-test: 5690 passed, 0 failed
+05-test-fault: 5727 passed, 0 failed
+47 check(s), 0 failure(s)
+smoke-tui: 37 scenarios + the oracle, 1167 checks, 0 failures

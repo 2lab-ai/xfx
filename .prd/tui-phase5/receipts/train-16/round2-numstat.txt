@@ -1,0 +1,12 @@
+# git diff --numstat 2b78aab6 6137bd3d -- . ':!.prd'
+116	0	src/tui/shell.rs
+1	1	tests/tui.rs
+# by class (lines out, lines in):
+  test code (src/tui/shell.rs's mod tests, from :17755): -0 +116
+  test file (tests/), a comment: -1 +1
+  product code: -0 +0
+
+# round 1's receipt commits, between 2b78aab6 and round 2's code: files each touches outside .prd/tui-phase5/receipts/train-16/ (git show --format= --name-only)
+  37b292a8: 0 of 181
+  f2cb84d6: 0 of 1
+  7d63b764: 0 of 1

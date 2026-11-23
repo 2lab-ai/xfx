@@ -1,0 +1,109 @@
+== merge b2d044c9: ours 866747ff, theirs bacb1052, base 3943d667; files both changed: 13
+  docs/parity.md: ours 22 hunks, theirs 7 hunks; nearest: 0 unchanged base lines (ours 42-42, theirs 42-43)
+    touching: ours 42-42, theirs 42-43
+    touching: ours 46-46, theirs 45-45
+    touching: ours 92-96, theirs 96-96
+    touching: ours 162-163, theirs 163-163
+    touching: ours 206-206, theirs 206-206
+  scripts/fxcap/capfile.py: ours 3 hunks, theirs 1 hunks; nearest: 1 unchanged base lines (ours 165-166, theirs 163-163)
+  scripts/fxcap/capture.sh: ours 15 hunks, theirs 1 hunks; nearest: 90 unchanged base lines (ours 380-381, theirs 289-289)
+  scripts/fxcap/parity-ledger.toml: ours 40 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 551-552, theirs 544-552)
+    touching: ours 551-552, theirs 544-552
+  scripts/fxcap/scenarios/p5-panels-badsettings.cap: ours 1 hunks, theirs 1 hunks; nearest: 0 unchanged base lines (ours 7-7, theirs 5-8)
+    touching: ours 7-7, theirs 5-8
+  scripts/fxcap/test_sweep.py: ours 7 hunks, theirs 1 hunks; nearest: 229 unchanged base lines (ours 880-879, theirs 651-650)
+  src/app.rs: ours 16 hunks, theirs 6 hunks; nearest: 40 unchanged base lines (ours 191-192, theirs 233-232)
+  src/interactive.rs: ours 12 hunks, theirs 1 hunks; nearest: 24 unchanged base lines (ours 1480-1480, theirs 1505-1504)
+  src/output.rs: ours 5 hunks, theirs 4 hunks; nearest: 9 unchanged base lines (ours 391-390, theirs 400-400)
+  src/tui/mod.rs: ours 3 hunks, theirs 1 hunks; nearest: 408 unchanged base lines (ours 490-503, theirs 82-81)
+  tests/cli.rs: ours 5 hunks, theirs 13 hunks; nearest: 42 unchanged base lines (ours 159-158, theirs 117-116)
+  tests/sessions.rs: ours 21 hunks, theirs 1 hunks; nearest: 0 unchanged base lines (ours 3239-3239, theirs 3239-3239)
+    touching: ours 3239-3239, theirs 3239-3239
+  tests/tui.rs: ours 14 hunks, theirs 5 hunks; nearest: 0 unchanged base lines (ours 591-591, theirs 591-591)
+    touching: ours 591-591, theirs 591-591
+    touching: ours 1063-1062, theirs 1063-1062
+    touching: ours 2483-2483, theirs 2483-2483
+== merge e8b004a5: ours b2d044c9, theirs 32eb858f, base afd891af; files both changed: 4
+  docs/parity.md: ours 23 hunks, theirs 5 hunks; nearest: 0 unchanged base lines (ours 92-96, theirs 96-97)
+    touching: ours 92-96, theirs 96-97
+    touching: ours 99-100, theirs 99-100
+    touching: ours 118-118, theirs 116-117
+    touching: ours 237-241, theirs 237-237
+  scripts/fxcap/parity-ledger.toml: ours 39 hunks, theirs 13 hunks; nearest: 0 unchanged base lines (ours 505-505, theirs 505-505)
+    touching: ours 505-505, theirs 505-505
+    touching: ours 689-689, theirs 689-689
+    touching: ours 806-806, theirs 806-806
+    touching: ours 817-817, theirs 817-817
+    touching: ours 829-829, theirs 829-829
+    touching: ours 840-840, theirs 840-840
+    touching: ours 851-851, theirs 851-851
+    touching: ours 863-863, theirs 863-863
+    touching: ours 865-865, theirs 865-865
+    touching: ours 919-919, theirs 919-919
+    touching: ours 955-955, theirs 955-955
+    touching: ours 989-989, theirs 989-989
+    touching: ours 1066-1066, theirs 1066-1066
+  src/tui/mod.rs: ours 4 hunks, theirs 1 hunks; nearest: 230 unchanged base lines (ours 527-526, theirs 757-756)
+  src/tui/shell.rs: ours 223 hunks, theirs 50 hunks; nearest: 0 unchanged base lines (ours 9273-9272, theirs 9271-9274)
+    touching: ours 9273-9272, theirs 9271-9274
+== merge 849f5017: ours e8b004a5, theirs 7c3f6c1e, base 32afd307; files both changed: 26
+  .github/workflows/ci.yml: ours 3 hunks, theirs 4 hunks; nearest: 26 unchanged base lines (ours 160-159, theirs 134-133)
+  CONTRIBUTING.md: ours 4 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 43-44, theirs 43-47)
+    touching: ours 43-44, theirs 43-47
+  Cargo.toml: ours 3 hunks, theirs 4 hunks; nearest: 7 unchanged base lines (ours 3-3, theirs 11-10)
+  src/app.rs: ours 22 hunks, theirs 1 hunks; nearest: 36 unchanged base lines (ours 1315-1315, theirs 1352-1352)
+  src/config.rs: ours 31 hunks, theirs 3 hunks; nearest: 10 unchanged base lines (ours 833-832, theirs 822-822)
+  src/gateway/mod.rs: ours 2 hunks, theirs 2 hunks; nearest: 260 unchanged base lines (ours 619-618, theirs 358-358)
+  src/image.rs: ours 4 hunks, theirs 1 hunks; nearest: 991 unchanged base lines (ours 959-958, theirs 1950-1950)
+  src/interactive.rs: ours 14 hunks, theirs 1 hunks; nearest: 98 unchanged base lines (ours 1834-1848, theirs 1735-1735)
+  src/lib.rs: ours 6 hunks, theirs 2 hunks; nearest: 15 unchanged base lines (ours 83-83, theirs 99-98)
+  src/mcp/command/tests.rs: ours 3 hunks, theirs 3 hunks; nearest: 871 unchanged base lines (ours 961-960, theirs 82-89)
+  src/mcp/config.rs: ours 2 hunks, theirs 2 hunks; nearest: 553 unchanged base lines (ours 3212-3211, theirs 3765-3765)
+  src/mcp/runtime.rs: ours 2 hunks, theirs 5 hunks; nearest: 345 unchanged base lines (ours 1167-1170, theirs 822-821)
+  src/provider/model.rs: ours 80 hunks, theirs 1 hunks; nearest: 426 unchanged base lines (ours 3043-3043, theirs 3470-3470)
+  src/session/store/fork/tests.rs: ours 5 hunks, theirs 1 hunks; nearest: 690 unchanged base lines (ours 569-568, theirs 1259-1259)
+  src/tui/file_index.rs: ours 114 hunks, theirs 3 hunks; nearest: 10 unchanged base lines (ours 1124-1123, theirs 1134-1134)
+  src/tui/mod.rs: ours 5 hunks, theirs 3 hunks; nearest: 14 unchanged base lines (ours 82-81, theirs 67-67)
+  src/tui/shell.rs: ours 1489 hunks, theirs 6 hunks; nearest: 0 unchanged base lines (ours 25893-25908, theirs 25906-25906)
+    touching: ours 25893-25908, theirs 25906-25906
+  src/tui/worker.rs: ours 194 hunks, theirs 40 hunks; nearest: 0 unchanged base lines (ours 10173-10173, theirs 10173-10173)
+    touching: ours 10173-10173, theirs 10173-10173
+  tests/cli.rs: ours 18 hunks, theirs 5 hunks; nearest: 12 unchanged base lines (ours 19-18, theirs 7-6)
+  tests/gateway.rs: ours 10 hunks, theirs 5 hunks; nearest: 659 unchanged base lines (ours 2149-2148, theirs 1487-1489)
+  tests/interactive.rs: ours 6 hunks, theirs 4 hunks; nearest: 1953 unchanged base lines (ours 575-575, theirs 2529-2529)
+  tests/sessions.rs: ours 21 hunks, theirs 5 hunks; nearest: 7 unchanged base lines (ours 37-38, theirs 46-46)
+  tests/support/mod.rs: ours 1 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 19-18, theirs 19-18)
+    touching: ours 19-18, theirs 19-18
+  tests/support/sandbox.rs: ours 1 hunks, theirs 5 hunks; nearest: 6 unchanged base lines (ours 36-36, theirs 18-29)
+  tests/tool_loop.rs: ours 1 hunks, theirs 7 hunks; nearest: 1094 unchanged base lines (ours 2537-2537, theirs 3632-3632)
+  tests/tui.rs: ours 18 hunks, theirs 5 hunks; nearest: 182 unchanged base lines (ours 2404-2404, theirs 2221-2221)
+== merge dd2ac93d: ours 849f5017, theirs dd9f5f0a, base 71d3e02b; files both changed: 2
+  scripts/fxcap/roots.py: ours 2 hunks, theirs 14 hunks; nearest: 0 unchanged base lines (ours 80-82, theirs 80-81)
+    touching: ours 80-82, theirs 80-81
+  scripts/fxcap/test_capture.py: ours 4 hunks, theirs 1 hunks; nearest: 132 unchanged base lines (ours 291-290, theirs 423-422)
+== merge 71787971: ours dd2ac93d, theirs ca496c10, base df45025c; files both changed: 4
+  docs/parity.md: ours 24 hunks, theirs 1 hunks; nearest: 0 unchanged base lines (ours 237-241, theirs 237-237)
+    touching: ours 237-241, theirs 237-237
+  scripts/fxcap/parity-ledger.toml: ours 39 hunks, theirs 7 hunks; nearest: 0 unchanged base lines (ours 817-817, theirs 817-817)
+    touching: ours 817-817, theirs 817-817
+    touching: ours 828-828, theirs 828-828
+    touching: ours 840-840, theirs 840-840
+    touching: ours 851-851, theirs 851-851
+    touching: ours 862-862, theirs 862-862
+    touching: ours 930-930, theirs 930-930
+  src/tui/approval_amendment.rs: ours 19 hunks, theirs 18 hunks; nearest: 0 unchanged base lines (ours 136-175, theirs 166-165)
+    touching: ours 136-175, theirs 166-165
+  src/tui/shell.rs: ours 196 hunks, theirs 6 hunks; nearest: 2 unchanged base lines (ours 9779-9779, theirs 9774-9776)
+== merge 1bce5348: ours 71787971, theirs 6d94fbc0, base df45025c; files both changed: 4
+  docs/parity.md: ours 24 hunks, theirs 2 hunks; nearest: 0 unchanged base lines (ours 162-163, theirs 162-162)
+    touching: ours 162-163, theirs 162-162
+    touching: ours 237-241, theirs 237-237
+  scripts/fxcap/parity-ledger.toml: ours 39 hunks, theirs 6 hunks; nearest: 0 unchanged base lines (ours 817-817, theirs 817-817)
+    touching: ours 817-817, theirs 817-817
+    touching: ours 828-828, theirs 828-828
+    touching: ours 840-840, theirs 840-840
+    touching: ours 851-851, theirs 851-851
+    touching: ours 862-862, theirs 862-862
+    touching: ours 930-930, theirs 930-930
+  src/tui/input.rs: ours 3 hunks, theirs 69 hunks; nearest: 114 unchanged base lines (ours 2214-2214, theirs 2099-2099)
+  src/tui/shell.rs: ours 202 hunks, theirs 2 hunks; nearest: 106 unchanged base lines (ours 23676-23675, theirs 23782-23781)

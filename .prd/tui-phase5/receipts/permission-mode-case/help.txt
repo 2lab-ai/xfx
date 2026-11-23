@@ -1,0 +1,12 @@
+== ask --help, the mode flags' lines: fx v0.0.16 (sha256 8e6cda2efddb, FX_AUTO_UPGRADE=0), then xfx at 83ed41a0 and at 9b37d774
+-- fx
+  --auto                      Automatically review unresolved permission requests
+  --full-access               Disable fx permission checks
+  --yolo                      Alias for --full-access
+-- xfx 83ed41a0
+      --auto              Run bounded reversible workspace changes and read-only commands without asking
+      --full-access       Disable xfx permission checks
+      --yolo              Alias for --full-access
+-- xfx 9b37d774
+      --auto              Run bounded reversible workspace changes and read-only commands without asking
+      --yolo              Skip every permission check for this run (prints a warning) [alias: --full-access]

@@ -1,0 +1,31 @@
+# lines holding #[test] under src and tests (git grep -c '#\[test\]'), and '    def test_' under scripts/fxcap, per commit
+866747ff docs(receipt): train 15 round 2 -- the final scan through c4 rust  5855  fxcap 241
+3943d667 docs(receipt): TRAIN12-CI round 3 -- the commit table names  rust  5567  fxcap 208
+bacb1052 docs(receipt): PROFILE-JSON-LIMITS round 3 -- the reload reg rust  5603  fxcap 208
+afd891af docs(receipt): P5 train 13 round 2 -- final-scan-r2.txt and  rust  5598  fxcap 206
+32eb858f docs(receipt): SLASH-MIXED-SKILLS round 2 -- the four check  rust  5630  fxcap 206
+32afd307 Merge pull request #88 from 2lab-ai/train/p5-1109c           rust  5452  fxcap 176
+7c3f6c1e docs(receipt): TEST-ENV-ISOLATION round 9 -- cfg_select! RED rust  5478  fxcap 176
+71d3e02b docs(receipt): TRAIN12-CI round 5 -- the commit table names  rust  5567  fxcap 208
+dd9f5f0a docs(receipt): LOCAL-PATHS-WRAP round 5 -- split marks count rust  5567  fxcap 219
+df45025c docs(receipt): COMPOSER-SUPER-ARROWS round 2 mutants 3 of 3  rust  5633  fxcap 206
+ca496c10 docs(receipt): APPROVAL-PASTE-SPACES round 3 -- the ledger s rust  5642  fxcap 206
+6d94fbc0 docs(receipt): META-PREFIX-DECODE round 4, RED by mutant, mu rust  5646  fxcap 206
+b2d044c9 Merge the profile line into train 16 (fix/p5-profile-json-li rust  5891  fxcap 241
+e8b004a5 Merge the slash line into train 16 (fix/p5-slash-mixed-skill rust  5923  fxcap 241
+849f5017 Merge TEST-ENV-ISOLATION into train 16 (fix/p5-test-env-isol rust  5949  fxcap 241
+dd2ac93d Merge LOCAL-PATHS-WRAP into train 16 (fix/p5-local-paths-wra rust  5949  fxcap 252
+71787971 Merge APPROVAL-PASTE-SPACES into train 16 (fix/p5-approval-p rust  5958  fxcap 252
+1bce5348 Merge META-PREFIX-DECODE into train 16 (fix/p5-meta-prefix-d rust  5971  fxcap 252
+622b2865 train 16: the join MUSTs and the decoder's meetings, three j rust  5974  fxcap 252
+6137bd3d train 16: round 2's two cases at the end of shell.rs' tests, rust  5976  fxcap 252
+
+profile (3943d667..bacb1052): 36 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+slash (afd891af..32eb858f): 32 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+test-env (32afd307..7c3f6c1e): 27 tests added, 1 deleted; added and missing at the head: 0; deleted and at the head: 0
+lpw (71d3e02b..dd9f5f0a): 0 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+aps (df45025c..ca496c10): 9 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+mpd (df45025c..6d94fbc0): 13 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+join (1bce5348..622b2865): 3 tests added, 0 deleted; added and missing at the head: 0; deleted and at the head: 0
+# head 6137bd3d: 6107 tests; 0 added tests missing
+# exit 0

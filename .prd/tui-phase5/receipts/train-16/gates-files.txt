@@ -1,0 +1,18 @@
+# gates-files.sh <clone> 866747ff 23819f7a, in a git clone --no-local at 28d72d88 (the receipt in its final form), under the suite lock; exit 0
+# The file checks with the receipt in its final form, at 28d72d88, in a `git clone --no-local`; each exit from `$?` right after its command.
+# tree clean: yes
+# code since the gate 23819f7a, outside .prd/tui-phase5/receipts/train-16: none
+cargo fmt --check: exit 0; 
+./scripts/check-xfx-identity.sh: exit 0; check-xfx-identity: ok (25859 tracked file(s) scanned)
+./scripts/check-no-stubs.sh: exit 0; check-no-stubs: ok
+./scripts/check-no-secrets.sh: exit 0; check-no-secrets: ok (25859 tracked file(s) scanned)
+./scripts/check-no-local-paths.sh: exit 0; check-no-local-paths: ok (25859 tracked file(s) scanned; 8 marked fixture line(s), 84 placeholder line(s); 0 symlink(s))
+# added lines of git diff 866747ff..HEAD holding the brief's pattern: 0
+# of them in this folder: 0
+# the reference checks at 28d72d88
+refs: # 90 references; 6 (side, reference) pairs MOVED; * = the side's own text cites it
+refs_all: # 198 references in 651 files; 36 moved or changed on some side that cites them; entries outside the historical plans: 3
+refs_short: # 124 short references into changed files; 70 moved or changed on some side that cites them; entries outside the historical plans: 0
+refs_bare: # 152 bare continuations after a reference into a changed file; 83 moved or changed on some side tha; entries outside the historical plans: 4
+refs_prd: # 29 references; 0 (side, reference) pairs MOVED; * = the side's own text cites it
+content.sh: # all 54 files: SAME 256; SAME-ROW 43; SAME-LINES 3; WRONG 8; other product 556; unread 1; refs 867; WRONG: scripts/smoke-tui.sh:251 ,65 scripts/smoke-tui.sh:1568 ,65 src/tools/question.rs:303 Cargo.toml:42 src/tui/event_loop.rs:8409 ,1156 src/tui/event_loop.rs:8409 ,1626 src/tui/event_loop.rs:8409 ,1696 src/tui/event_loop.rs:8409 ,1758 tests/session_compat.rs:57 src/session/event.rs:98-192 

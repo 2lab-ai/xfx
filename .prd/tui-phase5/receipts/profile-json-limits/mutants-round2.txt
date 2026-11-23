@@ -1,0 +1,38 @@
+clone of 45009bc7
+KILLED serde_json's parse back (the base): --lib config::: config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer, config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it, config::tests::a_project_file_fx_reads_is_applied (+1)
+KILLED keep one level less: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion, config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+KILLED keep one level more: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion, config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+KILLED keep every level: --lib config::: crashed (stack overflow)
+KILLED kept off by one: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion, config::tests::no_key_xfx_reads_looks_past_the_depth_kept
+KILLED past f64 is 0: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it, config::tests::a_project_file_fx_reads_is_applied (+1)
+KILLED past f64 is null: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::no_key_xfx_reads_takes_a_number_past_f64_as_other_than_a_float
+KILLED past f64 loses its sign: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED past f64 refused: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it, config::tests::a_project_file_fx_reads_is_applied (+2)
+KILLED no number grammar: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a fraction needs no digit: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a leading zero is a digit: --lib config::: config::layer_json::tests::a_layer_nested_at_any_depth_is_read_without_recursion, config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_number_past_f64_or_a_deep_value_is_read_as_fxs_parse_reads_it
+KILLED no `+` in a number: --lib config::: config::layer_json::tests::a_number_past_f64_is_read_as_one_no_integer_key_takes, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a key twice taken: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer, config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (+1)
+KILLED a key twice taken past the depth kept: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
+KILLED an escape is one byte: --lib config::: config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a string undecoded: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse, config::tests::a_key_twice_is_a_file_that_does_not_parse_in_either_layer, config::tests::a_launch_refuses_what_fxs_parse_of_the_profile_refuses (+1)
+KILLED anything after the value: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED no carriage return in space: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED a trailing comma in an array: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth
+KILLED no colon needed: --lib config::: config::layer_json::tests::what_std_json_refuses_is_refused_at_any_depth, config::layer_json::tests::within_serde_jsons_limits_the_reader_is_serde_jsons_parse
+KILLED choices read by serde_json again: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED a failed load is no choice (the base's swallow): --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED fx's checks skipped: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED workspaces need not be an object: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED the entry need not be an object: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED a list need not be an array: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED a name need not be a string: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED a name may be empty: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED the rejections unchecked: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED the switch unchecked: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED a profile that does not read is none: --lib config::: mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED the runtime loads the workspace anyway: --lib mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them: mcp::command::tests::saved_choices_are_read_as_fxs_parse_reads_them
+KILLED not UTF-8 is unreadable again: --lib config::: config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer
+KILLED not UTF-8 decoded lossily: --lib config::: config::tests::bytes_that_are_not_utf8_are_malformed_settings_in_either_layer, mcp::config::tests::the_saved_choices_load_where_fxs_load_does
+KILLED a recursive reader: --lib config::: crashed (stack overflow)
+== 36/36 killed

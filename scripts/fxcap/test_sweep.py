@@ -738,6 +738,8 @@ class Capfile(unittest.TestCase):
             (YOLO + "until shown Full access\nuntil gone Full access\nwait 4\nsnap start\n", []),
             # Each binary's own environment, and fx's other spelling.
             ("fx: env FX_PERMISSION_MODE=full-access\nwait 4\nsnap start\n", [("fx", "snap start")]),
+            # The spellings xfx reads too, in any case (PERMISSION-MODE-CASE).
+            ("xfx: env XFX_PERMISSION_MODE=FULL-ACCESS\nwait 4\nsnap start\n", [("xfx", "snap start")]),
             ("xfx: env XFX_PERMISSION_MODE=yolo\nfx: until gone Full access\nwait 4\nsnap start\n", [("xfx", "snap start")]),
             ("wait 4\nsnap start\n", []),
         ):

@@ -1,0 +1,10 @@
+$ python3 -I ../approval-vertical-spellings/cmp_sweeps.py <base>/pairs.json <head>/pairs.json   (APPROVAL-VERTICAL-SPELLINGS' comparer, unchanged, run from its folder)
+change p5-approval-paste-spaces/amend-letter: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/amend-pasted: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/amend-super-left: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/amend-terminal-paste: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 4 -> 0
+change p5-approval-paste-spaces/deny-fits: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 6 -> 4
+change p5-approval-paste-spaces/deny-paste-refused: unresolved-defect -> unresolved-defect; causes ['approval-grant-scope'] -> ['approval-grant-scope']; uncaused 5 -> 4
+base: 211 pairs, 107 pass, 10 with uncaused rows
+head: 211 pairs, 107 pass, 6 with uncaused rows
+drops: 0

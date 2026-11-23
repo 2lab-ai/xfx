@@ -1,0 +1,30 @@
+scan.sh <this tree> at f5e95437, with the round-4 receipt files staged as committed after it
+tree f5e95437; roots.py sha256 a71c4a5344e4
+tracked files 18918, 17820 of them under .prd/
+== roots.py --check, the machine roots (7), captures-and-receipts (17820 files): exit 0, 0 file(s) refused
+== roots.py --check, the machine roots (7), rest (1098 files): exit 1, 3 file(s) refused
+scripts/fxcap/test_capture.py still holds tmp, tmp:real after the rewrite
+scripts/fxcap/test_sweep.py still holds tmp, tmp:real after the rewrite
+src/skills/catalog.rs still holds tmp, tmp:real after the rewrite
+== roots.py --check, the public roots (3), captures-and-receipts (17820 files): exit 1, 13 file(s) refused
+.prd/tui-phase4/receipts/m1/fx-mcp-fixture-40x120-after-add.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/fx-mcp-fixture-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/fx-mcp-wire-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/scenarios/mcp-fixture.cap still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/scenarios/mcp-wire.cap still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/scenarios/mcp-ws/.mcp.json still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/xfx-mcp-fixture-40x120-after-add.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/xfx-mcp-fixture-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase4/receipts/m1/xfx-mcp-wire-40x120-end.files still holds bun after the rewrite
+.prd/tui-phase5/receipts/cancel-marker/round2/sweep-compare.txt still holds bun after the rewrite
+.prd/tui-phase5/receipts/cancel-marker/round3/sweep-compare.txt still holds bun after the rewrite
+.prd/tui-phase5/receipts/local-paths/README.md still holds home after the rewrite
+.prd/tui-phase5/receipts/train-6/linux.sh still holds home after the rewrite
+== roots.py --check, the public roots (3), rest (1098 files): exit 1, 4 file(s) refused
+scripts/check-no-local-paths.sh still holds home after the rewrite
+scripts/fxcap/test_capture.py still holds bun, home after the rewrite
+src/mcp/config.rs still holds bun after the rewrite
+src/tui/mcp_menu/tests.rs still holds bun after the rewrite
+rows that open behind a mark in tracked files: 213, in 143 file(s)
+== scripts/check-no-local-paths.sh
+check-no-local-paths: ok (18918 tracked file(s) scanned; 8 marked fixture line(s), 83 placeholder line(s))

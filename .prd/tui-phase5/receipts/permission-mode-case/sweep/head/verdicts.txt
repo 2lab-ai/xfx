@@ -1,0 +1,7 @@
+p5-mode-case-env start normalized-identical
+p5-mode-case-full typed unresolved-defect
+p5-mode-case-full full unresolved-defect
+p5-mode-case-key start normalized-identical
+p5-mode-case-key full-access-upper normalized-identical
+p5-mode-case-key auto-cap normalized-identical
+p5-mode-case-key full-access-space normalized-identical

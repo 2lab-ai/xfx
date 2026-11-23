@@ -1,0 +1,253 @@
+# functions.py: each function's sha256 (12 hex digits, and its length in lines) per commit; then the lines that differ between the named pairs
+| function | base `866747ff` | decoder `df45025c` | aps `ca496c10` | mpd `6d94fbc0` | slash `32eb858f` | test-env `7c3f6c1e` | m1 `b2d044c9` | m2 `e8b004a5` | m3 `849f5017` | m4 `dd2ac93d` | m5 `71787971` | m6 `1bce5348` | join `622b2865` | head `6137bd3d` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `src/tui/approval_amendment.rs` `apply` | be0d55e01557 (3) | 811481471ec9 (34) | 82a79de04c84 (50) | 811481471ec9 (34) | 811481471ec9 (34) | 811481471ec9 (34) | be0d55e01557 (3) | be0d55e01557 (3) | be0d55e01557 (3) | be0d55e01557 (3) | d852ed327d22 (16) | d852ed327d22 (16) | d852ed327d22 (16) | d852ed327d22 (16) |
+| `src/tui/shell.rs` `offer_to_mcp_args` | 0945733cba64 (65) | 752141c0f566 (42) | 752141c0f566 (42) | 752141c0f566 (42) | 8d1cb7bddd0c (42) | 752141c0f566 (42) | 0945733cba64 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) | f67fd9613295 (65) |
+| `src/tui/shell.rs` `approval_action` | 5e35ce3fa588 (144) | absent | absent | absent | absent | absent | 5e35ce3fa588 (144) | 5e35ce3fa588 (144) | 5e35ce3fa588 (144) | 5e35ce3fa588 (144) | 25db0bfdc869 (144) | 25db0bfdc869 (144) | 25db0bfdc869 (144) | 25db0bfdc869 (144) |
+| `src/tui/shell.rs` `consume_inputs` | 3044936af4d2 (193) | 0c88c6343b20 (204) | 0c88c6343b20 (204) | 0c88c6343b20 (204) | 711026e4ee5a (196) | 8af142324cf3 (186) | 3044936af4d2 (193) | 3044936af4d2 (193) | 3044936af4d2 (193) | 3044936af4d2 (193) | 3044936af4d2 (193) | 3044936af4d2 (193) | 3044936af4d2 (193) | 3044936af4d2 (193) |
+| `src/tui/input.rs` `after_escape` | f59a5cf805d8 (78) | f59a5cf805d8 (78) | f59a5cf805d8 (78) | a3b27c247602 (109) | f59a5cf805d8 (78) | 09cd405e1ed1 (76) | f59a5cf805d8 (78) | f59a5cf805d8 (78) | f59a5cf805d8 (78) | f59a5cf805d8 (78) | f59a5cf805d8 (78) | a3b27c247602 (109) | a3b27c247602 (109) | a3b27c247602 (109) |
+| `src/tui/input.rs` `flush` | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c8c1ebe214c4 (14) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c52f5ddadc65 (8) | c8c1ebe214c4 (14) | c8c1ebe214c4 (14) | c8c1ebe214c4 (14) |
+| `src/tui/input.rs` `kitty_key` | 583f622ddd13 (162) | 583f622ddd13 (162) | 583f622ddd13 (162) | 784514756b38 (165) | 94fd4b700be3 (143) | cf91bfd58ca1 (132) | 583f622ddd13 (162) | 583f622ddd13 (162) | 583f622ddd13 (162) | 583f622ddd13 (162) | 583f622ddd13 (162) | 784514756b38 (165) | 784514756b38 (165) | 784514756b38 (165) |
+| `src/tui/input.rs` `prefixed` | absent | absent | absent | 49a9ed9baedc (7) | absent | absent | absent | absent | absent | absent | absent | 49a9ed9baedc (7) | 49a9ed9baedc (7) | 49a9ed9baedc (7) |
+| `src/tui/worker.rs` `recording` | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 2161ad2394d5 (18) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) | 039dd780ee2b (22) |
+
+## `apply`, m4 -> m5
+    +        // fx's amendment reads Home and every line-start spelling as
+    +        // `.cursor_home`, and End's as `.cursor_end`
+    +        // (`approvalDraftActionFromShortcut`,
+    +        // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret
+    +        // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,
+    +        // `approval_amendment.zig:84-92`): the draft's edges outright, not
+    +        // the caret line's -- the same edges only while a draft holds no
+    +        // line break.
+    +        let action = match action {
+    +            Action::Home | Action::LineStart { .. } => Action::DraftStart { shifted: false },
+    +            Action::End | Action::LineEnd { .. } => Action::DraftEnd { shifted: false },
+    +            other => other,
+    +        };
+
+## `approval_action`, m4 -> m5
+    -            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
+    -            // edge here, the whole draft's in fx, whose draft holds no line
+    -            // break (`super::approval_amendment`).
+    +            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the whole draft's
+    +            // edges, which the draft gives them (`Draft::apply`,
+    +            // `super::approval_amendment`).
+
+## `after_escape`, m5 -> m6
+    -    fn after_escape(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+    +    fn after_escape(&mut self, byte: u8, now: Instant, meta: bool, out: &mut Vec<Input>) {
+    -                self.stage = Stage::Csi;
+    +                self.stage = Stage::Csi { meta };
+    -            b'O' => self.stage = Stage::Ss3,
+    +            b'O' => self.stage = Stage::Ss3 { meta },
+    +            // A second ESC before the first has gone quiet: the meta prefix,
+    +            // and no event, the clock started again from this byte -- in fx
+    +            // the second reaches the decoder first, at its ground stage, which
+    +            // starts the clock (`beginEscape`, `terminal_action_decoder.zig:42-44`,
+    +            // `:186-192`). A third keeps the prefix and starts the clock again
+    +            // (`:84-88`, an ESC while a stage is pending). With nothing
+    +            // behind it, the pair resolves one Escape after `PAIR_TIMEOUT` and
+    +            // one after the quiet, two as fx delivers it ([`Self::flush`]),
+    +            // and so are a person's two presses a quiet apart: the gesture's
+    +            // two taps either way.
+    +            0x1b => {
+    +                self.stage = Stage::Esc {
+    +                    at: now,
+    +                    meta: true,
+    +                }
+    +            }
+    -            // terminator instead ([`Self::in_osc`]).
+    +            // terminator instead ([`Self::in_osc`]). Behind a second ESC the
+    +            // first was the Escape key: a report is not a key a prefix can
+    +            // belong to, and upstream's key decoder never sees one there
+    +            // (its theme monitor reads every byte first and hands a lone ESC
+    +            // on, `theme_monitor.zig:85-88`, `main.zig:3127-3134`).
+    +                if meta {
+    +                    out.push(Input::Action(Action::Escape));
+    +                }
+    +            }
+    +            // Behind the prefix, a C0 is upstream's `.ignore` and goes with
+    +            // it: the replay below is for a bare ESC alone (`prior_stage ==
+    +            // 1`, `terminal_action_decoder.zig:92-101`; the prefixed stage
+    +            // is `0x81`).
+    +            0x00..=0x1f if meta => {
+    +                self.stage = Stage::Ground;
+    +                out.push(Input::Action(Action::Ignore));
+
+## `flush`, m5 -> m6
+    -        if let Stage::Esc { at } = self.stage {
+    -            if now.saturating_duration_since(at) >= Self::ESC_TIMEOUT {
+    -                self.stage = Stage::Ground;
+    -                out.push(Input::Action(Action::Escape));
+    -            }
+    +        let Stage::Esc { at, meta } = self.stage else {
+    +            return;
+    +        };
+    +        let quiet = now.saturating_duration_since(at);
+    +        if meta && quiet >= Self::PAIR_TIMEOUT {
+    +            out.push(Input::Action(Action::Escape));
+    +            self.stage = Stage::Esc { at, meta: false };
+    +        }
+    +        if quiet >= Self::ESC_TIMEOUT {
+    +            self.stage = Stage::Ground;
+    +            out.push(Input::Action(Action::Escape));
+
+## `kitty_key`, m5 -> m6
+    -fn kitty_key(code: u32, modifiers: u8) -> Input {
+    +fn kitty_key(code: u32, modifiers: u8, meta: bool) -> Input {
+    -            // Only a bare or shifted keypad press types (:193-195); anything
+    -            // else falls through to the rest of the table.
+    -            if mods & !SHIFT == 0 {
+    +            // Only a bare or shifted keypad press types (:193-195), and not
+    +            // behind the prefix; anything else falls through to the rest of
+    +            // the table.
+    +            if !meta && mods & !SHIFT == 0 {
+    -            return Input::Action(cursor(letter, mods));
+    +            return Input::Action(cursor(letter, prefixed(mods, meta)));
+    -            return kitty_key(13, modifiers);
+    +            return kitty_key(13, modifiers, meta);
+    -        // Meta alone, which are `.ignore` (:208-217).
+    -        if mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+    +        // Meta alone, which are `.ignore` (:208-217) -- unless the prefix
+    +        // is Alt's arm for them (:83).
+    +        if !meta && mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+    -        return Input::Action(cursor(letter, mods));
+    +        return Input::Action(cursor(letter, prefixed(mods, meta)));
+    -    if code == 13 && mods == CTRL {
+    +    if code == 13 && mods == CTRL && !meta {
+    -    if code == 32 && mods == SHIFT {
+    +    if code == 32 && mods == SHIFT && !meta {
+    -    // `delete_word_right` (:251).
+    -    if is(b'd') && mods & ALT != 0 {
+    +    // `delete_word_right` (:251), Alt held or the prefix.
+    +    if is(b'd') && (meta || mods & ALT != 0) {
+    -    // any other modifiers (`ctrlOKeyAction`, :111-114, :252).
+    +    // any other modifiers or behind the prefix (`ctrlOKeyAction`, :111-114,
+    +    // :252).
+    -        return Input::Action(if mods == CTRL {
+    +        return Input::Action(if mods == CTRL && !meta {
+
+## `apply`, base -> m6
+    +        // fx's amendment reads Home and every line-start spelling as
+    +        // `.cursor_home`, and End's as `.cursor_end`
+    +        // (`approvalDraftActionFromShortcut`,
+    +        // `src/ui/input/runtime.zig:82-83@481104fd`), which put the caret
+    +        // at 0 and at the draft's length (`cursorHome`/`cursorEnd`,
+    +        // `approval_amendment.zig:84-92`): the draft's edges outright, not
+    +        // the caret line's -- the same edges only while a draft holds no
+    +        // line break.
+    +        let action = match action {
+    +            Action::Home | Action::LineStart { .. } => Action::DraftStart { shifted: false },
+    +            Action::End | Action::LineEnd { .. } => Action::DraftEnd { shifted: false },
+    +            other => other,
+    +        };
+
+## `offer_to_mcp_args`, base -> m6
+    -                if let Some(line) = args.chosen().map(str::to_string) {
+    +                if let Some(line) = args.completion() {
+    -                self.mcp_args_dismissed = true;
+    +                self.dismissed.dismiss(Trigger::Slash);
+
+## `approval_action`, base -> m6
+    -            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the caret line's
+    -            // edge here, the whole draft's in fx, whose draft holds no line
+    -            // break (`super::approval_amendment`).
+    +            // `src/ui/input/runtime.zig:75-108@481104fd`) -- the whole draft's
+    +            // edges, which the draft gives them (`Draft::apply`,
+    +            // `super::approval_amendment`).
+
+## `after_escape`, base -> m6
+    -    fn after_escape(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+    +    fn after_escape(&mut self, byte: u8, now: Instant, meta: bool, out: &mut Vec<Input>) {
+    -                self.stage = Stage::Csi;
+    +                self.stage = Stage::Csi { meta };
+    -            b'O' => self.stage = Stage::Ss3,
+    +            b'O' => self.stage = Stage::Ss3 { meta },
+    +            // A second ESC before the first has gone quiet: the meta prefix,
+    +            // and no event, the clock started again from this byte -- in fx
+    +            // the second reaches the decoder first, at its ground stage, which
+    +            // starts the clock (`beginEscape`, `terminal_action_decoder.zig:42-44`,
+    +            // `:186-192`). A third keeps the prefix and starts the clock again
+    +            // (`:84-88`, an ESC while a stage is pending). With nothing
+    +            // behind it, the pair resolves one Escape after `PAIR_TIMEOUT` and
+    +            // one after the quiet, two as fx delivers it ([`Self::flush`]),
+    +            // and so are a person's two presses a quiet apart: the gesture's
+    +            // two taps either way.
+    +            0x1b => {
+    +                self.stage = Stage::Esc {
+    +                    at: now,
+    +                    meta: true,
+    +                }
+    +            }
+    -            // terminator instead ([`Self::in_osc`]).
+    +            // terminator instead ([`Self::in_osc`]). Behind a second ESC the
+    +            // first was the Escape key: a report is not a key a prefix can
+    +            // belong to, and upstream's key decoder never sees one there
+    +            // (its theme monitor reads every byte first and hands a lone ESC
+    +            // on, `theme_monitor.zig:85-88`, `main.zig:3127-3134`).
+    +                if meta {
+    +                    out.push(Input::Action(Action::Escape));
+    +                }
+    +            }
+    +            // Behind the prefix, a C0 is upstream's `.ignore` and goes with
+    +            // it: the replay below is for a bare ESC alone (`prior_stage ==
+    +            // 1`, `terminal_action_decoder.zig:92-101`; the prefixed stage
+    +            // is `0x81`).
+    +            0x00..=0x1f if meta => {
+    +                self.stage = Stage::Ground;
+    +                out.push(Input::Action(Action::Ignore));
+
+## `flush`, base -> m6
+    -        if let Stage::Esc { at } = self.stage {
+    -            if now.saturating_duration_since(at) >= Self::ESC_TIMEOUT {
+    -                self.stage = Stage::Ground;
+    -                out.push(Input::Action(Action::Escape));
+    -            }
+    +        let Stage::Esc { at, meta } = self.stage else {
+    +            return;
+    +        };
+    +        let quiet = now.saturating_duration_since(at);
+    +        if meta && quiet >= Self::PAIR_TIMEOUT {
+    +            out.push(Input::Action(Action::Escape));
+    +            self.stage = Stage::Esc { at, meta: false };
+    +        }
+    +        if quiet >= Self::ESC_TIMEOUT {
+    +            self.stage = Stage::Ground;
+    +            out.push(Input::Action(Action::Escape));
+
+## `kitty_key`, base -> m6
+    -fn kitty_key(code: u32, modifiers: u8) -> Input {
+    +fn kitty_key(code: u32, modifiers: u8, meta: bool) -> Input {
+    -            // Only a bare or shifted keypad press types (:193-195); anything
+    -            // else falls through to the rest of the table.
+    -            if mods & !SHIFT == 0 {
+    +            // Only a bare or shifted keypad press types (:193-195), and not
+    +            // behind the prefix; anything else falls through to the rest of
+    +            // the table.
+    +            if !meta && mods & !SHIFT == 0 {
+    -            return Input::Action(cursor(letter, mods));
+    +            return Input::Action(cursor(letter, prefixed(mods, meta)));
+    -            return kitty_key(13, modifiers);
+    +            return kitty_key(13, modifiers, meta);
+    -        // Meta alone, which are `.ignore` (:208-217).
+    -        if mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+    +        // Meta alone, which are `.ignore` (:208-217) -- unless the prefix
+    +        // is Alt's arm for them (:83).
+    +        if !meta && mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+    -        return Input::Action(cursor(letter, mods));
+    +        return Input::Action(cursor(letter, prefixed(mods, meta)));
+    -    if code == 13 && mods == CTRL {
+    +    if code == 13 && mods == CTRL && !meta {
+    -    if code == 32 && mods == SHIFT {
+    +    if code == 32 && mods == SHIFT && !meta {
+    -    // `delete_word_right` (:251).
+    -    if is(b'd') && mods & ALT != 0 {
+    +    // `delete_word_right` (:251), Alt held or the prefix.
+    +    if is(b'd') && (meta || mods & ALT != 0) {
+    -    // any other modifiers (`ctrlOKeyAction`, :111-114, :252).
+    +    // any other modifiers or behind the prefix (`ctrlOKeyAction`, :111-114,
+    +    // :252).
+    -        return Input::Action(if mods == CTRL {
+    +        return Input::Action(if mods == CTRL && !meta {
+# exit 0

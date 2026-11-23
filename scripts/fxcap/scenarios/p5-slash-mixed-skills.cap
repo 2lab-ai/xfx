@@ -1,0 +1,130 @@
+# SLASH-MIXED-SKILLS: past the blank after a slash word fx does not know, or
+# one that takes an argument and has no table, fx's popup goes on and lists
+# the skills the line finds after the commands (slashCompletionPrefix,
+# src/core/slash_commands/command_specs.zig:568-576@481104fd;
+# mixedSlashCompletionCount, src/ui/footer/picker_presentation.zig:1170-1175),
+# matched as one string by name, description, source and path (skillMatchRank,
+# src/core/skills/skill_runtime.zig:1380-1392), under `Results N`. Tab, and
+# Enter on a line that is no command's name, bind the marked skill over the
+# whole line (bindSelectedSlashSkill, src/core/app/app_input_runtime.zig:2451-2476;
+# submitSlashPickerSelection, :2366-2396). A name with no argument lists
+# nothing, nor does a table's line (argCompletionAnchor, command_specs.zig:636-644).
+work slash-mixed-ws
+fx: env FX_AUTO_UPGRADE=0
+wait 3
+type /git log
+wait 0.8
+snap git-log
+key Tab
+wait 0.6
+snap git-log-tab
+key C-u
+wait 0.3
+type /git log
+wait 0.6
+key Enter
+wait 0.6
+snap git-log-enter
+key C-u
+wait 0.3
+type / 
+wait 0.8
+snap slash-space
+key C-u
+wait 0.3
+type /notes 
+wait 0.8
+snap notes
+key Down
+wait 0.4
+snap notes-down
+key Tab
+wait 0.6
+snap notes-down-tab
+key C-u
+wait 0.3
+type /rename the help
+wait 0.8
+snap rename-the-help
+key Enter
+wait 0.6
+snap rename-the-help-enter
+key C-u
+wait 0.3
+type /help 
+wait 0.6
+snap help
+key C-u
+wait 0.3
+type /clear the notes
+wait 0.6
+snap clear-the-notes
+key C-u
+wait 0.3
+type /statusline 
+wait 0.6
+snap statusline
+type bell
+wait 0.6
+snap statusline-bell
+key C-u
+wait 0.3
+type /Help 
+wait 0.6
+snap cap-help
+key C-u
+wait 0.3
+type /git log
+wait 0.6
+key Escape
+wait 0.4
+snap git-log-esc
+type  x
+wait 0.4
+snap git-log-esc-x
+key C-u
+wait 0.3
+type   /git log
+wait 0.6
+snap lead
+key Tab
+wait 0.6
+snap lead-tab
+key C-u
+wait 0.3
+type /skills x
+wait 0.6
+snap skills-x
+key C-u
+wait 0.3
+type /help x
+wait 0.6
+snap help-x
+key C-u
+wait 0.3
+type /rename notes
+wait 0.6
+snap rename-notes
+key C-u
+wait 0.3
+type /x /he
+wait 0.8
+snap ghost-list
+key Tab
+wait 0.6
+snap ghost-list-tab
+key C-u
+wait 0.3
+type /x /he
+wait 0.6
+key Enter
+wait 0.6
+snap ghost-list-enter
+key C-u
+wait 0.3
+type /rename 
+wait 0.8
+snap rename
+key Enter
+wait 0.8
+snap rename-enter

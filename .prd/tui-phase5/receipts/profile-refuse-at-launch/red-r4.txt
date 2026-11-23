@@ -1,0 +1,17 @@
+== RED, round 4: the zero-link test (a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not) spliced over 38b891c3's src in a no-local clone
+    src/config.rs | 25 +++++++++++++++++++++++++
+    1 file changed, 25 insertions(+)
+test config::tests::a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not ... FAILED
+thread 'config::tests::a_profile_renamed_over_after_its_open_is_read_and_a_linked_one_is_not' (490946217) panicked at src/config.rs:4400:9:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4742 filtered out; finished in 0.00s
+   src/config.rs:4400 in the clone is:
+        assert!(sole_regular(&stat), "a snapshot is not unsafe");
+   (the line above, assert_eq!(stat.st_nlink, 0, "no name left"), passed: the descriptor of a file renamed over after its open has no link left, and round 3's sole_regular took that as unsafe)
+
+== the home listing, round 4: the refusal tests now check the home snapshot is not empty; with round 3's snapshot() put back over adaa56de's tests (worktree, uncommitted, then restored), cargo test --test cli ask_refuses:
+test ask_refuses_a_profile_fx_refuses ... FAILED
+thread 'ask_refuses_a_profile_fx_refuses' panicked at tests/cli.rs:1951:13:
+a HOME nobody may list: the home is listed
+   (round 3's snapshot could not list a 0o300 HOME, so it saw nothing before and nothing after)
+
+== the look before the open (a_project_file_is_looked_at_before_it_is_opened) and the hard-linked file nobody may read (the open-order test): M27 and M26 stand for them, mutants.txt

@@ -1,0 +1,3 @@
+# sweeps.sh's output (one suite-lock slot)
+base exit 0 in 838s
+head exit 0 in 848s

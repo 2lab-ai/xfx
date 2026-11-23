@@ -1,0 +1,9 @@
+# PERMISSION-MODE-CASE: each product's mode variable set to `FULL-ACCESS`,
+# which fx v0.0.16 reads as full access (`loadPermissionMode`,
+# `app_lifecycle.zig:1556-1560@481104fd`). The snap waits for the
+# full-access warning's four seconds to end.
+fx: env FX_AUTO_UPGRADE=0 FX_PERMISSION_MODE=FULL-ACCESS
+xfx: env XFX_PERMISSION_MODE=FULL-ACCESS
+until shown Full access
+until gone Full access
+snap start

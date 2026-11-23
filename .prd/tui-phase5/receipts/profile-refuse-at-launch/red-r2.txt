@@ -1,0 +1,17 @@
+== RED, round 2: round 2's tests (b209c786) over 98d3513b's src in a no-local clone, cargo test --no-fail-fast, bounded (alarm 900 s, ulimit -v)
+     Running tests/cli.rs (target/debug/deps/cli-d768a55c797aca95)
+test ask_goes_on_with_a_profile_fx_starts_with ... FAILED
+test ask_refuses_a_profile_fx_refuses ... FAILED
+thread 'ask_goes_on_with_a_profile_fx_starts_with' (478453259) panicked at tests/cli.rs:1993:9:
+torn JSON group may write: xfx: InvalidProfileConfiguration
+thread 'ask_refuses_a_profile_fx_refuses' (478453260) panicked at tests/cli.rs:1973:17:
+assertion `left == right` failed: a hard-linked file
+  left: "cannot reach the Gateway: error sending request for url (http://127.0.0.1:9/v1/chat/completions)\n"
+ right: "xfx: InvalidProfileConfiguration\n"
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 83 filtered out; finished in 2.12s
+     Running tests/interactive.rs (target/debug/deps/interactive-f70d73351542cf43)
+test the_shell_starts_with_a_profile_only_ask_refuses ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 80 filtered out; finished in 0.09s
+     Running tests/tui.rs (target/debug/deps/tui-9905dcb580b5dadb)
+test a_profile_only_ask_refuses_starts_the_tui ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 190 filtered out; finished in 0.69s

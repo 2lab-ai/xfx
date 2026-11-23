@@ -1,0 +1,56 @@
+# the readers at a4452753, from the gate's logs (gates.txt names each step's exit)
+## pinned-toolchain: exit 0
+  rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)
+  cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew)
+  clippy 0.1.99
+  rustfmt 1.10.0
+## bash32: exit 0
+  /bin/bash is bash 3.2.57(1)-release
+## which-bash: exit 0
+  #!/usr/bin/env bash runs <gate>/logs/bash32/bash, bash 3.2.57(1)-release
+  command -v bash: <gate>/logs/bash32/bash
+  GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)
+## check-env-reads.py: exit 0
+  check-env-reads: 40 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 74 compile-time reads of 6 names; 52 test binaries started with a marker no parent makes
+  check-env-reads: OK
+## check-env-reads.py --self-test: exit 0
+  check-env-reads --self-test: 66 fixtures, 0 not as expected
+## test-gate-env.sh: exit 0; its ci.yml and workflow cases, and its last line
+  test-gate-env: ok workflow-steps                 all 10 steps that run git drop GIT_* first
+  test-gate-env: ok ci-script-tests-per-os         test-gate-env test-preview-contract test-check-no-secrets test-check-no-local-paths test-early-stop on macOS and Linux rows
+  test-gate-env: ok ci-bash32                      the macOS script-test rows run /bin/bash, and the log says which bash
+  test-gate-env: ok ci-checkout-assertion          checked out
+  (round 4: ci-script-tests-per-os reads its own five -- test-gate-env, test-preview-contract,
+  test-check-no-secrets (reached through test-gate-env's nested run, no step of its own),
+  test-check-no-local-paths, test-early-stop -- not ci.yml's five scheduled script tests: it
+  does not read check-env-reads.py --self-test, whose rows ci.yml's `if: matrix.script_tests`
+  on its step sets: join-steps.txt, its last lines)
+  its other test-gate-env lines (a note or a problem; a problem ends the run non-zero):
+    test-gate-env: this grep reads GREP_OPTIONS (grep (BSD grep, GNU compatible) 2.6.0-FreeBSD): each case below is a RED for its gate
+  test-gate-env: ok (95 cases)
+## test-early-stop: exit 0; its last lines
+  test-early-stop: ok smoke-stopped-int                exit 130
+  test-early-stop: ok smoke-stopped-int-group          exit 130
+  test-early-stop: ok (15 cases)
+## test-check-no-secrets: exit 0; its last lines
+  test-check-no-secrets: ok skipped-listing    exit 1
+  test-check-no-secrets: ok skipped-scan       exit 1
+  test-check-no-secrets: ok (23 cases; 3473 tracked names past ARG_MAX 1048576)
+## test-preview-contract: exit 0; its last lines
+  test-preview-contract: caught stopped-int                  exit 130
+  test-preview-contract: caught stopped-int-group            exit 130
+  test-preview-contract: ok (35 mutants caught; the unbroken copy passes)
+## check-preview-contract: exit 0; its last lines
+  check-preview-contract: ok (.github/workflows/preview.yml)
+## test-check-no-local-paths: exit 0; its last lines
+  test-check-no-local-paths: ok diagnosis                  keys by scope, no path
+  test-check-no-local-paths: ok diagnosis-gone             no path, every line its shape
+  test-check-no-local-paths: ok (31 cases)
+## check-no-secrets: exit 0; its last lines
+  check-no-secrets: ok (25840 tracked file(s) scanned)
+## check-xfx-identity: exit 0; its last lines
+  check-xfx-identity: ok (25840 tracked file(s) scanned)
+## smoke: exit 0; its last lines
+  
+  47 check(s), 0 failure(s)
+  evidence: <gate>/smoke/smoke

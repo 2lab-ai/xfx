@@ -1,0 +1,73 @@
+== fx/p5-panels-badsettings launch vs xfx/
+row 40: fx [(41, '1', ()), (42, '6', ()), (43, ' ', ()), (44, '2', ())]
+row 40: xfx [(41, '2', ()), (42, '1', ()), (43, ' ', ()), (44, '2', ())]
+1 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-status-badsettings closed vs xfx/
+row 5: fx [(4, '/', (('fg', 245),)), (5, 'l', (('fg', 245),)), (6, 'o', (('fg', 245),)), (7, 'g', (('fg', 245),))]
+row 5: xfx [(4, '`', (('fg', 245),)), (5, 'x', (('fg', 245),)), (6, 'f', (('fg', 245),)), (7, 'x', (('fg', 245),))]
+1 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-status-badsettings launch vs xfx/
+row 5: fx [(4, '/', (('fg', 245),)), (5, 'l', (('fg', 245),)), (6, 'o', (('fg', 245),)), (7, 'g', (('fg', 245),))]
+row 5: xfx [(4, '`', (('fg', 245),)), (5, 'x', (('fg', 245),)), (6, 'f', (('fg', 245),)), (7, 'x', (('fg', 245),))]
+1 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-status-badsettings open vs xfx/
+row 6: fx [(20, '8', (('fg', 245),)), (21, '1', (('fg', 245),)), (22, 'h', (('fg', 245),)), (23, 'O', (('fg', 245),))]
+row 6: xfx [(20, '1', (('fg', 245),)), (21, '7', (('fg', 245),)), (22, '9', (('fg', 245),)), (23, '4', (('fg', 245),))]
+row 10: fx [(2, 'W', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'k', (('bold', True), ('fg', 252)))]
+row 10: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'a', (('bold', True), ('fg', 252))), (4, 'n', (('bold', True), ('fg', 252))), (5, 'd', (('bold', True), ('fg', 252)))]
+row 11: fx [(2, 'T', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'n', (('bold', True), ('fg', 252)))]
+row 11: xfx [(2, 'W', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'k', (('bold', True), ('fg', 252)))]
+row 12: fx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252)))]
+row 12: xfx [(2, 'T', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'n', (('bold', True), ('fg', 252)))]
+row 13: fx [(3, 't', (('bold', True), ('fg', 252))), (4, 'e', (('bold', True), ('fg', 252))), (5, 'p', (('bold', True), ('fg', 252))), (6, ' ', ())]
+row 13: xfx [(3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252))), (6, 'i', (('bold', True), ('fg', 252)))]
+row 14: fx [(2, 'U', (('bold', True), ('fg', 252))), (3, 'l', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'r', (('bold', True), ('fg', 252)))]
+row 14: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 't', (('bold', True), ('fg', 252))), (4, 'e', (('bold', True), ('fg', 252))), (5, 'p', (('bold', True), ('fg', 252)))]
+row 15: fx [(3, 'p', (('bold', True), ('fg', 252))), (4, 'd', (('bold', True), ('fg', 252))), (5, 'a', (('bold', True), ('fg', 252))), (6, 't', (('bold', True), ('fg', 252)))]
+row 15: xfx [(3, 'l', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'r', (('bold', True), ('fg', 252))), (6, 'a', (('bold', True), ('fg', 252)))]
+row 16: fx [(20, 's', (('fg', 245),)), (21, 't', (('fg', 245),)), (22, 'a', (('fg', 245),)), (23, 'b', (('fg', 245),))]
+row 16: xfx [(20, 'd', (('fg', 245),)), (21, 'e', (('fg', 245),)), (22, 'b', (('fg', 245),)), (23, 'u', (('fg', 245),))]
+8 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-badsettings launch vs xfx-base/
+row 3: fx []
+row 3: xfx [(0, '*', (('fg', 250),)), (1, ' ', ()), (2, 'c', (('fg', 250),)), (3, 'o', (('fg', 250),))]
+row 5: fx []
+row 5: xfx [(0, '!', (('fg', 252),)), (1, ' ', ()), (2, 'p', (('fg', 252),)), (3, 'e', (('fg', 252),))]
+row 6: fx []
+row 6: xfx [(0, ' ', ()), (1, ' ', ()), (2, 'i', (('fg', 250),)), (3, 't', (('fg', 250),))]
+row 8: fx []
+row 8: xfx [(0, '┃', (('fg', 255),))]
+row 10: fx []
+row 10: xfx [(0, 'r', (('fg', 245),)), (1, 'u', (('fg', 245),)), (2, 'n', (('fg', 245),)), (3, ' ', ())]
+row 40: fx [(0, 'P', ()), (1, 'a', ()), (2, 'n', ()), (3, 'e', ())]
+row 40: xfx []
+6 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-status-badsettings closed vs xfx-base/
+row 5: fx [(4, '/', (('fg', 245),)), (5, 'l', (('fg', 245),)), (6, 'o', (('fg', 245),)), (7, 'g', (('fg', 245),))]
+row 5: xfx [(4, '`', (('fg', 245),)), (5, 'x', (('fg', 245),)), (6, 'f', (('fg', 245),)), (7, 'x', (('fg', 245),))]
+1 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-status-badsettings launch vs xfx-base/
+row 5: fx [(4, '/', (('fg', 245),)), (5, 'l', (('fg', 245),)), (6, 'o', (('fg', 245),)), (7, 'g', (('fg', 245),))]
+row 5: xfx [(4, '`', (('fg', 245),)), (5, 'x', (('fg', 245),)), (6, 'f', (('fg', 245),)), (7, 'x', (('fg', 245),))]
+1 rows differ in their cells (row 1 not compared)
+== fx/p5-panels-status-badsettings open vs xfx-base/
+row 6: fx [(20, '8', (('fg', 245),)), (21, '1', (('fg', 245),)), (22, 'h', (('fg', 245),)), (23, 'O', (('fg', 245),))]
+row 6: xfx [(20, '1', (('fg', 245),)), (21, '7', (('fg', 245),)), (22, '9', (('fg', 245),)), (23, '4', (('fg', 245),))]
+row 10: fx [(2, 'W', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'k', (('bold', True), ('fg', 252)))]
+row 10: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'a', (('bold', True), ('fg', 252))), (4, 'n', (('bold', True), ('fg', 252))), (5, 'd', (('bold', True), ('fg', 252)))]
+row 11: fx [(2, 'T', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'n', (('bold', True), ('fg', 252)))]
+row 11: xfx [(2, 'W', (('bold', True), ('fg', 252))), (3, 'o', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'k', (('bold', True), ('fg', 252)))]
+row 12: fx [(2, 'S', (('bold', True), ('fg', 252))), (3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252)))]
+row 12: xfx [(2, 'T', (('bold', True), ('fg', 252))), (3, 'u', (('bold', True), ('fg', 252))), (4, 'r', (('bold', True), ('fg', 252))), (5, 'n', (('bold', True), ('fg', 252)))]
+row 13: fx [(3, 't', (('bold', True), ('fg', 252))), (4, 'e', (('bold', True), ('fg', 252))), (5, 'p', (('bold', True), ('fg', 252))), (6, ' ', ())]
+row 13: xfx [(3, 'e', (('bold', True), ('fg', 252))), (4, 's', (('bold', True), ('fg', 252))), (5, 's', (('bold', True), ('fg', 252))), (6, 'i', (('bold', True), ('fg', 252)))]
+row 14: fx [(2, 'U', (('bold', True), ('fg', 252))), (3, 'l', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'r', (('bold', True), ('fg', 252)))]
+row 14: xfx [(2, 'S', (('bold', True), ('fg', 252))), (3, 't', (('bold', True), ('fg', 252))), (4, 'e', (('bold', True), ('fg', 252))), (5, 'p', (('bold', True), ('fg', 252)))]
+row 15: fx [(3, 'p', (('bold', True), ('fg', 252))), (4, 'd', (('bold', True), ('fg', 252))), (5, 'a', (('bold', True), ('fg', 252))), (6, 't', (('bold', True), ('fg', 252)))]
+row 15: xfx [(3, 'l', (('bold', True), ('fg', 252))), (4, 't', (('bold', True), ('fg', 252))), (5, 'r', (('bold', True), ('fg', 252))), (6, 'a', (('bold', True), ('fg', 252)))]
+row 16: fx [(20, 's', (('fg', 245),)), (21, 't', (('fg', 245),)), (22, 'a', (('fg', 245),)), (23, 'b', (('fg', 245),))]
+row 16: xfx [(20, 'd', (('fg', 245),)), (21, 'e', (('fg', 245),)), (22, 'b', (('fg', 245),)), (23, 'u', (('fg', 245),))]
+8 rows differ in their cells (row 1 not compared)
+== p5-panels-badsettings launch, row 40 of each (tmux's, masked by the ledger's tmux-dead-pane)
+fx: Pane is dead (status 1, Tue Nov 10 16:02:16 2026)
+xfx: Pane is dead (status 1, Tue Nov 10 16:02:21 2026)

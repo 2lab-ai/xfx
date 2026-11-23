@@ -1,0 +1,14 @@
+# python3 -I scripts/check-env-reads.py at merge 3's staged tree, run 1 (under the suite lock): XFX_AT_BENCH_TREE listed in EXCEPTIONS but not yet in ALLOWED_NAMES
+check-env-reads: 40 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 74 compile-time reads of 6 names; 52 test binaries started with a marker no parent makes
+  refused: src/tui/file_index.rs:3879: env_exception! reads XFX_AT_BENCH_TREE, which is not an allowed name
+check-env-reads: 1 refused
+# exit 1
+
+# run 2, the same tree with XFX_AT_BENCH_TREE in ALLOWED_NAMES too (semantic.py's fixes all applied)
+check-env-reads: 40 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 74 compile-time reads of 6 names; 52 test binaries started with a marker no parent makes
+check-env-reads: OK
+# exit 0
+
+# python3 -I scripts/check-env-reads.py at merge 6 (1bce5348), under the suite lock; exit 0
+check-env-reads: 40 env_exception! invocations in 27 files, 12 process_env! call sites (over its build arms), 14 listed plain calls, 74 compile-time reads of 6 names; 52 test binaries started with a marker no parent makes
+check-env-reads: OK

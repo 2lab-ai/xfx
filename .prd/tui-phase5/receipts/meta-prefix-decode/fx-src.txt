@@ -1,0 +1,1712 @@
+# fx v0.0.16 (481104fd), every line this receipt cites, as git show 481104fd:<path> prints it, numbered.
+
+## src/ui/input/escape_parser.zig:19-35
+   19  fn appendCsiDigitSaturating(param: *u16, byte: u8) void {
+   20      const digit: u16 = byte - '0';
+   21      const multiplied = std.math.mul(u16, param.*, 10) catch std.math.maxInt(u16);
+   22      param.* = std.math.add(u16, multiplied, digit) catch std.math.maxInt(u16);
+   23  }
+   24  
+   25  const escape_meta_mask: u8 = 0x80;
+   26  const sgr_mouse_stage: u8 = 7;
+   27  const sgr_mouse_column_stage: u8 = 8;
+   28  const sgr_mouse_row_stage: u8 = 9;
+   29  const legacy_x10_button_stage: u8 = 10;
+   30  const legacy_x10_column_stage: u8 = 11;
+   31  const legacy_x10_row_stage: u8 = 12;
+   32  const discarded_sgr_mouse_stage: u8 = 13;
+   33  const discarded_x10_mouse_stage: u8 = 14;
+   34  const control_sequence_discard_stage: u8 = 15;
+   35  const kitty_escape_event_type_stage: u8 = 16;
+
+## src/ui/input/escape_parser.zig:61-71
+   61  const shift_modifier: u16 = 0x01;
+   62  const alt_modifier: u16 = 0x02;
+   63  const ctrl_modifier: u16 = 0x04;
+   64  const super_modifier: u16 = 0x08;
+   65  
+   66  fn composerMove(kind: input_action.MoveKind, modifiers: u16) InputEscapeAction {
+   67      return .{ .composer_shortcut = .{ .move = .{
+   68          .kind = kind,
+   69          .extend_selection = (modifiers & shift_modifier) != 0,
+   70      } } };
+   71  }
+
+## src/ui/input/escape_parser.zig:73-114
+   73  fn modifiedArrowAction(byte: u8, modifiers: u16, meta_prefixed: bool) ?InputEscapeAction {
+   74      if ((modifiers & super_modifier) != 0) return switch (byte) {
+   75          'A' => composerMove(.draft_start, modifiers),
+   76          'B' => composerMove(.draft_end, modifiers),
+   77          'C' => composerMove(.line_end, modifiers),
+   78          'D' => composerMove(.line_start, modifiers),
+   79          'H' => composerMove(.draft_start, modifiers),
+   80          'F' => composerMove(.draft_end, modifiers),
+   81          else => null,
+   82      };
+   83      if (meta_prefixed or (modifiers & alt_modifier) != 0) return switch (byte) {
+   84          'A' => composerMove(.paragraph_up, modifiers),
+   85          'B' => composerMove(.paragraph_down, modifiers),
+   86          'C' => composerMove(.word_right, modifiers),
+   87          'D' => composerMove(.word_left, modifiers),
+   88          else => null,
+   89      };
+   90      if ((modifiers & ctrl_modifier) != 0) return switch (byte) {
+   91          'C' => composerMove(.word_right, modifiers),
+   92          'D' => composerMove(.word_left, modifiers),
+   93          'A' => composerMove(.visual_up, modifiers),
+   94          'B' => composerMove(.visual_down, modifiers),
+   95          'H' => composerMove(.draft_start, modifiers),
+   96          'F' => composerMove(.draft_end, modifiers),
+   97          else => null,
+   98      };
+   99      if ((modifiers & shift_modifier) != 0) return switch (byte) {
+  100          'A' => composerMove(.visual_up, modifiers),
+  101          'B' => composerMove(.visual_down, modifiers),
+  102          'C' => composerMove(.character_right, modifiers),
+  103          'D' => composerMove(.character_left, modifiers),
+  104          'H' => composerMove(.line_start, modifiers),
+  105          'F' => composerMove(.line_end, modifiers),
+  106          else => null,
+  107      };
+  108      return null;
+  109  }
+  110  
+  111  fn ctrlOKeyAction(meta_prefixed: bool, modifiers: u16) InputEscapeAction {
+  112      if (!meta_prefixed and modifiers == 0x04) return .toggle_full_transcript;
+  113      return .ignore;
+  114  }
+
+## src/ui/input/escape_parser.zig:116-180
+  116  // A keypad key must behave as its non-keypad equivalent, so each keypad code is
+  117  // translated to the main-row character or navigation letter and resolved with
+  118  // the same logic the main row uses.
+  119  const keypad_supported_modifiers: u16 = shift_modifier | alt_modifier | ctrl_modifier | super_modifier;
+  120  
+  121  fn keypadCharacterKey(keycode: u16) ?u8 {
+  122      if (keycode >= kp_0 and keycode <= kp_9) return @intCast('0' + (keycode - kp_0));
+  123      return switch (keycode) {
+  124          kp_decimal => '.',
+  125          kp_divide => '/',
+  126          kp_multiply => '*',
+  127          kp_subtract => '-',
+  128          kp_add => '+',
+  129          kp_equal => '=',
+  130          else => null,
+  131      };
+  132  }
+  133  
+  134  fn keypadNavigationKey(keycode: u16) ?u8 {
+  135      return switch (keycode) {
+  136          kp_up => 'A',
+  137          kp_down => 'B',
+  138          kp_right => 'C',
+  139          kp_left => 'D',
+  140          kp_home => 'H',
+  141          kp_end => 'F',
+  142          else => null,
+  143      };
+  144  }
+  145  
+  146  // The plain navigation mapping. Every encoding that reports navigation keys
+  147  // resolves through this one table: CSI finals, application-keypad SS3 bytes,
+  148  // and kitty keypad codes.
+  149  fn plainNavigationAction(letter: u8) InputEscapeAction {
+  150      return switch (letter) {
+  151          'A' => .cursor_up,
+  152          'B' => .cursor_down,
+  153          'C' => .cursor_right,
+  154          'D' => .cursor_left,
+  155          'H' => .home,
+  156          'F' => .end,
+  157          else => unreachable,
+  158      };
+  159  }
+  160  
+  161  // Reuse the main-row arrow mapping so Shift extends the selection and
+  162  // Ctrl/Alt/Super keep their word, paragraph, and draft jumps.
+  163  fn navigationKeyAction(letter: u8, modifiers: u16, meta_prefixed: bool) InputEscapeAction {
+  164      const plain = plainNavigationAction(letter);
+  165      if (!meta_prefixed and modifiers == 0) return plain;
+  166      return modifiedArrowAction(letter, modifiers, meta_prefixed) orelse plain;
+  167  }
+  168  
+  169  fn pageKeyAction(keycode: u16, modifiers: u16) InputEscapeAction {
+  170      const kind: input_action.MoveKind = if (keycode == kp_page_up) .page_up else .page_down;
+  171      if (modifiers != 0) return composerMove(kind, modifiers);
+  172      return if (keycode == kp_page_up) .page_up else .page_down;
+  173  }
+  174  
+  175  // Keypad Delete mirrors the main-row `ESC[3~` family.
+  176  fn forwardDeleteKeyAction(modifiers: u16) InputEscapeAction {
+  177      if ((modifiers & super_modifier) != 0) return .delete_to_line_end;
+  178      if ((modifiers & (alt_modifier | ctrl_modifier)) != 0) return .delete_word_right;
+  179      return if (modifiers == 0) .delete_next else .ignore;
+  180  }
+
+## src/ui/input/escape_parser.zig:182-266
+  182  // Resolve a Kitty CSI u report (`ESC[<keycode>;<mod>u`). Shared by the
+  183  // single-parameter and modifier stages, and never returns null so the leading
+  184  // ESC's pending-cancel is always cleared.
+  185  fn kittyUnicodeKeyAction(keycode: u16, modifiers: u16, meta_prefixed: bool) InputEscapeAction {
+  186      // Strip Caps Lock (bit 6) and Num Lock (bit 7) — lock states, not modifiers.
+  187      const mods = modifiers & 0x3F;
+  188      if (keycode == 27 and mods == 0) return .escape;
+  189      // Hyper and Meta survive the lock-state mask, so a keypad key held with one
+  190      // of them keeps today's behavior instead of typing text or moving the caret.
+  191      if ((mods & ~keypad_supported_modifiers) == 0) {
+  192          if (keypadCharacterKey(keycode)) |byte| {
+  193              // Only a bare or Shift-modified keypad press types text, matching
+  194              // the main row where modified digits and operators are not text.
+  195              if (!meta_prefixed and (mods & ~shift_modifier) == 0) return .{ .remapped_byte = byte };
+  196          } else if (keypadNavigationKey(keycode)) |letter| {
+  197              return navigationKeyAction(letter, mods, meta_prefixed);
+  198          } else if (keycode == kp_page_up or keycode == kp_page_down) {
+  199              return pageKeyAction(keycode, mods);
+  200          } else if (keycode == kp_enter) {
+  201              // Reuse the main-row Enter branch: Ctrl submits, Shift and Alt
+  202              // insert a newline, and a bare press submits.
+  203              return kittyUnicodeKeyAction(13, modifiers, meta_prefixed);
+  204          } else if (keycode == kp_delete) {
+  205              return forwardDeleteKeyAction(mods);
+  206          }
+  207      }
+  208      if (keycode == kitty_up_key or keycode == kitty_down_key) {
+  209          if (meta_prefixed or mods != 0) {
+  210              return modifiedArrowAction(
+  211                  if (keycode == kitty_up_key) 'A' else 'B',
+  212                  mods,
+  213                  meta_prefixed,
+  214              ) orelse .ignore;
+  215          }
+  216          return if (keycode == kitty_up_key) .cursor_up else .cursor_down;
+  217      }
+  218      if (keycode == 13 and mods == ctrl_modifier and !meta_prefixed) return .{ .remapped_byte = '\r' };
+  219      if (keycode == 13 and (mods & (shift_modifier | alt_modifier)) != 0) {
+  220          return .insert_newline;
+  221      }
+  222      if (keycode == ' ' and mods == shift_modifier and !meta_prefixed) return .{ .remapped_byte = ' ' };
+  223      if ((keycode == 'a' or keycode == 'A') and (mods & super_modifier) != 0) {
+  224          return .{ .composer_shortcut = .select_all };
+  225      }
+  226      if ((keycode == 'c' or keycode == 'C') and (mods & super_modifier) != 0) {
+  227          return .{ .composer_shortcut = .copy_selection };
+  228      }
+  229      if ((keycode == 'x' or keycode == 'X') and (mods & super_modifier) != 0) {
+  230          return .{ .composer_shortcut = .cut_selection };
+  231      }
+  232      if ((keycode == 'z' or keycode == 'Z') and (mods & super_modifier) != 0) {
+  233          return .{ .composer_shortcut = if ((mods & shift_modifier) != 0) .redo else .undo };
+  234      }
+  235      if ((mods & (shift_modifier | ctrl_modifier)) ==
+  236          (shift_modifier | ctrl_modifier))
+  237      {
+  238          if (keycode == 'a' or keycode == 'A') return composerMove(.line_start, mods);
+  239          if (keycode == 'b' or keycode == 'B') return composerMove(.character_left, mods);
+  240          if (keycode == 'e' or keycode == 'E') return composerMove(.line_end, mods);
+  241          if (keycode == 'f' or keycode == 'F') return composerMove(.character_right, mods);
+  242      }
+  243      if (keycode == 'b' and (mods & alt_modifier) != 0) {
+  244          if ((mods & shift_modifier) != 0) return composerMove(.word_left, mods);
+  245          return .word_left;
+  246      }
+  247      if (keycode == 'f' and (mods & alt_modifier) != 0) {
+  248          if ((mods & shift_modifier) != 0) return composerMove(.word_right, mods);
+  249          return .word_right;
+  250      }
+  251      if ((keycode == 'd' or keycode == 'D') and (meta_prefixed or (mods & 0x02) != 0)) return .delete_word_right;
+  252      if (keycode == 'o' or keycode == 'O') return ctrlOKeyAction(meta_prefixed, mods);
+  253      if ((keycode == 'r' or keycode == 'R') and (mods & 0x08) != 0) return .open_all_sessions;
+  254      if (keycode == 9 and (mods & 0x01) != 0) return .toggle_permission_mode;
+  255      if ((mods & 0x04) != 0) {
+  256          if (keycode == '_') return .{ .remapped_byte = 31 };
+  257          if (keycode >= 'a' and keycode <= 'z') return .{ .remapped_byte = @intCast(keycode - 96) };
+  258          if (keycode >= 'A' and keycode <= 'Z') return .{ .remapped_byte = @intCast(keycode - 64) };
+  259      }
+  260      if (keycode == 127 and (mods & 0x08) != 0) return .delete_to_line_start;
+  261      if (keycode == 127 and (mods & 0x02) != 0) return .delete_word_left;
+  262      if (keycode == 13) return .{ .remapped_byte = '\r' };
+  263      if (keycode == 9) return .{ .remapped_byte = '\t' };
+  264      if (keycode == 127) return .{ .remapped_byte = 127 };
+  265      return .ignore;
+  266  }
+
+## src/ui/input/escape_parser.zig:283-293
+  283  fn baseEscapeStage(stage: u8) u8 {
+  284      return stage & ~escape_meta_mask;
+  285  }
+  286  
+  287  fn hasMetaPrefix(stage: u8) bool {
+  288      return (stage & escape_meta_mask) != 0;
+  289  }
+  290  
+  291  fn setBaseEscapeStage(stage: *u8, base: u8) void {
+  292      stage.* = (stage.* & escape_meta_mask) | base;
+  293  }
+
+## src/ui/input/escape_parser.zig:327-362
+  327  pub fn isBareEscapeStage(stage: u8) bool {
+  328      return baseEscapeStage(stage) == 1;
+  329  }
+  330  
+  331  pub fn isControlSequenceDiscardStage(stage: u8) bool {
+  332      return baseEscapeStage(stage) == control_sequence_discard_stage;
+  333  }
+  334  
+  335  fn resetMouseEscapeDecode(stage: *u8, param: *u16, param2: *u16, mouse: *MouseInput) void {
+  336      stage.* = 0;
+  337      param.* = 0;
+  338      param2.* = 0;
+  339      mouse.reset();
+  340  }
+  341  
+  342  fn beginControlSequenceDiscard(
+  343      stage: *u8,
+  344      param: *u16,
+  345      param2: *u16,
+  346      mouse: *MouseInput,
+  347      byte: u8,
+  348  ) ?InputEscapeAction {
+  349      if (byte >= 0x40 and byte <= 0x7e) {
+  350          resetMouseEscapeDecode(stage, param, param2, mouse);
+  351          return .ignore;
+  352      }
+  353      if (byte >= 0x20 and byte <= 0x3f) {
+  354          setBaseEscapeStage(stage, control_sequence_discard_stage);
+  355          param.* = 1;
+  356          param2.* = 0;
+  357          mouse.reset();
+  358          return null;
+  359      }
+  360      resetMouseEscapeDecode(stage, param, param2, mouse);
+  361      return .ignore;
+  362  }
+
+## src/ui/input/escape_parser.zig:478-780
+  478  pub fn consumeInputEscapeByte(stage: *u8, param: *u16, param2: *u16, byte: u8) ?InputEscapeAction {
+  479      var mouse = MouseInput{};
+  480      return consumeInputEscapeByteWithMouse(stage, param, param2, &mouse, byte);
+  481  }
+  482  
+  483  pub fn consumeInputEscapeByteWithMouse(
+  484      stage: *u8,
+  485      param: *u16,
+  486      param2: *u16,
+  487      mouse: *MouseInput,
+  488      byte: u8,
+  489  ) ?InputEscapeAction {
+  490      const base_stage = baseEscapeStage(stage.*);
+  491      if (base_stage == 0) return null;
+  492      if (byte == 0x1b and base_stage != 1 and !isLegacyX10PayloadStage(stage.*)) {
+  493          stage.* = 1;
+  494          param.* = 0;
+  495          param2.* = 0;
+  496          mouse.reset();
+  497          return null;
+  498      }
+  499  
+  500      switch (base_stage) {
+  501          1 => {
+  502              if (byte == '[') {
+  503                  setBaseEscapeStage(stage, 2);
+  504                  param.* = 0;
+  505                  param2.* = 0;
+  506                  mouse.reset();
+  507                  return null;
+  508              }
+  509              if (byte == 'O') {
+  510                  setBaseEscapeStage(stage, 4);
+  511                  param.* = 0;
+  512                  param2.* = 0;
+  513                  return null;
+  514              }
+  515              if (byte == '\r' or byte == '\n') {
+  516                  stage.* = 0;
+  517                  param.* = 0;
+  518                  param2.* = 0;
+  519                  return .insert_newline;
+  520              }
+  521              if (byte == 'o') {
+  522                  stage.* = 0;
+  523                  param.* = 0;
+  524                  param2.* = 0;
+  525                  // ESC o is Meta-O, not a Ctrl-O terminal report.
+  526                  return .ignore;
+  527              }
+  528              if (byte == 'b') {
+  529                  stage.* = 0;
+  530                  param.* = 0;
+  531                  param2.* = 0;
+  532                  return .word_left;
+  533              }
+  534              if (byte == 'f') {
+  535                  stage.* = 0;
+  536                  param.* = 0;
+  537                  param2.* = 0;
+  538                  return .word_right;
+  539              }
+  540              if (byte == 'd') {
+  541                  stage.* = 0;
+  542                  param.* = 0;
+  543                  param2.* = 0;
+  544                  return .{ .composer_shortcut = .delete_word_right };
+  545              }
+  546              if (byte == 0x7f or byte == 0x08) {
+  547                  stage.* = 0;
+  548                  param.* = 0;
+  549                  param2.* = 0;
+  550                  return .delete_word_left;
+  551              }
+  552              if (byte == 0x1b) {
+  553                  stage.* = escape_meta_mask | 1;
+  554                  return null;
+  555              }
+  556              stage.* = 0;
+  557              param.* = 0;
+  558              param2.* = 0;
+  559              return .ignore;
+  560          },
+  561          2 => {
+  562              const meta_prefixed = hasMetaPrefix(stage.*);
+  563              const action: ?InputEscapeAction = switch (byte) {
+  564                  'A', 'B', 'C', 'D' => if (meta_prefixed)
+  565                      modifiedArrowAction(byte, 0, true)
+  566                  else
+  567                      plainNavigationAction(byte),
+  568                  'H', 'F' => plainNavigationAction(byte),
+  569                  'Z' => .toggle_permission_mode,
+  570                  '<' => {
+  571                      mouse.reset();
+  572                      setBaseEscapeStage(stage, sgr_mouse_stage);
+  573                      return null;
+  574                  },
+  575                  'M' => {
+  576                      mouse.reset();
+  577                      setBaseEscapeStage(stage, legacy_x10_button_stage);
+  578                      return null;
+  579                  },
+  580                  '?' => {
+  581                      return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  582                  },
+  583                  '0'...'9' => {
+  584                      param.* = byte - '0';
+  585                      param2.* = 1;
+  586                      setBaseEscapeStage(stage, 3);
+  587                      return null;
+  588                  },
+  589                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  590              };
+  591              stage.* = 0;
+  592              param.* = 0;
+  593              param2.* = 0;
+  594              return action;
+  595          },
+  596          control_sequence_discard_stage => {
+  597              return consumeControlSequenceDiscardByte(stage, param, param2, mouse, byte);
+  598          },
+  599          3 => {
+  600              if (byte >= '0' and byte <= '9') {
+  601                  appendCsiDigitSaturating(param, byte);
+  602                  if (param2.* < std.math.maxInt(u16)) param2.* += 1;
+  603                  return null;
+  604              }
+  605  
+  606              if (byte == ';') {
+  607                  param2.* = param.*;
+  608                  param.* = 0;
+  609                  setBaseEscapeStage(stage, 5);
+  610                  return null;
+  611              }
+  612  
+  613              if (byte == 'u') {
+  614                  const meta_prefixed = hasMetaPrefix(stage.*);
+  615                  const value = param.*;
+  616                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  617                  // Single-parameter CSI u: no `;`, so modifiers == 0.
+  618                  return kittyUnicodeKeyAction(value, 0, meta_prefixed);
+  619              }
+  620              if (byte != '~') return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  621  
+  622              const value = param.*;
+  623              const digit_count = param2.*;
+  624              resetMouseEscapeDecode(stage, param, param2, mouse);
+  625              if (digit_count == 3 and value == 200) return .paste_start;
+  626              if (digit_count == 3 and value == 201) return .paste_end;
+  627  
+  628              return switch (value) {
+  629                  1, 7 => .home,
+  630                  3 => .delete_next,
+  631                  4, 8 => .end,
+  632                  5 => .page_up,
+  633                  6 => .page_down,
+  634                  else => .ignore,
+  635              };
+  636          },
+  637          4 => {
+  638              const meta_prefixed = hasMetaPrefix(stage.*);
+  639              const action: InputEscapeAction = switch (byte) {
+  640                  'A', 'B', 'C', 'D' => if (meta_prefixed)
+  641                      modifiedArrowAction(byte, 0, true) orelse .ignore
+  642                  else
+  643                      plainNavigationAction(byte),
+  644                  'H', 'F' => plainNavigationAction(byte),
+  645                  // A terminal left in keypad application mode reports `ESC O`
+  646                  // followed by these bytes, which must decode exactly like the
+  647                  // kitty keypad codes.
+  648                  'p'...'y' => .{ .remapped_byte = @intCast('0' + (byte - 'p')) },
+  649                  'l' => .{ .remapped_byte = ',' },
+  650                  'n' => .{ .remapped_byte = '.' },
+  651                  'j' => .{ .remapped_byte = '*' },
+  652                  'k' => .{ .remapped_byte = '+' },
+  653                  'm' => .{ .remapped_byte = '-' },
+  654                  'o' => .{ .remapped_byte = '/' },
+  655                  'M' => .{ .remapped_byte = '\r' },
+  656                  'X' => .{ .remapped_byte = '=' },
+  657                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  658              };
+  659              resetMouseEscapeDecode(stage, param, param2, mouse);
+  660              return action;
+  661          },
+  662          5 => {
+  663              if (byte >= '0' and byte <= '9') {
+  664                  appendCsiDigitSaturating(param, byte);
+  665                  return null;
+  666              }
+  667  
+  668              if (byte == ';') {
+  669                  // Reuse the two accumulators for `ESC[27;modifier;keycode~`.
+  670                  param2.* = param.*;
+  671                  param.* = 0;
+  672                  setBaseEscapeStage(stage, 6);
+  673                  return null;
+  674              }
+  675  
+  676              // Kitty reports key event types as a colon-qualified modifier, e.g.
+  677              // `ESC[27;1:1u` for an Escape key press. The keycode stays in
+  678              // param2 and the modifiers move into param with the event type.
+  679              if (byte == ':') {
+  680                  const raw_modifiers = if (param.* > 0) param.* - 1 else 0;
+  681                  param.* = raw_modifiers << 4;
+  682                  setBaseEscapeStage(stage, kitty_escape_event_type_stage);
+  683                  return null;
+  684              }
+  685  
+  686              if (byte == 'u') {
+  687                  const meta_prefixed = hasMetaPrefix(stage.*);
+  688                  const keycode = param2.*;
+  689                  const modifiers = if (param.* > 0) param.* - 1 else 0;
+  690                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  691                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  692              }
+  693  
+  694              if (byte == '~') {
+  695                  const keycode = param2.*;
+  696                  const modifiers = if (param.* > 0) param.* - 1 else 0;
+  697                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  698                  if (keycode == 3) return forwardDeleteKeyAction(modifiers);
+  699                  if (modifiers != 0) return switch (keycode) {
+  700                      1, 7 => composerMove(
+  701                          if ((modifiers & ctrl_modifier) != 0) .draft_start else .line_start,
+  702                          modifiers,
+  703                      ),
+  704                      4, 8 => composerMove(
+  705                          if ((modifiers & ctrl_modifier) != 0) .draft_end else .line_end,
+  706                          modifiers,
+  707                      ),
+  708                      5 => composerMove(.page_up, modifiers),
+  709                      6 => composerMove(.page_down, modifiers),
+  710                      else => .ignore,
+  711                  };
+  712                  return switch (keycode) {
+  713                      1, 7 => .home,
+  714                      4, 8 => .end,
+  715                      5 => .page_up,
+  716                      6 => .page_down,
+  717                      else => .ignore,
+  718                  };
+  719              }
+  720  
+  721              const meta_prefixed = hasMetaPrefix(stage.*);
+  722              const modifiers = if (param.* > 0) param.* - 1 else 0;
+  723              if (byte == 'Z' and modifiers != 0) {
+  724                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  725                  return .toggle_permission_mode;
+  726              }
+  727              if (modifiedArrowAction(byte, modifiers, meta_prefixed)) |action| {
+  728                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  729                  return action;
+  730              }
+  731  
+  732              const action: InputEscapeAction = switch (byte) {
+  733                  'A', 'B', 'C', 'D', 'H', 'F' => plainNavigationAction(byte),
+  734                  else => return beginControlSequenceDiscard(stage, param, param2, mouse, byte),
+  735              };
+  736              resetMouseEscapeDecode(stage, param, param2, mouse);
+  737              return action;
+  738          },
+  739          // Stage 6: third parameter (e.g. modifyOtherKeys: ESC[27;modifier;keycode~)
+  740          6 => {
+  741              if (byte >= '0' and byte <= '9') {
+  742                  appendCsiDigitSaturating(param, byte);
+  743                  return null;
+  744              }
+  745  
+  746              if (byte == '~') {
+  747                  const meta_prefixed = hasMetaPrefix(stage.*);
+  748                  const keycode = param.*;
+  749                  const modifiers = if (param2.* > 0) param2.* - 1 else 0;
+  750                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  751                  return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  752              }
+  753  
+  754              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  755          },
+  756          // Kitty key reports with an event type: `ESC[<keycode>;modifier:event-type u`.
+  757          // Only press (1) and repeat (2) are actionable; release (3) must not
+  758          // close a panel or move the caret.
+  759          kitty_escape_event_type_stage => {
+  760              if (byte >= '0' and byte <= '9') {
+  761                  // The low nibble holds the event type while the high bits hold
+  762                  // the modifiers. Accumulate instead of overwriting so a
+  763                  // multi-digit event type stays out of the actionable range.
+  764                  const event_digits = (param.* & 0x0F) * 10 + (byte - '0');
+  765                  param.* = (param.* & 0xFFF0) | @min(event_digits, 0x0F);
+  766                  return null;
+  767              }
+  768              if (byte == 'u') {
+  769                  const meta_prefixed = hasMetaPrefix(stage.*);
+  770                  const keycode = param2.*;
+  771                  const modifiers = param.* >> 4;
+  772                  const event_type = param.* & 0x0F;
+  773                  resetMouseEscapeDecode(stage, param, param2, mouse);
+  774                  if (event_type == 1 or event_type == 2) {
+  775                      return kittyUnicodeKeyAction(keycode, modifiers, meta_prefixed);
+  776                  }
+  777                  return .ignore;
+  778              }
+  779              return beginControlSequenceDiscard(stage, param, param2, mouse, byte);
+  780          },
+
+## src/ui/input/terminal_action_decoder.zig:7-232
+    7  const mouse_report_escape_timeout_ms: i64 = 250;
+    8  
+    9  pub fn pasteByteIngress(byte: u8) input_action.TerminalInputIngress {
+   10      return .{ .event = .{ .paste_byte = byte } };
+   11  }
+   12  
+   13  pub const Decoder = struct {
+   14      mouse: escape_parser.MouseInput = .{},
+   15      stage: u8 = 0,
+   16      param: u16 = 0,
+   17      param2: u16 = 0,
+   18      started_ms: i64 = 0,
+   19      cancel_pending: bool = false,
+   20  
+   21      pub fn reset(self: *Decoder) void {
+   22          self.* = .{};
+   23      }
+   24  
+   25      pub fn hasPending(self: *const Decoder) bool {
+   26          return self.stage != 0;
+   27      }
+   28  
+   29      pub fn feed(
+   30          self: *Decoder,
+   31          byte: u8,
+   32          context: input_action.TerminalDecodeContext,
+   33      ) input_action.TerminalInputIngress {
+   34          var ingress = input_action.TerminalInputIngress{
+   35              .interrupts_pending_text = byte < 0x80 and !context.paste_active,
+   36          };
+   37  
+   38          if (context.paste_active) {
+   39              return pasteByteIngress(byte);
+   40          }
+   41  
+   42          if (byte == 0x1b and self.stage == 0) {
+   43              self.beginEscape(context.now_ms, context.cancel_pending);
+   44              return ingress;
+   45          }
+   46  
+   47          if (escape_parser.isMouseReportDiscardStage(self.stage)) {
+   48              const discard = escape_parser.consumeMouseReportDiscardByte(
+   49                  &self.stage,
+   50                  &self.param,
+   51                  &self.param2,
+   52                  &self.mouse,
+   53                  byte,
+   54              );
+   55              switch (discard) {
+   56                  .pending => self.started_ms = context.now_ms,
+   57                  .report_end => {
+   58                      debug_trace.logf("input", "discard pending mouse report reason=report_end", .{});
+   59                      self.finishEscape();
+   60                  },
+   61                  .bound => {
+   62                      debug_trace.logf("input", "discard pending mouse report reason=bound", .{});
+   63                      self.finishEscape();
+   64                  },
+   65                  .restart => {
+   66                      debug_trace.logf("input", "discard pending mouse report reason=restart", .{});
+   67                      self.started_ms = context.now_ms;
+   68                      self.cancel_pending = context.cancel_pending;
+   69                  },
+   70              }
+   71              return ingress;
+   72          }
+   73  
+   74          if (self.stage != 0) {
+   75              const prior_stage = self.stage;
+   76              const action = escape_parser.consumeInputEscapeByteWithMouse(
+   77                  &self.stage,
+   78                  &self.param,
+   79                  &self.param2,
+   80                  &self.mouse,
+   81                  byte,
+   82              );
+   83  
+   84              if (byte == 0x1b and !escape_parser.isLegacyX10PayloadStage(prior_stage)) {
+   85                  self.started_ms = context.now_ms;
+   86                  self.cancel_pending = context.cancel_pending;
+   87                  return ingress;
+   88              }
+   89  
+   90              if (self.stage != 0) self.started_ms = context.now_ms;
+   91  
+   92              if (prior_stage == 1 and
+   93                  self.stage == 0 and
+   94                  (action == null or action.? == .ignore) and
+   95                  shouldReplayControlAfterBareEscape(byte))
+   96              {
+   97                  const was_cancel_pending = self.takeCancelPending();
+   98                  appendAction(&ingress, .escape, was_cancel_pending);
+   99                  ingress.replay_byte_after_routing = byte;
+  100                  return ingress;
+  101              }
+  102  
+  103              if (action) |resolved| {
+  104                  const was_cancel_pending = self.takeCancelPending();
+  105                  appendAction(&ingress, resolved, was_cancel_pending);
+  106                  return ingress;
+  107              }
+  108  
+  109              if (self.stage != 0 or prior_stage != 0) {
+  110                  if (self.stage == 0) {
+  111                      _ = self.takeCancelPending();
+  112                      appendAction(&ingress, .ignore, false);
+  113                  }
+  114                  return ingress;
+  115              }
+  116          }
+  117  
+  118          if (escape_parser.controlByteFeatureAction(byte)) |resolved| {
+  119              appendAction(&ingress, resolved, false);
+  120          } else {
+  121              appendRaw(&ingress, byte);
+  122          }
+  123          return ingress;
+  124      }
+  125  
+  126      pub fn flush(
+  127          self: *Decoder,
+  128          now_ms: i64,
+  129          timeout_ms: i64,
+  130          paste_active: bool,
+  131      ) input_action.TerminalInputIngress {
+  132          var ingress = input_action.TerminalInputIngress{};
+  133          if (self.stage == 0) return ingress;
+  134  
+  135          const effective_timeout_ms = if (escape_parser.isMouseReportPayloadStage(self.stage))
+  136              @max(timeout_ms, mouse_report_escape_timeout_ms)
+  137          else
+  138              timeout_ms;
+  139          if (now_ms - self.started_ms < effective_timeout_ms) return ingress;
+  140  
+  141          if (paste_active) {
+  142              self.reset();
+  143              return ingress;
+  144          }
+  145  
+  146          if (escape_parser.isControlSequenceDiscardStage(self.stage)) {
+  147              debug_trace.logf("input", "discard pending control sequence reason=quiet_expiry", .{});
+  148              self.reset();
+  149              return ingress;
+  150          }
+  151  
+  152          if (escape_parser.isMouseReportDiscardStage(self.stage)) {
+  153              debug_trace.logf("input", "discard pending mouse report reason=quiet_expiry", .{});
+  154              self.reset();
+  155              return ingress;
+  156          }
+  157  
+  158          if (escape_parser.beginMouseReportDiscard(
+  159              &self.stage,
+  160              &self.param,
+  161              &self.param2,
+  162              &self.mouse,
+  163          )) {
+  164              self.cancel_pending = false;
+  165              if (self.stage == 0) {
+  166                  debug_trace.logf("input", "discard pending mouse report reason=bound", .{});
+  167                  self.started_ms = 0;
+  168              } else {
+  169                  self.started_ms = now_ms;
+  170              }
+  171              return ingress;
+  172          }
+  173  
+  174          if (!escape_parser.isBareEscapeStage(self.stage)) {
+  175              debug_trace.logf("input", "discard pending control sequence reason=quiet_expiry", .{});
+  176              self.reset();
+  177              return ingress;
+  178          }
+  179  
+  180          const was_cancel_pending = self.cancel_pending;
+  181          self.reset();
+  182          appendAction(&ingress, .escape, was_cancel_pending);
+  183          return ingress;
+  184      }
+  185  
+  186      fn beginEscape(self: *Decoder, now_ms: i64, cancel_pending: bool) void {
+  187          self.stage = 1;
+  188          self.param = 0;
+  189          self.param2 = 0;
+  190          self.mouse.reset();
+  191          self.started_ms = now_ms;
+  192          self.cancel_pending = cancel_pending;
+  193      }
+  194  
+  195      fn finishEscape(self: *Decoder) void {
+  196          self.started_ms = 0;
+  197          self.cancel_pending = false;
+  198      }
+  199  
+  200      fn takeCancelPending(self: *Decoder) bool {
+  201          const pending = self.cancel_pending;
+  202          self.cancel_pending = false;
+  203          return pending;
+  204      }
+  205  };
+  206  
+  207  fn appendRaw(ingress: *input_action.TerminalInputIngress, byte: u8) void {
+  208      ingress.setEvent(.{ .raw = .{
+  209          .byte = byte,
+  210          .composer_shortcut = shortcuts.fromControlByte(byte),
+  211      } });
+  212  }
+  213  
+  214  fn appendAction(
+  215      ingress: *input_action.TerminalInputIngress,
+  216      action: input_action.Action,
+  217      cancel_pending: bool,
+  218  ) void {
+  219      ingress.setEvent(.{ .action = .{
+  220          .action = action,
+  221          .composer_shortcut = shortcuts.fromEscapeAction(action),
+  222          .cancel_pending = cancel_pending,
+  223      } });
+  224  }
+  225  
+  226  fn shouldReplayControlAfterBareEscape(byte: u8) bool {
+  227      if (shortcuts.fromControlByte(byte) != null) return true;
+  228      return switch (byte) {
+  229          3, 7, 12, 15, 16, 22, 24 => true,
+  230          else => false,
+  231      };
+  232  }
+
+## src/ui/input/runtime.zig:2266-2284
+ 2266  test "input escape parser preserves double escape meta behavior" {
+ 2267      try expectEscapeAction("\x1b[A", moveEscape(.paragraph_up, false));
+ 2268      try expectEscapeAction("\x1b[B", moveEscape(.paragraph_down, false));
+ 2269      try expectEscapeAction("\x1bOA", moveEscape(.paragraph_up, false));
+ 2270      try expectEscapeAction("\x1bOB", moveEscape(.paragraph_down, false));
+ 2271      try expectEscapeAction("\x1b[D", moveEscape(.word_left, false));
+ 2272      try expectEscapeAction("\x1b[C", moveEscape(.word_right, false));
+ 2273      try expectEscapeAction("\x1bb", .word_left);
+ 2274      try expectEscapeAction("\x1bd", .{ .composer_shortcut = .delete_word_right });
+ 2275  
+ 2276      var stage: u8 = 1;
+ 2277      var param: u16 = 0;
+ 2278      var param2: u16 = 0;
+ 2279      try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, 0x1b));
+ 2280      stage = 0; // timeout/reset between escape sequences clears Meta intent
+ 2281      stage = 1;
+ 2282      try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, '['));
+ 2283      try std.testing.expectEqual(@as(?InputEscapeAction, .cursor_up), consumeInputEscapeByte(&stage, &param, &param2, 'A'));
+ 2284  }
+
+## src/ui/input/runtime.zig:2488-2500
+ 2488  fn expectEscapeAction(bytes: []const u8, expected: InputEscapeAction) !void {
+ 2489      var stage: u8 = 1;
+ 2490      var param: u16 = 0;
+ 2491      var param2: u16 = 0;
+ 2492      var action: ?InputEscapeAction = null;
+ 2493      for (bytes) |byte| {
+ 2494          action = consumeInputEscapeByte(&stage, &param, &param2, byte);
+ 2495      }
+ 2496      try std.testing.expectEqual(@as(?InputEscapeAction, expected), action);
+ 2497      try std.testing.expectEqual(@as(u8, 0), stage);
+ 2498  }
+ 2499  
+ 2500  fn moveEscape(kind: input_action.MoveKind, extend_selection: bool) InputEscapeAction {
+
+## src/ui/input/runtime.zig:3585-3604
+ 3585  test "input escape parser handles double-ESC as meta prefix for arrows" {
+ 3586      var stage: u8 = 1;
+ 3587      var param: u16 = 0;
+ 3588      var param2: u16 = 0;
+ 3589      // ESC ESC [ A — Option+Up on terminals that send Meta as ESC prefix
+ 3590      try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, 0x1b));
+ 3591      try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, '['));
+ 3592      try std.testing.expectEqual(@as(?InputEscapeAction, moveEscape(.paragraph_up, false)), consumeInputEscapeByte(&stage, &param, &param2, 'A'));
+ 3593      try std.testing.expectEqual(@as(u8, 0), stage);
+ 3594  }
+ 3595  
+ 3596  test "input escape parser handles double-ESC meta prefix for down arrow" {
+ 3597      var stage: u8 = 1;
+ 3598      var param: u16 = 0;
+ 3599      var param2: u16 = 0;
+ 3600      try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, 0x1b));
+ 3601      try std.testing.expectEqual(@as(?InputEscapeAction, null), consumeInputEscapeByte(&stage, &param, &param2, '['));
+ 3602      try std.testing.expectEqual(@as(?InputEscapeAction, moveEscape(.paragraph_down, false)), consumeInputEscapeByte(&stage, &param, &param2, 'B'));
+ 3603      try std.testing.expectEqual(@as(u8, 0), stage);
+ 3604  }
+
+## src/core/app/app_bootstrap_runtime.zig:481-492
+  481              if (comptime @hasField(App, "terminal_input_runtime") and @hasField(App, "terminal")) {
+  482                  // Own theme protocol bytes even under FX_THEME; probing stays gated.
+  483                  app.terminal_input_runtime.terminal_theme_monitor.start();
+  484                  if (startup.theme_monitor_enabled) {
+  485                      app.terminal.enableThemeNotifications() catch |err| {
+  486                          debug_trace.logf("theme", "theme_notification_enable_failed err={s}", .{@errorName(err)});
+  487                      };
+  488                      app.terminal.requestThemeColorScheme() catch |err| {
+  489                          debug_trace.logf("theme", "theme_color_scheme_query_failed err={s}", .{@errorName(err)});
+  490                      };
+  491                  }
+  492              }
+
+## src/ui/input/runtime.zig:46-55
+   46  pub fn terminalInputOwner(
+   47      monitor: *const theme_monitor.Monitor,
+   48      paste_active: bool,
+   49  ) TerminalInputOwner {
+   50      if (monitor.ownsInput()) return .theme_monitor;
+   51      if (paste_active) return .paste;
+   52      if (monitor.enabled) return .theme_monitor;
+   53      return .fx_input;
+   54  }
+   55  
+
+## src/ui/terminal/theme_monitor.zig:1-174
+    1  const std = @import("std");
+    2  const debug_trace = @import("../../core/shared/debug_trace.zig");
+    3  const theme_protocol = @import("theme_protocol.zig");
+    4  
+    5  // OSC 11 shares Escape's prefix: allow fragmented replies without imposing
+    6  // the cursor probe's full 100 ms delay on a standalone Escape key.
+    7  pub const response_idle_timeout_ms: i64 = 75;
+    8  pub const background_response_timeout_ms: i64 = 200;
+    9  
+   10  const max_candidate_bytes = 64;
+   11  
+   12  pub const ThemeUpdate = struct {
+   13      light: bool,
+   14      rgb: ?theme_protocol.Rgb = null,
+   15  };
+   16  
+   17  pub const ForwardBytes = struct {
+   18      storage: [max_candidate_bytes + 1]u8 = undefined,
+   19      len: u8 = 0,
+   20  
+   21      pub fn slice(self: *const ForwardBytes) []const u8 {
+   22          return self.storage[0..self.len];
+   23      }
+   24  };
+   25  
+   26  pub const FeedResult = union(enum) {
+   27      pending,
+   28      consumed,
+   29      forward: ForwardBytes,
+   30  };
+   31  
+   32  pub const QueryRequest = enum {
+   33      response_fence,
+   34      background,
+   35  };
+   36  
+   37  const BackgroundQuery = struct {
+   38      deadline_ms: i64,
+   39      background: ?ThemeUpdate = null,
+   40  };
+   41  
+   42  const QueryState = union(enum) {
+   43      idle,
+   44      awaiting_response_fence: i64,
+   45      background_ready,
+   46      awaiting_background: BackgroundQuery,
+   47  };
+   48  
+   49  pub const Monitor = struct {
+   50      enabled: bool = false,
+   51      candidate: [max_candidate_bytes]u8 = undefined,
+   52      candidate_len: u8 = 0,
+   53      candidate_deadline_ms: i64 = 0,
+   54      deferred: [max_candidate_bytes]u8 = undefined,
+   55      deferred_start: u8 = 0,
+   56      deferred_len: u8 = 0,
+   57      deferred_input_in_flight: bool = false,
+   58      query_state: QueryState = .idle,
+   59      theme_dirty: bool = false,
+   60      notification_light: ?bool = null,
+   61      settled_update: ?ThemeUpdate = null,
+   62  
+   63      pub fn start(self: *Monitor) void {
+   64          self.enabled = true;
+   65      }
+   66  
+   67      pub fn hasPendingInput(self: *const Monitor) bool {
+   68          return self.candidate_len > 0 or
+   69              self.deferred_start < self.deferred_len or
+   70              self.deferred_input_in_flight;
+   71      }
+   72  
+   73      pub fn ownsInput(self: *const Monitor) bool {
+   74          if (!self.enabled) return false;
+   75          if (self.hasPendingInput()) return true;
+   76          return switch (self.query_state) {
+   77              .awaiting_response_fence, .awaiting_background => true,
+   78              .idle, .background_ready => false,
+   79          };
+   80      }
+   81  
+   82      pub fn feed(self: *Monitor, byte: u8, now_ms: i64) FeedResult {
+   83          if (!self.enabled) return forwardByte(byte);
+   84          if (self.candidate_len == 0 and byte != 0x1b) return forwardByte(byte);
+   85          if (self.candidate_len == 1 and byte == 0x1b) {
+   86              self.candidate_deadline_ms = addMillis(now_ms, response_idle_timeout_ms);
+   87              return forwardByte(byte);
+   88          }
+   89          if (self.candidate_len == self.candidate.len) return self.forwardCandidateWith(byte);
+   90  
+   91          self.candidate[self.candidate_len] = byte;
+   92          self.candidate_len += 1;
+   93          self.candidate_deadline_ms = addMillis(now_ms, response_idle_timeout_ms);
+   94  
+   95          const candidate = self.candidate[0..self.candidate_len];
+   96          if (std.mem.eql(u8, candidate, dark_response)) {
+   97              self.candidate_len = 0;
+   98              self.queueRefresh(false);
+   99              return .consumed;
+  100          }
+  101          if (std.mem.eql(u8, candidate, light_response)) {
+  102              self.candidate_len = 0;
+  103              self.queueRefresh(true);
+  104              return .consumed;
+  105          }
+  106          if (std.mem.startsWith(u8, dark_response, candidate) or
+  107              std.mem.startsWith(u8, light_response, candidate))
+  108          {
+  109              return .pending;
+  110          }
+  111  
+  112          switch (theme_protocol.classifyPrimaryDeviceAttributes(candidate)) {
+  113              .pending => return .pending,
+  114              .complete => {
+  115                  self.candidate_len = 0;
+  116                  self.candidate_deadline_ms = 0;
+  117                  self.finishResponseFence();
+  118                  return .consumed;
+  119              },
+  120              .invalid => {},
+  121          }
+  122  
+  123          // While enabled, own complete parseable OSC 11 replies. Retain only
+  124          // samples bracketed by response fences; discard every other reply.
+  125          if (std.mem.startsWith(u8, osc11_prefix, candidate)) return .pending;
+  126          if (std.mem.startsWith(u8, candidate, osc11_prefix)) {
+  127              if (!std.mem.endsWith(u8, candidate, "\x07") and
+  128                  !std.mem.endsWith(u8, candidate, "\x1b\\"))
+  129              {
+  130                  return .pending;
+  131              }
+  132              if (theme_protocol.parseOsc11Response(candidate)) |background| {
+  133                  self.candidate_len = 0;
+  134                  self.candidate_deadline_ms = 0;
+  135                  switch (self.query_state) {
+  136                      .awaiting_background => |*query| {
+  137                          query.background = .{
+  138                              .light = background.light,
+  139                              .rgb = background.rgb,
+  140                          };
+  141                      },
+  142                      else => {},
+  143                  }
+  144                  return .consumed;
+  145              }
+  146          }
+  147          return self.forwardCandidate();
+  148      }
+  149  
+  150      pub fn poll(self: *Monitor, now_ms: i64) void {
+  151          if (self.candidate_len > 0 and now_ms >= self.candidate_deadline_ms) {
+  152              const candidate = self.candidate[0..self.candidate_len];
+  153              if (std.mem.startsWith(u8, candidate, osc11_prefix)) {
+  154                  debug_trace.logf(
+  155                      "theme",
+  156                      "theme osc11 candidate dropped bytes={d} reason=osc11_idle_timeout",
+  157                      .{self.candidate_len},
+  158                  );
+  159                  self.candidate_len = 0;
+  160                  self.candidate_deadline_ms = 0;
+  161              } else {
+  162                  self.deferCandidate();
+  163              }
+  164          }
+  165          const query_deadline = switch (self.query_state) {
+  166              .awaiting_response_fence => |deadline_ms| deadline_ms,
+  167              .awaiting_background => |query| query.deadline_ms,
+  168              .idle, .background_ready => return,
+  169          };
+  170          if (now_ms >= query_deadline) {
+  171              debug_trace.logf("theme", "theme_query_timeout phase={s}", .{@tagName(self.query_state)});
+  172              self.settleNotificationFallback();
+  173          }
+  174      }
+
+## src/ui/terminal/theme_monitor.zig:208-225
+  208      pub fn takeDeferredByte(self: *Monitor) ?u8 {
+  209          std.debug.assert(!self.deferred_input_in_flight);
+  210          if (self.deferred_start >= self.deferred_len) return null;
+  211          const byte = self.deferred[self.deferred_start];
+  212          self.deferred_start += 1;
+  213          if (self.deferred_start == self.deferred_len) {
+  214              self.deferred_start = 0;
+  215              self.deferred_len = 0;
+  216          }
+  217          self.deferred_input_in_flight = true;
+  218          return byte;
+  219      }
+  220  
+  221      pub fn consumeDeferredInputDispatch(self: *Monitor) bool {
+  222          const in_flight = self.deferred_input_in_flight;
+  223          self.deferred_input_in_flight = false;
+  224          return in_flight;
+  225      }
+
+## src/ui/terminal/theme_monitor.zig:261-301
+  261      fn deferCandidate(self: *Monitor) void {
+  262          if (self.candidate_len == 0) return;
+  263          std.debug.assert(self.deferred_start == self.deferred_len);
+  264          @memcpy(self.deferred[0..self.candidate_len], self.candidate[0..self.candidate_len]);
+  265          self.deferred_start = 0;
+  266          self.deferred_len = self.candidate_len;
+  267          self.candidate_len = 0;
+  268          self.candidate_deadline_ms = 0;
+  269      }
+  270  
+  271      fn forwardCandidate(self: *Monitor) FeedResult {
+  272          var forwarded = ForwardBytes{};
+  273          @memcpy(forwarded.storage[0..self.candidate_len], self.candidate[0..self.candidate_len]);
+  274          forwarded.len = self.candidate_len;
+  275          self.candidate_len = 0;
+  276          self.candidate_deadline_ms = 0;
+  277          return .{ .forward = forwarded };
+  278      }
+  279  
+  280      fn forwardCandidateWith(self: *Monitor, byte: u8) FeedResult {
+  281          var forwarded = self.forwardCandidate().forward;
+  282          forwarded.storage[forwarded.len] = byte;
+  283          forwarded.len += 1;
+  284          return .{ .forward = forwarded };
+  285      }
+  286  };
+  287  
+  288  const dark_response = "\x1b[?997;1n";
+  289  const light_response = "\x1b[?997;2n";
+  290  const response_fence = "\x1b[?1;2c";
+  291  const osc11_prefix = "\x1b]11;rgb:";
+  292  
+  293  fn addMillis(now_ms: i64, duration_ms: i64) i64 {
+  294      return std.math.add(i64, now_ms, duration_ms) catch std.math.maxInt(i64);
+  295  }
+  296  
+  297  fn forwardByte(byte: u8) FeedResult {
+  298      var forwarded = ForwardBytes{};
+  299      forwarded.storage[0] = byte;
+  300      forwarded.len = 1;
+  301      return .{ .forward = forwarded };
+
+## src/ui/terminal/theme_protocol.zig:11-42
+   11  pub const ResponseStatus = enum { invalid, pending, complete };
+   12  
+   13  const primary_device_attributes_prefix = "\x1b[?";
+   14  
+   15  /// Classifies a primary device attributes reply (`ESC [ ? Ps ; ... c`). Every
+   16  /// terminal answers that query, so fx sends it as a fence after a query the
+   17  /// terminal may ignore.
+   18  pub fn classifyPrimaryDeviceAttributes(bytes: []const u8) ResponseStatus {
+   19      if (std.mem.startsWith(u8, primary_device_attributes_prefix, bytes)) return .pending;
+   20      if (!std.mem.startsWith(u8, bytes, primary_device_attributes_prefix)) return .invalid;
+   21  
+   22      const parameters = bytes[primary_device_attributes_prefix.len..];
+   23      var expect_digit = true;
+   24      for (parameters, 0..) |byte, index| {
+   25          if (std.ascii.isDigit(byte)) {
+   26              expect_digit = false;
+   27              continue;
+   28          }
+   29          if (byte == ';' and !expect_digit) {
+   30              expect_digit = true;
+   31              continue;
+   32          }
+   33          if (byte == 'c') {
+   34              return if (!expect_digit and index + 1 == parameters.len)
+   35                  .complete
+   36              else
+   37                  .invalid;
+   38          }
+   39          return .invalid;
+   40      }
+   41      return .pending;
+   42  }
+
+## src/ui/input/runtime.zig:685-712
+  685      pub fn takeDeferredTerminalInputByte(self: *Runtime) ?u8 {
+  686          if (self.takeDeferredThemeMonitorByte()) |byte| return byte;
+  687          if (self.terminal_cursor_probe.takeDeferredByte()) |byte| {
+  688              self.deferred_terminal_input_source = .cursor_probe;
+  689              return byte;
+  690          }
+  691          return null;
+  692      }
+  693  
+  694      pub fn takeDeferredThemeMonitorByte(self: *Runtime) ?u8 {
+  695          std.debug.assert(self.deferred_terminal_input_source == null);
+  696          if (self.terminal_theme_monitor.takeDeferredByte()) |byte| {
+  697              self.deferred_terminal_input_source = .theme_monitor;
+  698              return byte;
+  699          }
+  700          return null;
+  701      }
+  702  
+  703      pub fn consumeDeferredTerminalInputDispatch(self: *Runtime) ?DeferredTerminalInputSource {
+  704          const source = self.deferred_terminal_input_source;
+  705          self.deferred_terminal_input_source = null;
+  706          return switch (source orelse return null) {
+  707              .theme_monitor => blk: {
+  708                  std.debug.assert(self.terminal_theme_monitor.consumeDeferredInputDispatch());
+  709                  break :blk .theme_monitor;
+  710              },
+  711              .cursor_probe => blk: {
+  712                  std.debug.assert(self.terminal_cursor_probe.consumeDeferredInputDispatch());
+
+## src/main.zig:2804-2806
+ 2804      fn collectThemeFacts(self: *App) !void {
+ 2805          const now_ms = io_mod.milliTimestamp();
+ 2806          self.terminal_input_runtime.terminal_theme_monitor.poll(now_ms);
+
+## src/main.zig:3096-3140
+ 3096      fn handleThemeMonitorByte(self: *App, byte: u8) !void {
+ 3097          switch (self.terminal_input_runtime.terminal_theme_monitor.feed(
+ 3098              byte,
+ 3099              io_mod.milliTimestamp(),
+ 3100          )) {
+ 3101              .pending, .consumed => {},
+ 3102              .forward => |forwarded| {
+ 3103                  for (forwarded.slice()) |forwarded_byte| {
+ 3104                      try self.handleAfterThemeMonitorByte(forwarded_byte);
+ 3105                      if (self.should_exit) return;
+ 3106                  }
+ 3107              },
+ 3108          }
+ 3109      }
+ 3110  
+ 3111      pub fn loopHandleByte(ctx: *anyopaque, byte: u8) !void {
+ 3112          const self: *App = @ptrCast(@alignCast(ctx));
+ 3113          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 3114          const deferred_source = self.terminal_input_runtime.consumeDeferredTerminalInputDispatch();
+ 3115  
+ 3116          if (deferred_source) |source| {
+ 3117              switch (source) {
+ 3118                  .cursor_probe => {
+ 3119                      if (try self.routeActivePasteTransportByte(byte)) return;
+ 3120                      try self.handleCursorDeferredInputByte(byte);
+ 3121                  },
+ 3122                  .theme_monitor => try self.handleAfterThemeMonitorByte(byte),
+ 3123              }
+ 3124              return;
+ 3125          }
+ 3126  
+ 3127          switch (ui_input.terminalInputOwner(
+ 3128              &self.terminal_input_runtime.terminal_theme_monitor,
+ 3129              InputAppRuntime.terminalPasteActive(self),
+ 3130          )) {
+ 3131              .theme_monitor => {
+ 3132                  try self.handleThemeMonitorByte(byte);
+ 3133                  return;
+ 3134              },
+ 3135              .paste => {
+ 3136                  const routed = try self.routeActivePasteTransportByte(byte);
+ 3137                  std.debug.assert(routed);
+ 3138                  return;
+ 3139              },
+ 3140              .fx_input => {},
+
+## src/main.zig:3160-3163
+ 3160      pub fn loopNextCollectedByte(ctx: *anyopaque) ?u8 {
+ 3161          const self: *App = @ptrCast(@alignCast(ctx));
+ 3162          return self.terminal_input_runtime.takeDeferredTerminalInputByte();
+ 3163      }
+
+## src/main.zig:174-176
+  174  const active_poll_timeout_ms: i32 = 8;
+  175  const focused_ui_worker_poll_timeout_ms: i32 = 1;
+  176  const idle_wasm_poll_timeout_ms: i32 = 16;
+
+## src/main.zig:1115-1145
+ 1115      pub fn run(self: *App) !void {
+ 1116          const callbacks = RenderAppRuntime.eventLoopCallbacks(self);
+ 1117          while (true) {
+ 1118              const exit_cause = try event_loop.run(
+ 1119                  self.terminal,
+ 1120                  &self.should_exit,
+ 1121                  active_poll_timeout_ms,
+ 1122                  callbacks,
+ 1123              );
+ 1124              switch (exit_cause) {
+ 1125                  .requested_exit => return,
+ 1126                  .input_closed => return error.TerminalInputClosed,
+ 1127              }
+ 1128          }
+ 1129      }
+ 1130  
+ 1131      pub fn loopPollTimeoutMs(ctx: *anyopaque, default_timeout_ms: i32) i32 {
+ 1132          const self: *App = @ptrCast(@alignCast(ctx));
+ 1133          if (comptime !host_target.is_wasm) {
+ 1134              return nativeLoopPollTimeoutMs(
+ 1135                  default_timeout_ms,
+ 1136                  self.shell.render_requests.hasReason(.first_frame),
+ 1137                  self.auth.sourceInventoryRefreshActive(),
+ 1138                  self.skills.refreshActive(),
+ 1139                  self.fullTranscriptFocusedWorkActive(),
+ 1140                  InputAppRuntime.fileListingHoldPending(self, app_permission_runtime.monotonicMillis()),
+ 1141              );
+ 1142          }
+ 1143          return if (self.pacer.hasPending()) default_timeout_ms else idle_wasm_poll_timeout_ms;
+ 1144      }
+ 1145  
+
+## src/main.zig:187-207
+  187  const input_escape_timeout_ms: i64 = 30;
+  188  
+  189  /// The first frame counts as focused work: an idle wait before it would only
+  190  /// delay the launch.
+  191  fn nativeLoopPollTimeoutMs(
+  192      default_timeout_ms: i32,
+  193      first_frame_pending: bool,
+  194      auth_refresh_active: bool,
+  195      skills_refresh_active: bool,
+  196      transcript_page_work_active: bool,
+  197      file_listing_hold_pending: bool,
+  198  ) i32 {
+  199      return if (first_frame_pending or
+  200          auth_refresh_active or
+  201          skills_refresh_active or
+  202          transcript_page_work_active or
+  203          file_listing_hold_pending)
+  204          @min(default_timeout_ms, focused_ui_worker_poll_timeout_ms)
+  205      else
+  206          default_timeout_ms;
+  207  }
+
+## src/main.zig:2846-2849
+ 2846      pub fn loopCollectFacts(ctx: *anyopaque) !void {
+ 2847          const self: *App = @ptrCast(@alignCast(ctx));
+ 2848          if (!try WorkerAppRuntime.authorizeInteractiveAdmission(self)) return;
+ 2849  
+
+## src/core/app/app_render_runtime.zig:2055-2065
+ 2055          pub fn eventLoopCallbacks(app: *App) event_loop.EventLoopCallbacks {
+ 2056              return .{
+ 2057                  .ctx = @ptrCast(app),
+ 2058                  .collect_facts = App.loopCollectFacts,
+ 2059                  .next_collected_byte = App.loopNextCollectedByte,
+ 2060                  .handle_byte = App.loopHandleByte,
+ 2061                  .settle_delivery_epoch = App.loopSettleInputDeliveryEpoch,
+ 2062                  .commit_frame = App.loopCommitFrame,
+ 2063                  .poll_timeout_ms = if (comptime @hasDecl(App, "loopPollTimeoutMs")) App.loopPollTimeoutMs else null,
+ 2064              };
+ 2065          }
+
+## src/main.zig:2975-2990
+ 2975          const input_now_ms = io_mod.milliTimestamp();
+ 2976          InputAppRuntime.expireTerminalInputGestures(self, input_now_ms);
+ 2977          const terminal_input = self.terminal_input_runtime.flushTerminalAction(
+ 2978              input_now_ms,
+ 2979              input_escape_timeout_ms,
+ 2980              InputAppRuntime.terminalPasteActive(self),
+ 2981          );
+ 2982          try self.routeTerminalInputIngress(terminal_input);
+ 2983          try WorkerAppRuntime.tick(self, app_callbacks.Bindings(App).workerEventHandlers(self));
+ 2984          const now_ns = io_mod.nanoTimestamp();
+ 2985          if (!self.approval_prompt.isActive() and !self.question_prompt.isActive() and !self.auth.apiKeyEntryActive()) {
+ 2986              try self.pacer.tick(self.alloc, now_ns, self.pacerCallbacks());
+ 2987          } else {
+ 2988              self.pacer.pause(now_ns);
+ 2989          }
+ 2990      }
+
+## src/ui/event_loop.zig:76-122
+   76  pub fn run(terminal: anytype, should_exit: *bool, poll_timeout_ms: i32, callbacks: EventLoopCallbacks) !ExitCause {
+   77      var buf: [128]u8 = undefined;
+   78  
+   79      while (!should_exit.*) {
+   80          try callbacks.collect_facts(callbacks.ctx);
+   81          if (should_exit.*) return .requested_exit;
+   82  
+   83          while (callbacks.next_collected_byte(callbacks.ctx)) |byte| {
+   84              try callbacks.handle_byte(callbacks.ctx, byte);
+   85              if (should_exit.*) return .requested_exit;
+   86          }
+   87  
+   88          const timeout_ms = if (callbacks.poll_timeout_ms) |resolve|
+   89              resolve(callbacks.ctx, poll_timeout_ms)
+   90          else
+   91              poll_timeout_ms;
+   92          var poll_result = try terminal.pollInput(timeout_ms);
+   93          var input_reads: usize = 0;
+   94          while (poll_result.readable and input_reads < max_input_reads_per_fact_collection) : (input_reads += 1) {
+   95              const read_len = try terminal.read(&buf);
+   96              if (read_len == 0) {
+   97                  if (input_reads > 0) attemptFinalFrameCommit(callbacks, "eof");
+   98                  return .input_closed;
+   99              }
+  100  
+  101              record_tape.recordStdin(buf[0..read_len]);
+  102              for (buf[0..read_len]) |byte| {
+  103                  try callbacks.handle_byte(callbacks.ctx, byte);
+  104                  if (should_exit.*) return .requested_exit;
+  105              }
+  106              poll_result = try terminal.pollInput(0);
+  107          }
+  108  
+  109          if (poll_result.readable) {
+  110              try callbacks.commit_frame(callbacks.ctx);
+  111              continue;
+  112          }
+  113          if (poll_result.closed()) {
+  114              if (input_reads > 0) attemptFinalFrameCommit(callbacks, "hangup");
+  115              return .input_closed;
+  116          }
+  117  
+  118          try callbacks.settle_delivery_epoch(callbacks.ctx);
+  119          try callbacks.commit_frame(callbacks.ctx);
+  120      }
+  121      return .requested_exit;
+  122  }
+
+## src/core/app/app_input_runtime.zig:658-677
+  658          pub fn flushPendingEscape(app: *App, input_escape_timeout_ms: i64) !void {
+  659              const now = io_mod.milliTimestamp();
+  660              expireTerminalInputGestures(app, now);
+  661              const ingress = app.terminal_input_runtime.flushTerminalAction(
+  662                  now,
+  663                  input_escape_timeout_ms,
+  664                  terminalPasteActive(app),
+  665              );
+  666              if (ingress.event) |event| {
+  667                  switch (event) {
+  668                      .action => |decoded| {
+  669                          std.debug.assert(decoded.action == .escape);
+  670                          disarmCtrlCExit(app, "semantic_action");
+  671                          defer settleModelPickerDraft(app);
+  672                          try resolveEscape(app, decoded.cancel_pending, now);
+  673                      },
+  674                      .paste_byte, .raw => unreachable,
+  675                  }
+  676              }
+  677          }
+
+## src/core/app/app_input_runtime.zig:896-925
+  896          fn routeResolvedEscapeAction(
+  897              app: *App,
+  898              resolved: input_action.Action,
+  899              composer_shortcut: ?input_action.ShortcutAction,
+  900              approval_focused_edit: ?approval_decision.DraftAction,
+  901              question_action: ?question_prompt.Action,
+  902              was_cancel_pending: bool,
+  903              max_input_len: usize,
+  904          ) !ResolvedEscapeRoute {
+  905              switch (resolved) {
+  906                  .remapped_byte, .paste_start, .paste_end, .ignore => {},
+  907                  else => disarmCtrlCExit(app, "semantic_action"),
+  908              }
+  909              // Any other semantic key stands down an armed interrupt.
+  910              switch (resolved) {
+  911                  .remapped_byte, .paste_start, .paste_end, .ignore, .escape => {},
+  912                  else => _ = disarmEscapeInterrupt(app, "semantic_action"),
+  913              }
+  914  
+  915              if (resolved == .escape) {
+  916                  if (try full_transcript_rt.routeAction(app, resolved)) {
+  917                      _ = disarmEscapeInterrupt(app, "full_transcript");
+  918                      return .done;
+  919                  }
+  920                  const now = io_mod.milliTimestamp();
+  921                  expireEscClearArm(app, now);
+  922                  try resolveEscape(app, was_cancel_pending, now);
+  923                  return .done;
+  924              }
+  925  
+
+## src/core/app/app_input_runtime.zig:2687-2800
+ 2687          fn resolveEscape(app: *App, was_cancel_pending: bool, now: i64) !void {
+ 2688              if (try full_transcript_rt.routeAction(app, .escape)) return;
+ 2689              if (was_cancel_pending) {
+ 2690                  if (app.question_prompt.isActive()) {
+ 2691                      // Freeform answers mirror the composer's Esc contract:
+ 2692                      // Esc on a non-empty draft arms, a second press within
+ 2693                      // the window clears it, and only an empty field lets
+ 2694                      // Esc cancel the batch.
+ 2695                      _ = disarmEscapeInterrupt(app, "question_prompt");
+ 2696                      if (app.question_prompt.freeformDraftLen() > 0) {
+ 2697                          const transition = gesture_state.pressEscapeClear(
+ 2698                              app.input_runtime.gestures,
+ 2699                              now,
+ 2700                          );
+ 2701                          app.input_runtime.gestures = transition.next;
+ 2702                          if (transition.result == .activated) {
+ 2703                              app.question_prompt.clearFreeformDraft("escape_clear");
+ 2704                          }
+ 2705                          app.shell.render_requests.request(.modal);
+ 2706                          app.shell.render_requests.request(.footer);
+ 2707                          return;
+ 2708                      }
+ 2709                      try question_rt.cancelQuestionPrompt(app);
+ 2710                      return;
+ 2711                  }
+ 2712                  if (app.approval_prompt.isActive()) {
+ 2713                      try approval_rt.cancelApprovalOperation(app);
+ 2714                      _ = disarmEscapeClear(app);
+ 2715                      _ = disarmEscapeInterrupt(app, "approval_prompt");
+ 2716                      return;
+ 2717                  }
+ 2718                  if (cancelCompactCommandMenu(app) or (try cancelMcpHostMenu(app)) or cancelSettingsMenu(app) or cancelHelpMenu(app) or cancelModelMenu(app) or cancelSkillsMenu(app) or cancelSessionMenu(app) or cancelForkMenu(app) or cancelEffortMenu(app)) {
+ 2719                      _ = disarmEscapeClear(app);
+ 2720                      _ = disarmEscapeInterrupt(app, "menu");
+ 2721                      app.shell.render_requests.request(.footer);
+ 2722                      return;
+ 2723                  }
+ 2724                  if (completion_rt.dismissVisibleInlinePicker(app)) {
+ 2725                      _ = disarmEscapeClear(app);
+ 2726                      _ = disarmEscapeInterrupt(app, "inline_picker");
+ 2727                      app.shell.render_requests.request(.footer);
+ 2728                      return;
+ 2729                  }
+ 2730                  if (interrupt_rt.dismissCompactionFeedback(app)) {
+ 2731                      _ = disarmEscapeClear(app);
+ 2732                      _ = disarmEscapeInterrupt(app, "compaction_feedback");
+ 2733                      return;
+ 2734                  }
+ 2735                  if (interrupt_rt.pauseActiveRecovery(app)) {
+ 2736                      _ = disarmEscapeClear(app);
+ 2737                      _ = disarmEscapeInterrupt(app, "recovery_pause");
+ 2738                      return;
+ 2739                  }
+ 2740                  // Interrupting active work requires a confirming second Esc
+ 2741                  // within the gesture window. The first press only arms.
+ 2742                  const transition = gesture_state.pressEscapeInterrupt(
+ 2743                      app.input_runtime.gestures,
+ 2744                      now,
+ 2745                  );
+ 2746                  app.input_runtime.gestures = transition.next;
+ 2747                  if (transition.result == .activated) {
+ 2748                      try interrupt_rt.cancelActiveOperation(app);
+ 2749                  } else {
+ 2750                      debug_trace.logf(
+ 2751                          "input",
+ 2752                          "event=esc_interrupt_armed target=active_operation",
+ 2753                          .{},
+ 2754                      );
+ 2755                  }
+ 2756                  _ = disarmEscapeClear(app);
+ 2757                  app.shell.render_requests.request(.footer);
+ 2758                  return;
+ 2759              }
+ 2760  
+ 2761              if (app.approval_prompt.isActive()) {
+ 2762                  _ = disarmEscapeClear(app);
+ 2763                  return;
+ 2764              }
+ 2765              if (cancelCompactCommandMenu(app) or (try cancelMcpHostMenu(app)) or cancelSettingsMenu(app) or cancelHelpMenu(app) or cancelModelMenu(app) or cancelSkillsMenu(app) or cancelSessionMenu(app) or cancelForkMenu(app) or cancelEffortMenu(app)) {
+ 2766                  _ = disarmEscapeClear(app);
+ 2767                  app.shell.render_requests.request(.footer);
+ 2768                  return;
+ 2769              }
+ 2770              if (popOrCloseAuthPicker(app)) {
+ 2771                  _ = disarmEscapeClear(app);
+ 2772                  app.shell.render_requests.request(.footer);
+ 2773                  return;
+ 2774              }
+ 2775              if (completion_rt.dismissVisibleInlinePicker(app)) {
+ 2776                  _ = disarmEscapeClear(app);
+ 2777                  app.shell.render_requests.request(.footer);
+ 2778                  return;
+ 2779              }
+ 2780              if (interrupt_rt.dismissCompactionFeedback(app)) {
+ 2781                  _ = disarmEscapeClear(app);
+ 2782                  return;
+ 2783              }
+ 2784              if (!draftHasState(app)) {
+ 2785                  _ = disarmEscapeClear(app);
+ 2786                  return;
+ 2787              }
+ 2788              const transition = gesture_state.pressEscapeClear(
+ 2789                  app.input_runtime.gestures,
+ 2790                  now,
+ 2791              );
+ 2792              app.input_runtime.gestures = transition.next;
+ 2793              if (transition.result == .activated) {
+ 2794                  clearDraftState(app, "double_escape");
+ 2795                  app.shell.render_requests.request(.footer);
+ 2796                  if (comptime @hasDecl(App, "playInputClearedSound")) app.playInputClearedSound();
+ 2797              } else {
+ 2798                  app.shell.render_requests.request(.footer);
+ 2799              }
+ 2800          }
+
+## src/core/input/gesture_state.zig:1-6
+    1  const std = @import("std");
+    2  
+    3  pub const ctrl_c_exit_window_ms: i64 = 3000;
+    4  pub const escape_clear_window_ms: i64 = 500;
+    5  pub const escape_interrupt_window_ms: i64 = 1000;
+    6  
+
+## src/core/app/input_approval_runtime.zig:71-130
+   71          pub fn routeApprovalEscapeAction(
+   72              app: *App,
+   73              action: input_action.Action,
+   74              focused_edit: ?approval_decision.DraftAction,
+   75          ) !void {
+   76              app.input_runtime.vertical_navigation.reset();
+   77              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+   78              const amending = app.approval_prompt.isAmending();
+   79              if (amending) {
+   80                  if (focused_edit) |edit| {
+   81                      _ = try applyDecisionAction(
+   82                          app,
+   83                          .{ .edit_draft = edit },
+   84                          null,
+   85                      );
+   86                      requestActiveSurfaceFrame(app);
+   87                      return;
+   88                  }
+   89              }
+   90              switch (action) {
+   91                  .cursor_left, .word_left => {
+   92                      if (!amending) {
+   93                          _ = try applyDecisionAction(
+   94                              app,
+   95                              .{ .move_choice = .previous },
+   96                              null,
+   97                          );
+   98                          requestActiveSurfaceFrame(app);
+   99                      }
+  100                  },
+  101                  .cursor_right, .word_right => {
+  102                      if (!amending) {
+  103                          _ = try applyDecisionAction(
+  104                              app,
+  105                              .{ .move_choice = .next },
+  106                              null,
+  107                          );
+  108                          requestActiveSurfaceFrame(app);
+  109                      }
+  110                  },
+  111                  .history_up, .cursor_up => {
+  112                      _ = try applyDecisionAction(
+  113                          app,
+  114                          .{ .move_choice = .previous },
+  115                          null,
+  116                      );
+  117                      requestActiveSurfaceFrame(app);
+  118                  },
+  119                  .history_down, .cursor_down => {
+  120                      _ = try applyDecisionAction(
+  121                          app,
+  122                          .{ .move_choice = .next },
+  123                          null,
+  124                      );
+  125                      requestActiveSurfaceFrame(app);
+  126                  },
+  127                  .mouse_wheel => |direction| try handleApprovalWheel(app, direction),
+  128                  else => {},
+  129              }
+  130          }
+
+## src/core/app/input_question_runtime.zig:139-201
+  139          pub fn routeQuestionEscapeAction(
+  140              app: *App,
+  141              action: input_action.Action,
+  142              question_action: ?question_prompt.Action,
+  143          ) !void {
+  144              app.input_runtime.vertical_navigation.reset();
+  145              app.input_runtime.input_limit_rejection = input_limit_rejection.clear();
+  146              if (question_action) |typed| {
+  147                  if (try handleQuestionAction(app, typed)) return;
+  148              }
+  149              if (app.question_prompt.isFreeformSelected()) {
+  150                  switch (action) {
+  151                      .cursor_up => {
+  152                          // At the top of the freeform draft, Up leaves the
+  153                          // slot and resumes option navigation.
+  154                          if (!moveFreeformCursorVertical(app, .up)) {
+  155                              app.question_prompt.moveChoice(-1);
+  156                          }
+  157                          try rerenderQuestionBlock(app);
+  158                          return;
+  159                      },
+  160                      .cursor_down => {
+  161                          if (!moveFreeformCursorVertical(app, .down)) {
+  162                              app.question_prompt.moveChoice(1);
+  163                          }
+  164                          try rerenderQuestionBlock(app);
+  165                          return;
+  166                      },
+  167                      .history_up => {
+  168                          app.question_prompt.moveChoice(-1);
+  169                          try rerenderQuestionBlock(app);
+  170                          return;
+  171                      },
+  172                      .history_down => {
+  173                          app.question_prompt.moveChoice(1);
+  174                          try rerenderQuestionBlock(app);
+  175                          return;
+  176                      },
+  177                      else => {},
+  178                  }
+  179              }
+  180  
+  181              switch (action) {
+  182                  .history_up, .cursor_up => {
+  183                      app.question_prompt.moveChoice(-1);
+  184                      try rerenderQuestionBlock(app);
+  185                  },
+  186                  .history_down, .cursor_down => {
+  187                      app.question_prompt.moveChoice(1);
+  188                      try rerenderQuestionBlock(app);
+  189                  },
+  190                  .cursor_left, .word_left => {
+  191                      switch (app.question_prompt.retreatToPrevious()) {
+  192                          .redraw => try rerenderQuestionBlock(app),
+  193                          else => {},
+  194                      }
+  195                  },
+  196                  .cursor_right, .word_right => {
+  197                      // Enter advances; right arrow remains inert to avoid skipping answers.
+  198                  },
+  199                  else => {},
+  200              }
+  201          }

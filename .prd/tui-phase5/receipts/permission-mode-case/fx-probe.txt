@@ -1,0 +1,181 @@
+== probe.sh fx <fx v0.0.16> <run> (every fixture)
+binary sha256 before: 8e6cda2efddb
+== key-upper-ask
+  permissions    exit=0 permissions=ask;| stderr=
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== key-cap-auto
+  permissions    exit=0 permissions=auto;| stderr=
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== key-upper-full-access
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== key-full-access-space
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== key-upper-yolo
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== key-lower-yolo
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== key-invalid
+  permissions    exit=1 | stderr=fx: InvalidProfileConfiguration
+  status         exit=0 status=auto;| stderr=fx: config user: malformed_settings
+  status --json  exit=0 json=auto;| stderr=fx: config user: malformed_settings
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx: InvalidProfileConfiguration
+== key-padded
+  permissions    exit=1 | stderr=fx: InvalidProfileConfiguration
+  status         exit=0 status=auto;| stderr=fx: config user: malformed_settings
+  status --json  exit=0 json=auto;| stderr=fx: config user: malformed_settings
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx: InvalidProfileConfiguration
+== key-full
+  permissions    exit=1 | stderr=fx: InvalidProfileConfiguration
+  status         exit=0 status=auto;| stderr=fx: config user: malformed_settings
+  status --json  exit=0 json=auto;| stderr=fx: config user: malformed_settings
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx: InvalidProfileConfiguration
+== entry-upper-ask
+  permissions    exit=0 permissions=ask;| stderr=
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== entry-cap-auto
+  permissions    exit=0 permissions=auto;| stderr=
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== entry-upper-full-access
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== entry-full-access-space
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== entry-upper-yolo
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== entry-lower-yolo
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== entry-invalid
+  permissions    exit=1 | stderr=fx: InvalidProfileConfiguration
+  status         exit=0 status=ask;| stderr=fx: config user: malformed_settings
+  status --json  exit=0 json=ask;| stderr=fx: config user: malformed_settings
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx: InvalidProfileConfiguration
+== entry-padded
+  permissions    exit=1 | stderr=fx: InvalidProfileConfiguration
+  status         exit=0 status=auto;| stderr=fx: config user: malformed_settings
+  status --json  exit=0 json=auto;| stderr=fx: config user: malformed_settings
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx: InvalidProfileConfiguration
+== entry-full
+  permissions    exit=1 | stderr=fx: InvalidProfileConfiguration
+  status         exit=0 status=ask;| stderr=fx: config user: malformed_settings
+  status --json  exit=0 json=ask;| stderr=fx: config user: malformed_settings
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx: InvalidProfileConfiguration
+== env-upper-ask
+  permissions    exit=0 permissions=ask;| stderr=
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== env-cap-auto
+  permissions    exit=0 permissions=auto;| stderr=
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== env-upper-full-access
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== env-full-access-space
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== env-upper-yolo
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== env-lower-yolo
+  permissions    exit=0 permissions=full access;| stderr=
+  status         exit=0 status=full access;| stderr=
+  status --json  exit=0 json=yolo;| stderr=
+  doctor         exit=0 doctor=full access;startup=full access;| stderr=
+  ask            exit=1 | stderr=Full access enabled: fx permission checks disabled
+== env-invalid
+  permissions    exit=0 permissions=ask;| stderr=
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== env-padded
+  permissions    exit=0 permissions=auto;| stderr=
+  status         exit=0 status=auto;| stderr=
+  status --json  exit=0 json=auto;| stderr=
+  doctor         exit=0 doctor=auto;startup=auto;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== env-full
+  permissions    exit=0 permissions=ask;| stderr=
+  status         exit=0 status=ask;| stderr=
+  status --json  exit=0 json=ask;| stderr=
+  doctor         exit=0 doctor=ask;startup=ask;| stderr=
+  ask            exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== flag-full-access
+  ask --full-access exit=1 | stderr=Full access enabled: fx permission checks disabled
+== flag-yolo
+  ask --yolo     exit=1 | stderr=Full access enabled: fx permission checks disabled
+== flag-upper-full-access
+  ask --FULL-ACCESS exit=1 | stderr=usage: fx ask [--auto|--full-access] [--model <id>] [--effort <level>] [--fast|--no-fast] [--ultrafast|--no-ultrafast] [
+== flag-cap-yolo
+  ask --Yolo     exit=1 | stderr=usage: fx ask [--auto|--full-access] [--model <id>] [--effort <level>] [--fast|--no-fast] [--ultrafast|--no-ultrafast] [
+== flag-auto
+  ask --auto     exit=1 | stderr=fx ask: fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API
+== flag-upper-auto
+  ask --AUTO     exit=1 | stderr=usage: fx ask [--auto|--full-access] [--model <id>] [--effort <level>] [--fast|--no-fast] [--ultrafast|--no-ultrafast] [
+== flag-full-access-then-yolo
+  ask --full-access --yolo exit=1 | stderr=usage: fx ask [--auto|--full-access] [--model <id>] [--effort <level>] [--fast|--no-fast] [--ultrafast|--no-ultrafast] [
+== flag-full-access-then-auto
+  ask --full-access --auto exit=1 | stderr=usage: fx ask [--auto|--full-access] [--model <id>] [--effort <level>] [--fast|--no-fast] [--ultrafast|--no-ultrafast] [
+binary sha256 after: 8e6cda2efddb

@@ -227,7 +227,7 @@ const READER: &str = "local_time::tests::a_copy_of_this_binary_reads_its_zone";
 /// and prints what a screen would show, escaped.
 #[test]
 fn a_copy_of_this_binary_reads_its_zone() {
-    let Some(moments) = std::env::var_os(MOMENTS) else {
+    let Some(moments) = env_exception!(var_os("XFX_TEST_LOCAL_TIME_MOMENTS")) else {
         return;
     };
     let moments = moments.into_string().expect("moments");

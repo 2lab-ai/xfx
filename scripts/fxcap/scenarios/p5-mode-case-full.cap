@@ -1,0 +1,15 @@
+# PERMISSION-MODE-CASE: `/permissions full`, a word fx's parse refuses
+# (`config_runtime.zig:3158@481104fd`). fx's composer completes it from the
+# argument menu before Enter (to `full-access`), and so does xfx's since
+# SLASH-ARG-SKILLS (train 16 joined the two lines; docs/parity.md, the
+# `/permissions` row): both set full access, say so, and the saying goes.
+fx: env FX_AUTO_UPGRADE=0
+wait 2
+type /permissions full
+wait 0.5
+snap typed
+key Enter
+until shown Full access
+until gone Full access
+snap full
+home end

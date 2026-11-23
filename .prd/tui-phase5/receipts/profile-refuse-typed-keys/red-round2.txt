@@ -1,0 +1,8 @@
+== red.sh <repo> <clone> 1157fe3e: round 2's tests over round 1's src (control bytes of the TUI's terminal stripped)
+clone of c98af8c5, src at 1157fe3e
+cli::ask_refuses_a_profile_fx_refuses exit=101 thread 'ask_refuses_a_profile_fx_refuses' (508064908) panicked at tests/cli.rs:1997:17: assertion `left == right` failed: a provider its connections do not name   left: "xfx ask: config user: invalid_value; key=provider\nprovider=rejected: the `provider` setting is `missing`, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the promp
+cli::status_stops_where_fxs_load_fails exit=101 thread 'status_stops_where_fxs_load_fails_and_the_rest_still_answer' (508069781) panicked at tests/cli.rs:2084:13: a provider nothing defines: [doctor] ok=5 warn=2 fail=1 [doctor] workspace=<tmp>/.tmpk0uAEA/workspace [doctor] model=zai/glm-5.2 
+interactive::the_shell_refuses_a_profile_fx_refuses exit=101 thread 'the_shell_refuses_a_profile_fx_refuses_before_it_writes_anything' (508074030) panicked at tests/support/pty.rs:430:21: xfx did not exit; terminal so far: xfx: config user: invalid_value; key=provider xfx 0.1.0 (debug, revision c98af8c5048b) -- unofficial, experimental Rust port of fx 
+tui::a_profile_fx_refuses_is_refused exit=101 thread 'a_profile_fx_refuses_is_refused_before_the_terminal_is_taken' (508097553) panicked at tests/support/pty.rs:430:21: xfx did not exit; terminal so far: x𝒇x v0.1.0-c98af8c [debug] · Run /help for commands
+cli::ask_goes_on_with_a_profile_fx_starts_with exit=0 every test passed
+gateway::ask_with_a_permission_table_that_does_not_read_runs_no_tool exit=0 every test passed

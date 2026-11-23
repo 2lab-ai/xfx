@@ -1,0 +1,27 @@
+# Mutants and fixtures, round 2, at f4846c59, on a git clone --no-local throwaway, under the suite lock:
+#   TMPDIR=<short> suite-lock.sh python3 mutants-r2.py <clone> f4846c59
+# test: test_env:: + the thread-carry, launched-worker and plan-names cases, under sentinel-run.sh. clippy: clippy --all-targets -D warnings. check: the binding check, under sentinel-run.sh.
+# Each test run's output is searched for sentinel-run.sh's five values (counted, never printed).
+KILLED guard-gone: process_env! var/var_os read std::env in tests :: test result: FAILED. 14 passed; 12 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED refusal-gone: test_env::var_os returns None outside a fake :: test result: FAILED. 17 passed; 9 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED config-vars-unrouted: Environment::from_process reads its variables from std::env :: test result: FAILED. 20 passed; 6 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED config-home-unrouted: Environment::from_process reads HOME from std::env :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED gateway-reader-unrouted: Endpoint::from_process reads std::env :: test result: FAILED. 22 passed; 4 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED git-reader-unrouted: GitEnvironment::from_process reads std::env :: test result: FAILED. 23 passed; 3 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED home-to-git-unrouted: minimal_environment's HOME is the process's :: test result: FAILED. 22 passed; 4 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED child-isolation-gone: process::command inherits the process :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED carry-gone: spawn_unsignalled does not carry the fake process :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED mcp-fallback-back: with_environment falls back to std::env :: test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.05s :: sentinel values in output: 0
+KILLED overlay-gone: a runtime's environment replaces the thread's fake (item 3) :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED global-git-gone: a homeless plan keeps the global configuration (item 2) :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 10.06s :: sentinel values in output: 0
+KILLED proxy-rule-gone: bearer_rules takes the process's proxy in a test (item 6) :: test result: FAILED. 24 passed; 2 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 5.03s :: sentinel values in output: 0
+KILLED fake-proxy-ignored: proxies() drops the fake process's proxy (item 6) :: test result: FAILED. 25 passed; 1 failed; 0 ignored; 0 measured; 4623 filtered out; finished in 5.04s :: sentinel values in output: 0
+KILLED fixture: an imported var :: clippy exit 101; error: use of a disallowed method `std::env::var_os`
+KILLED fixture: an aliased std::env :: clippy exit 101; error: use of a disallowed method `std::env::var_os`
+KILLED fixture: a reader passed as a function :: clippy exit 101; error: use of a disallowed method `std::env::var_os`
+KILLED fixture: a key swap at an allowed site :: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4648 filtered out; finished in 1.03s :: sentinel values in output: 0
+KILLED fixture: a key swap with its reason :: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4648 filtered out; finished in 1.04s :: sentinel values in output: 0
+KILLED fixture: a key swap with its reason and its listing :: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4648 filtered out; finished in 1.05s :: sentinel values in output: 0
+KILLED fixture: an env: allow over a start :: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4648 filtered out; finished in 1.05s :: sentinel values in output: 0
+total 21, survived 0, runs with a sentinel value in output 0
+mutants exit 0

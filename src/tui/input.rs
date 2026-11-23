@@ -33,6 +33,9 @@
 //!   Escapes inside the double-Esc window and would clear the whole composer
 //!   ([`super::gesture`]), which is the opposite of what a delete-one-word or a
 //!   newline key can have meant -- and the Alt-Enter would submit besides.
+//!   **Behind the meta prefix there is no replay**: `ESC ESC` and a control
+//!   byte is one [`Action::Ignore`], as upstream's prefixed stage reads it
+//!   (below).
 //! * **An unknown sequence resolves to [`Action::Ignore`], never to a phantom
 //!   `Escape`.** A decoder that gives up on `CSI > 4 ; 2 m` by emitting the ESC
 //!   it swallowed cancels whatever `Escape` cancels, on input the user did not
@@ -48,6 +51,64 @@
 //! an unfinished `CSI` waits for its final byte however long the terminal
 //! takes, because a `CSI` split across two reads is an ordinary arrow key under
 //! load.
+//!
+//! # The meta prefix
+//!
+//! **A second ESC before the first has gone quiet is upstream's meta prefix**
+//! (`escape_parser.zig:552-555`; `terminal_action_decoder.zig:42-44`,
+//! `:186-192@481104fd`): no event, the clock started again, and the sequence behind it
+//! read as that key with Alt -- `ESC ESC [ A` a paragraph up, `ESC ESC [ C` a
+//! word right, `ESC ESC [ 1 ; 5 H` the plain Home, since Alt's row has none
+//! ([`prefixed`], [`kitty_key`] for a key report). With nothing behind it the
+//! pair is **two** Escapes, as fx delivers it, in two steps: its theme
+//! monitor, started at every launch, holds the first ESC and hands the second
+//! to the key decoder at once (`theme_monitor.zig:82-93`;
+//! `app_bootstrap_runtime.zig:481-483`), whose stage resolves it as one
+//! Escape 30 ms later (`main.zig:187`); the held one follows on its own after
+//! its 75 ms (`theme_monitor.zig:7`, `:150-164`) -- the same two a person's presses a quiet
+//! apart are, the gesture's two taps ([`super::gesture`]). Nothing here reads
+//! which read a byte came off: the quiet alone tells a prefix from a press.
+//!
+//! **The pair's stage is fx's; a lone ESC's hold is not.** fx's decoder
+//! resolves a pair's stage 30 ms after its second ESC, at the first loop
+//! turn whose clock read comes after that (`loopCollectFacts`, `main.zig:2846`,
+//! `:2975-2982`) -- a turn every 8 ms of quiet, or 1 ms while focused work
+//! is on (`main.zig:174`, `:189-207`, `:1115-1123`) -- while its monitor keeps
+//! the first. Copied: 30 ms ([`Decoder::PAIR_TIMEOUT`]) after `ESC ESC`
+//! with nothing behind it, one Escape, and the pair is one lone ESC from then
+//! on, its clock still the second ESC's as fx's monitor restarts its hold
+//! there (`theme_monitor.zig:85-88`). That lone ESC -- and every lone ESC --
+//! resolves after xfx's one quiet, [`Decoder::ESC_TIMEOUT`], 50 ms, where fx's
+//! monitor holds it 75 ms and its decoder 30 ms more; that is
+//! ESC-MONITOR-TIMING's (`docs/parity.md`). With `t` the time since the first
+//! byte (pinned in `the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50`
+//! and `the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc`):
+//!
+//! | schedule | fx | xfx |
+//! |---|---|---|
+//! | `ESC ESC [ A` in one burst, or `[ A` under 30 ms after the pair | `paragraph_up` | `ParagraphUp` |
+//! | `ESC ESC`, then `[ A` at 40 ms | Escape, Up | Escape, Up |
+//! | `ESC ESC`, then Ctrl-C at 40 ms | Escape, Escape, Cancel | Escape, Escape, Cancel |
+//! | `ESC ESC` and nothing more | Escape, Escape | Escape (30 ms), Escape (50 ms) |
+//! | `ESC`, then `ESC [ A` at 60 ms | `paragraph_up` | Escape, Up |
+//! | `ESC`, then CR at 60 ms | Alt-Enter (`insert_newline`) | Escape, Submit |
+//!
+//! The last two rows rest on the monitor's 75 ms alone, read from fx's
+//! source, and are ESC-MONITOR-TIMING's to copy; the base read them as xfx
+//! does. The 40 ms rows also need one of fx's loop turns to read its clock
+//! between 30 and 40 ms. Its poll waits at most 8 ms, so what can push that
+//! read past 40 ms is more than about 2 ms of the same turn's work after
+//! the clock read (`main.zig:2975`) and before the poll (`event_loop.zig:92`):
+//! the worker's and the pacer's ticks (`main.zig:2983-2989`) or collected
+//! bytes (`event_loop.zig:83-86`) -- inferred from the code, not measured.
+//!
+//! A report behind the prefix -- any `OSC`, the background notification --
+//! gives the first ESC back as the Escape key it was. fx's monitor keeps
+//! only an `OSC 11` reply, the two notifications and a primary device
+//! attributes reply (`theme_monitor.zig:96-146`), and hands the decoder a lone
+//! ESC for those; any other `OSC` behind the prefix reaches fx's decoder as
+//! `ESC ESC ]`, `.ignore`, and its body as text. A primary device attributes
+//! reply, which xfx never asks for, is one `Ignore` here, the Escape with it.
 //!
 //! # The control policy
 //!
@@ -609,12 +670,19 @@ struct Partial {
 enum Stage {
     /// Between sequences: the next byte is a character, a binding, or an ESC.
     Ground,
-    /// An ESC with nothing after it yet, and when it arrived.
-    Esc { at: Instant },
-    /// `ESC [`, reading parameters into [`Decoder::params`].
-    Csi,
-    /// `ESC O`, waiting for the one byte that names the key.
-    Ss3,
+    /// An ESC with nothing after it yet, and when it arrived. `meta` when a
+    /// second ESC came before the first had gone quiet: upstream's meta
+    /// prefix, a bit of its stage (`escape_parser.zig:25`, `:552-555
+    /// @481104fd`); with nothing behind it, the pair resolves one Escape after
+    /// [`Decoder::PAIR_TIMEOUT`] and is a lone ESC from then on, `at` kept
+    /// ([`Decoder::flush`]).
+    Esc { at: Instant, meta: bool },
+    /// `ESC [`, reading parameters into [`Decoder::params`]; `meta` behind a
+    /// prefix, which the stage keeps (`setBaseEscapeStage`, `:291-293`).
+    Csi { meta: bool },
+    /// `ESC O`, waiting for the one byte that names the key; `meta` as
+    /// [`Stage::Csi`]'s.
+    Ss3 { meta: bool },
     /// `ESC ]`, inside a string sequence's body: `seen` bytes of it so far, and
     /// `esc` for an `ESC` that may be the first half of the `ST` that ends it.
     ///
@@ -740,6 +808,16 @@ impl Decoder {
     /// multiplexer, short enough that pressing Escape feels like pressing a key
     /// rather than waiting for one.
     pub(crate) const ESC_TIMEOUT: Duration = Duration::from_millis(50);
+
+    /// How long a pair of ESCs -- the meta prefix with nothing behind it yet
+    /// -- waits before its stage resolves: fx's decoder's timeout
+    /// (`input_escape_timeout_ms`, `main.zig:187@481104fd`). fx's monitor
+    /// holds the first ESC of a pair and hands the second to its decoder at
+    /// once (`theme_monitor.zig:85-88`), whose stage resolves this long after
+    /// it (`terminal_action_decoder.zig:135-139`, `:174-183`); so here the
+    /// pair resolves one Escape after this and keeps one lone ESC pending
+    /// ([`Self::flush`]).
+    pub(crate) const PAIR_TIMEOUT: Duration = Duration::from_millis(30);
 
     /// How long the input must have been quiet after a paste before a byte is
     /// a key again: a divergence from fx, for security (the module's
@@ -991,16 +1069,16 @@ impl Decoder {
         self.flush(now, out);
         match self.stage {
             Stage::Ground => self.ground(byte, now, out),
-            Stage::Esc { .. } => self.after_escape(byte, now, out),
-            Stage::Csi => self.in_csi(byte, now, out),
-            Stage::Ss3 if carriable(byte) => {
+            Stage::Esc { meta, .. } => self.after_escape(byte, now, meta, out),
+            Stage::Csi { meta } => self.in_csi(byte, now, meta, out),
+            Stage::Ss3 { meta } if carriable(byte) => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(ss3(byte)));
+                out.push(Input::Action(ss3(byte, meta)));
             }
             // A byte no sequence can carry: the sequence is abandoned and the
             // byte is decoded on its own. `in_csi` and `discarding` make the
             // same check for themselves.
-            Stage::Ss3 => self.intruded(byte, now, out),
+            Stage::Ss3 { .. } => self.intruded(byte, now, out),
             Stage::Osc { seen, esc } => self.in_osc(byte, now, seen, esc, out),
             Stage::Discard { seen } => self.discarding(byte, now, seen, out),
             Stage::Utf8(partial) => self.in_utf8(byte, now, partial, out),
@@ -1009,17 +1087,37 @@ impl Decoder {
 
     /// Resolves what only the passage of time can resolve.
     ///
-    /// Exactly one thing: a bare ESC older than
-    /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key. An unfinished
-    /// `CSI` is deliberately **not** resolved here -- it is a sequence still
-    /// arriving, and a clock that cut it in half would turn an arrow key under
-    /// load into two events the user never typed.
+    /// Two things, both about a pending ESC: a bare ESC older than
+    /// [`ESC_TIMEOUT`](Self::ESC_TIMEOUT) is the Escape key, and a meta
+    /// prefix with nothing behind it is two, as fx delivers the pair, in two
+    /// steps. fx's theme monitor, started at every launch, holds the first
+    /// ESC and hands the second to the key decoder at once
+    /// (`theme_monitor.zig:82-93`, `app_bootstrap_runtime.zig:481-483
+    /// @481104fd`), which resolves it (and any ESC after it) as one Escape
+    /// [`PAIR_TIMEOUT`](Self::PAIR_TIMEOUT) later (`escape_parser.zig:327-329`,
+    /// `terminal_action_decoder.zig:174-183`, `main.zig:187`) -- copied: one
+    /// Escape then, and the pair becomes one lone ESC, so a key that comes
+    /// after reads behind a bare ESC as fx's held one does (`[ A` is Up,
+    /// Ctrl-C an Escape and a Cancel). The held one is the second Escape once
+    /// its own hold runs out: fx's clock for it restarts at the second ESC
+    /// (`theme_monitor.zig:85-88`), and so does this one's (`at`), but its
+    /// length is xfx's one quiet, `ESC_TIMEOUT`, where fx holds it 75 ms
+    /// (`:7`, `:150-164`) and its decoder 30 ms more -- ESC-MONITOR-TIMING's.
+    /// An unfinished `CSI` is deliberately **not** resolved here -- it is a
+    /// sequence still arriving, and a clock that cut it in half would turn an
+    /// arrow key under load into two events the user never typed.
     pub(crate) fn flush(&mut self, now: Instant, out: &mut Vec<Input>) {
-        if let Stage::Esc { at } = self.stage {
-            if now.saturating_duration_since(at) >= Self::ESC_TIMEOUT {
-                self.stage = Stage::Ground;
-                out.push(Input::Action(Action::Escape));
-            }
+        let Stage::Esc { at, meta } = self.stage else {
+            return;
+        };
+        let quiet = now.saturating_duration_since(at);
+        if meta && quiet >= Self::PAIR_TIMEOUT {
+            out.push(Input::Action(Action::Escape));
+            self.stage = Stage::Esc { at, meta: false };
+        }
+        if quiet >= Self::ESC_TIMEOUT {
+            self.stage = Stage::Ground;
+            out.push(Input::Action(Action::Escape));
         }
     }
 
@@ -1081,7 +1179,12 @@ impl Decoder {
     /// One byte with no sequence in progress.
     fn ground(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
         match byte {
-            0x1b => self.stage = Stage::Esc { at: now },
+            0x1b => {
+                self.stage = Stage::Esc {
+                    at: now,
+                    meta: false,
+                }
+            }
             // The closed control table. Everything it does not name is
             // `Ignore`, which is what keeps a control out of the text.
             0x00..=0x1f | 0x7f => out.push(Input::Action(control(byte))),
@@ -1104,21 +1207,47 @@ impl Decoder {
         }
     }
 
-    /// The byte after a bare ESC.
-    fn after_escape(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+    /// The byte after a bare ESC, or after two (`meta`): upstream's bare
+    /// stage (`escape_parser.zig:501-560@481104fd`), which reads every byte
+    /// alike behind the prefix but the two that begin a sequence, which keep
+    /// it (`:502-514`), and the ESC, which sets it (`:552-555`).
+    fn after_escape(&mut self, byte: u8, now: Instant, meta: bool, out: &mut Vec<Input>) {
         match byte {
             b'[' => {
                 self.params.clear();
-                self.stage = Stage::Csi;
+                self.stage = Stage::Csi { meta };
             }
-            b'O' => self.stage = Stage::Ss3,
+            b'O' => self.stage = Stage::Ss3 { meta },
+            // A second ESC before the first has gone quiet: the meta prefix,
+            // and no event, the clock started again from this byte -- in fx
+            // the second reaches the decoder first, at its ground stage, which
+            // starts the clock (`beginEscape`, `terminal_action_decoder.zig:42-44`,
+            // `:186-192`). A third keeps the prefix and starts the clock again
+            // (`:84-88`, an ESC while a stage is pending). With nothing
+            // behind it, the pair resolves one Escape after `PAIR_TIMEOUT` and
+            // one after the quiet, two as fx delivers it ([`Self::flush`]),
+            // and so are a person's two presses a quiet apart: the gesture's
+            // two taps either way.
+            0x1b => {
+                self.stage = Stage::Esc {
+                    at: now,
+                    meta: true,
+                }
+            }
             // A string sequence -- `OSC` -- which is the terminal talking about
             // itself rather than a key: a background report it was asked for,
             // a foreground one, a clipboard. Its body is *text*, and a decoder
             // that stopped here would put `11;rgb:1e1e/1e1e/1e1e` in the
             // composer and the user's clipboard with it. It is consumed to its
-            // terminator instead ([`Self::in_osc`]).
+            // terminator instead ([`Self::in_osc`]). Behind a second ESC the
+            // first was the Escape key: a report is not a key a prefix can
+            // belong to, and upstream's key decoder never sees one there
+            // (its theme monitor reads every byte first and hands a lone ESC
+            // on, `theme_monitor.zig:85-88`, `main.zig:3127-3134`).
             b']' => {
+                if meta {
+                    out.push(Input::Action(Action::Escape));
+                }
                 self.stage = Stage::Osc {
                     seen: 0,
                     esc: false,
@@ -1145,6 +1274,14 @@ impl Decoder {
             b'\r' | b'\n' => {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::InsertNewline));
+            }
+            // Behind the prefix, a C0 is upstream's `.ignore` and goes with
+            // it: the replay below is for a bare ESC alone (`prior_stage ==
+            // 1`, `terminal_action_decoder.zig:92-101`; the prefixed stage
+            // is `0x81`).
+            0x00..=0x1f if meta => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::Ignore));
             }
             // No sequence carries a C0 in this position, so the ESC was the
             // Escape key and this byte is its own keystroke. Both of them, in
@@ -1184,8 +1321,8 @@ impl Decoder {
         }
     }
 
-    /// One byte inside `ESC [ ...`.
-    fn in_csi(&mut self, byte: u8, now: Instant, out: &mut Vec<Input>) {
+    /// One byte inside `ESC [ ...`, behind the meta prefix or not (`meta`).
+    fn in_csi(&mut self, byte: u8, now: Instant, meta: bool, out: &mut Vec<Input>) {
         if !carriable(byte) {
             self.intruded(byte, now, out);
             return;
@@ -1210,13 +1347,18 @@ impl Decoder {
                 // final byte falls through and becomes the
                 // [`Action::Ignore`] every unbound sequence becomes, which is
                 // what keeps the keystroke behind it a keystroke.
+                // Behind a second ESC the first was the Escape key, as before
+                // an `OSC` ([`Self::after_escape`]).
                 if byte == b'n' {
                     if let Some(mode) = super::theme::notification(&self.params) {
+                        if meta {
+                            out.push(Input::Action(Action::Escape));
+                        }
                         out.push(Input::Report(mode));
                         return;
                     }
                 }
-                let input = csi(&self.params, byte);
+                let input = csi(&self.params, byte, meta);
                 if input == Input::Action(Action::PasteStart) {
                     self.pasting = true;
                     self.matched = 0;
@@ -1273,8 +1415,11 @@ impl Decoder {
             // the tail of a report the terminal truncated is not text the user
             // asked for.
             if !matches!(byte, 0x00..=0x1f | 0x7f) {
-                self.stage = Stage::Esc { at: now };
-                self.after_escape(byte, now, out);
+                self.stage = Stage::Esc {
+                    at: now,
+                    meta: false,
+                };
+                self.after_escape(byte, now, false, out);
                 return;
             }
             // A C0 or `DEL`. **No `ESC` is handed back here**, and that is the
@@ -1461,7 +1606,14 @@ fn control(byte: u8) -> Action {
 ///
 /// An [`Input`] rather than an [`Action`] because a key report can be a
 /// character: a keypad digit, or Shift+Space ([`replayed`]).
-fn csi(params: &[u8], final_byte: u8) -> Input {
+///
+/// `meta` is upstream's meta prefix, a second `ESC` in front
+/// (`escape_parser.zig:552-555@481104fd`). The cursor keys read it as Alt's
+/// bit, which is where `modifiedArrowAction` reads it (`:83`), and a key
+/// report where `kittyUnicodeKeyAction` does ([`kitty_key`]); the tilde keys,
+/// the paste markers and Shift-Tab read none (`:569`, `:620-636`, `:694-719`,
+/// `:723-725`).
+fn csi(params: &[u8], final_byte: u8, meta: bool) -> Input {
     match final_byte {
         // The paste markers in their one spelling, then every tilde key --
         // Home `1` and rxvt's `7`, Delete `3`, End `4` and rxvt's `8`, the
@@ -1471,24 +1623,23 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
         b'~' => match params {
             b"200" => Input::Action(Action::PasteStart),
             b"201" => Input::Action(Action::PasteEnd),
-            _ => tilde_report(params),
+            _ => tilde_report(params, meta),
         },
         // The cursor keys, bare or with one modifier.
         b'A' | b'B' | b'C' | b'D' | b'H' | b'F' => {
-            let Some(modifier) = modifier(params) else {
+            let Some(mask) = modifier(params) else {
                 return Input::Action(Action::Ignore);
             };
-            // The modifier is one more than a bitmask.
-            Input::Action(cursor(final_byte, modifier - 1))
+            Input::Action(cursor(final_byte, prefixed(mask, meta)))
         }
         // Kitty's spelling of a key report.
-        b'u' => report(params),
+        b'u' => report(params, meta),
         // Shift-Tab, bare or with a modifier (`escape_parser.zig:569`,
         // `:723-725`): upstream reads any modifier as the same key, and a
         // modifier field of `1` -- none at all -- is not a spelling it has.
         b'Z' => match modifier(params) {
-            Some(1) if params.is_empty() => Input::Action(Action::BackTab),
-            Some(mask) if mask > 1 => Input::Action(Action::BackTab),
+            Some(0) if params.is_empty() => Input::Action(Action::BackTab),
+            Some(mask) if mask > 0 => Input::Action(Action::BackTab),
             _ => Input::Action(Action::Ignore),
         },
         _ => Input::Action(Action::Ignore),
@@ -1518,7 +1669,9 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// `paragraph_up` to it, which it does not. The selection Shift would extend
 /// is dropped (COMPOSER-SELECTION-EXTEND), `shifted` remembering it. A mask
 /// with none of the four is the key, as upstream's table answers `null` and
-/// the plain key follows (`escape_parser.zig:727-733`).
+/// the plain key follows (`escape_parser.zig:727-733`); the other four bits --
+/// Hyper, Meta's, Caps Lock and Num Lock -- are not read, as upstream reads
+/// none of them. The meta prefix comes here as Alt's bit ([`prefixed`]).
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
     let alt = mask & ALT != 0;
@@ -1569,7 +1722,7 @@ fn cursor(letter: u8, mask: u8) -> Action {
 /// report means: a field upstream would fold into a number from a spelling no
 /// terminal emits -- a leading zero, a modifier of `0`, a third `;` field --
 /// is [`Action::Ignore`] here, for the reason [`csi`] gives.
-fn report(params: &[u8]) -> Input {
+fn report(params: &[u8], meta: bool) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
     let (Some(code), modifier, None) = (fields.next(), fields.next(), fields.next()) else {
@@ -1579,7 +1732,7 @@ fn report(params: &[u8]) -> Input {
         return ignore;
     };
     let Some(modifier) = modifier else {
-        return kitty_key(code, 0);
+        return kitty_key(code, 0, meta);
     };
     let mut parts = modifier.split(|byte| *byte == b':');
     let (Some(mask), event, None) = (parts.next(), parts.next(), parts.next()) else {
@@ -1589,7 +1742,7 @@ fn report(params: &[u8]) -> Input {
         return ignore;
     };
     match event {
-        None | Some(b"1" | b"2") => kitty_key(code, mask),
+        None | Some(b"1" | b"2") => kitty_key(code, mask, meta),
         Some(_) => ignore,
     }
 }
@@ -1616,7 +1769,7 @@ fn report(params: &[u8]) -> Input {
 /// The paste markers are not read here: [`csi`] matches them as bytes first, so
 /// `CSI 0200 ~` is the number 200, which is no key, as it is upstream
 /// (`digit_count == 3`, `:625-626`).
-fn tilde_report(params: &[u8]) -> Input {
+fn tilde_report(params: &[u8], meta: bool) -> Input {
     let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
     let (Some(key), modifier, code, None) =
@@ -1636,7 +1789,7 @@ fn tilde_report(params: &[u8]) -> Input {
     let modifiers = modifier.saturating_sub(1);
     if code.is_some() {
         let [low, _] = modifiers.to_le_bytes();
-        return kitty_key(u32::from(keycode), low);
+        return kitty_key(u32::from(keycode), low, meta);
     }
     tilde_key(key, modifiers)
 }
@@ -1798,7 +1951,7 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 }
 
 /// What one key report means: upstream's `kittyUnicodeKeyAction`
-/// (`escape_parser.zig` at `c1db919`, :185-266), branch for branch and in its
+/// (`escape_parser.zig:185-266@481104fd`), branch for branch and in its
 /// order, because the order is part of the meaning -- Ctrl+Alt+D is
 /// `delete_word_right` before Ctrl could turn it into `0x04`, and Ctrl+Super+C
 /// is `copy_selection` before Ctrl could turn it into a cancel.
@@ -1837,11 +1990,18 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
 /// an `o` under any other modifiers (:111-114) and `open_all_sessions` (:253). `toggle_permission_mode` (:254) is
-/// [`Action::BackTab`], the key it is spelled with. Upstream's
-/// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
-/// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
-/// so it is always `false` here and its branches are not carried.
-fn kitty_key(code: u32, modifiers: u8) -> Input {
+/// [`Action::BackTab`], the key it is spelled with.
+///
+/// `meta` is upstream's `meta_prefixed`, a report behind a second `ESC`
+/// (`escape_parser.zig:552-555@481104fd`), read in the branches that read it
+/// and nowhere else -- not Alt's bit: a keypad digit or Shift+Space is not
+/// typed (:195, :222), a keypad arrow, Home or End and kitty's own Up and Down
+/// are the arrow table's under Alt (:197, :209-214; so Hyper alone on kitty's
+/// Up is a paragraph, not nothing), `d` deletes the word on its right whatever
+/// else is held (:251), and `o` is nothing (:111-114). Enter with Ctrl is
+/// still Enter, through the bare one (:218, :262), and `b` with nothing held
+/// is no Alt-b (:243).
+fn kitty_key(code: u32, modifiers: u8, meta: bool) -> Input {
     let ignore = Input::Action(Action::Ignore);
     // Caps Lock and Num Lock are states, not modifiers (:186-187).
     let mods = modifiers & 0x3f;
@@ -1852,13 +2012,14 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
     // is not resolved as the keypad at all (:189-191).
     if mods & !(SHIFT | ALT | CTRL | SUPER) == 0 {
         if let Some(byte) = keypad_character(code) {
-            // Only a bare or shifted keypad press types (:193-195); anything
-            // else falls through to the rest of the table.
-            if mods & !SHIFT == 0 {
+            // Only a bare or shifted keypad press types (:193-195), and not
+            // behind the prefix; anything else falls through to the rest of
+            // the table.
+            if !meta && mods & !SHIFT == 0 {
                 return replayed(byte);
             }
         } else if let Some(letter) = keypad_navigation(code) {
-            return Input::Action(cursor(letter, mods));
+            return Input::Action(cursor(letter, prefixed(mods, meta)));
         } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
             // `page_up`/`page_down` with nothing held once the lock bits are
             // off, and a `composerMove` to them with a modifier
@@ -1872,7 +2033,7 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
                 (false, true) => Action::ComposerPageDown,
             });
         } else if code == KP_ENTER {
-            return kitty_key(13, modifiers);
+            return kitty_key(13, modifiers, meta);
         } else if code == KP_DELETE {
             // The main-row `ESC[3~` family (:175-180).
             return Input::Action(forward_delete(u16::from(mods)));
@@ -1881,19 +2042,20 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
     if code == KITTY_UP || code == KITTY_DOWN {
         let letter = if code == KITTY_UP { b'A' } else { b'B' };
         // Upstream's modified arrow table answers every modifier but Hyper and
-        // Meta alone, which are `.ignore` (:208-217).
-        if mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+        // Meta alone, which are `.ignore` (:208-217) -- unless the prefix
+        // is Alt's arm for them (:83).
+        if !meta && mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
             return ignore;
         }
-        return Input::Action(cursor(letter, mods));
+        return Input::Action(cursor(letter, prefixed(mods, meta)));
     }
-    if code == 13 && mods == CTRL {
+    if code == 13 && mods == CTRL && !meta {
         return replayed(b'\r');
     }
     if code == 13 && mods & (SHIFT | ALT) != 0 {
         return Input::Action(Action::InsertNewline);
     }
-    if code == 32 && mods == SHIFT {
+    if code == 32 && mods == SHIFT && !meta {
         return replayed(b' ');
     }
     // A letter, either case: the branches below compare the keycode against
@@ -1962,14 +2124,15 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             Action::AltF
         });
     }
-    // `delete_word_right` (:251).
-    if is(b'd') && mods & ALT != 0 {
+    // `delete_word_right` (:251), Alt held or the prefix.
+    if is(b'd') && (meta || mods & ALT != 0) {
         return Input::Action(Action::DeleteWordRight);
     }
     // `toggle_full_transcript` for Ctrl+O alone, and nothing for an `o` under
-    // any other modifiers (`ctrlOKeyAction`, :111-114, :252).
+    // any other modifiers or behind the prefix (`ctrlOKeyAction`, :111-114,
+    // :252).
     if is(b'o') {
-        return Input::Action(if mods == CTRL {
+        return Input::Action(if mods == CTRL && !meta {
             Action::ToggleTranscript
         } else {
             Action::Ignore
@@ -2018,38 +2181,56 @@ fn replayed(byte: u8) -> Input {
     }
 }
 
-/// The modifier a cursor-key sequence carries, or `None` when its parameters
-/// are not a shape a terminal sends a cursor key in.
+/// The modifier mask a cursor-key sequence carries -- its field less one, `0`
+/// for none -- or `None` when its parameters are not a shape a terminal sends
+/// a cursor key in.
 ///
 /// Two shapes and no others: nothing at all (`CSI C`), or the literal `1;` and
-/// one modifier in `1..=16` (`CSI 1 ; 5 C`), which is the whole of xterm's
-/// modifier encoding. `CSI 2 ; 5 C`, `CSI 1 ; 5 ; 9 C` and `CSI 1 ; 5 : 3 C`
-/// are not cursor keys and do not become movement by being nearly one.
+/// one modifier in `1..=256` (`CSI 1 ; 5 C`): one more than a mask of eight
+/// bits, shift, alt, ctrl, super, hyper, meta, caps lock and num lock, as
+/// kitty's report counts them ([`key_modifiers`]). Upstream reads the field
+/// whatever it holds (`escape_parser.zig:722@481104fd`) and its arrow table
+/// only the four bits [`cursor`] reads (`:73-108`), so a lock bit or Hyper
+/// beside them changes nothing. A leading zero is the number, as fx's field
+/// is (`appendCsiDigitSaturating`, `escape_parser.zig:19-23`), within three
+/// digits. `CSI 2 ; 5 C`, `CSI 1 ; 5 ; 9 C`, `CSI 1 ; 5 : 3 C`, a fourth
+/// digit and a field past 256 are not cursor keys and do not become
+/// movement by being nearly one (`docs/parity.md`).
 fn modifier(params: &[u8]) -> Option<u8> {
     if params.is_empty() {
-        return Some(1);
+        return Some(0);
     }
     let digits = params.strip_prefix(&b"1;"[..])?;
-    if digits.is_empty() || digits.len() > 2 || !digits.iter().all(u8::is_ascii_digit) {
+    if digits.is_empty() || digits.len() > 3 || !digits.iter().all(u8::is_ascii_digit) {
         return None;
     }
     let value = digits
         .iter()
-        .fold(0u8, |value, digit| value * 10 + (digit - b'0'));
-    (1..=16).contains(&value).then_some(value)
+        .fold(0u16, |value, digit| value * 10 + u16::from(digit - b'0'));
+    u8::try_from(value.checked_sub(1)?).ok()
+}
+
+/// The mask a cursor key is read under behind the meta prefix (`meta`):
+/// upstream's arrow table reads the prefix beside Alt's bit and nowhere else
+/// (`modifiedArrowAction`, `escape_parser.zig:83@481104fd`), so here it is
+/// Alt's bit -- Up and Down a paragraph, Left and Right a word, Home and End
+/// the plain keys, Super still first ([`cursor`]).
+fn prefixed(mask: u8, meta: bool) -> u8 {
+    if meta {
+        mask | ALT
+    } else {
+        mask
+    }
 }
 
 /// What `ESC O <byte>` means: the keys a `CSI` also spells, in the form a
 /// terminal in application-cursor mode sends them
-/// (`escape_parser.zig:535-553`).
-fn ss3(byte: u8) -> Action {
+/// (`escape_parser.zig:637-660@481104fd`) -- with no modifier, and behind the
+/// meta prefix the arrow table's under it (`:640-641`), as a bare `CSI`'s are
+/// ([`cursor`], [`prefixed`]).
+fn ss3(byte: u8, meta: bool) -> Action {
     match byte {
-        b'A' => Action::Up,
-        b'B' => Action::Down,
-        b'C' => Action::Right,
-        b'D' => Action::Left,
-        b'H' => Action::Home,
-        b'F' => Action::End,
+        b'A' | b'B' | b'C' | b'D' | b'H' | b'F' => cursor(byte, prefixed(0, meta)),
         _ => Action::Ignore,
     }
 }
@@ -2101,7 +2282,7 @@ mod tests {
     /// a character instead fails loudly rather than comparing unequal to some
     /// action by accident.
     fn csi(params: &[u8], final_byte: u8) -> Action {
-        match super::csi(params, final_byte) {
+        match super::csi(params, final_byte, false) {
             Input::Action(action) => action,
             other => panic!("{params:?} {final_byte:?} decoded to {other:?}, not an action"),
         }
@@ -3587,7 +3768,7 @@ mod tests {
             &b"\x1b[;5C"[..],
             &b"\x1b[1;C"[..],
             &b"\x1b[1;5:3C"[..],
-            &b"\x1b[1;17C"[..],
+            &b"\x1b[1;257C"[..],
             // The tilde keys read upstream's numbers instead
             // (`a_leading_zero_in_a_tilde_field_is_the_number` and the tests
             // beside it), and these are no key there either: a third field
@@ -3809,7 +3990,11 @@ mod tests {
         // And every mask, generated: fx's tables transcribed once, arm by arm
         // and in their order, then mapped to the action xfx spells each
         // result with. The rows above are the same table's named cases, a
-        // check on this transcription as much as on the decoder.
+        // check on this transcription as much as on the decoder. Every mask
+        // a modifier field holds (`1` to `256`), each with and without the
+        // meta prefix: a second `ESC` in front of the sequence, which fx
+        // keeps as a bit of the stage (`escape_parser.zig:25`, `:552-555`)
+        // and its CSI and SS3 stages carry (`setBaseEscapeStage`, `:291-293`).
         #[derive(Clone, Copy)]
         enum Move {
             LineStart,
@@ -3825,13 +4010,23 @@ mod tests {
             CharacterLeft,
             CharacterRight,
         }
+        // What fx resolves a key to: its plain key (`plainNavigationAction`,
+        // `:149-159`), a composer move with its Shift, or `.ignore`.
+        #[derive(Clone, Copy)]
+        enum Fx {
+            Plain,
+            Moved(Move, bool),
+            Ignore,
+        }
         const SHIFT_BIT: u16 = 0x01;
         const ALT_BIT: u16 = 0x02;
         const CTRL_BIT: u16 = 0x04;
         const SUPER_BIT: u16 = 0x08;
-        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`), with
-        // `meta_prefixed` false (META-PREFIX-DECODE's): `None` is its `null`.
-        fn modified_arrow_action(byte: u8, modifiers: u16) -> Option<(Move, bool)> {
+        // `modifiedArrowAction` (`escape_parser.zig:73-108@481104fd`): `None`
+        // is its `null`. Only the four bits are read, so Hyper (16), Meta's
+        // bit (32) and the lock bits (64, 128) change nothing, and
+        // `meta_prefixed` is read once, beside Alt's bit (`:83`).
+        fn modified_arrow_action(byte: u8, modifiers: u16, meta: bool) -> Option<(Move, bool)> {
             let shift = modifiers & SHIFT_BIT != 0;
             let held = |kind: Move| Some((kind, shift));
             if modifiers & SUPER_BIT != 0 {
@@ -3845,7 +4040,7 @@ mod tests {
                     _ => None,
                 };
             }
-            if modifiers & ALT_BIT != 0 {
+            if meta || modifiers & ALT_BIT != 0 {
                 return match byte {
                     b'A' => held(Move::ParagraphUp),
                     b'B' => held(Move::ParagraphDown),
@@ -3878,12 +4073,50 @@ mod tests {
             }
             None
         }
+        fn or_plain(upstream: Option<(Move, bool)>) -> Fx {
+            upstream.map_or(Fx::Plain, |(kind, shifted)| Fx::Moved(kind, shifted))
+        }
+        // A cursor key's final byte. Bare (`ESC [ X`, `:561-568`) and in SS3
+        // (`ESC O X`, `:637-644`): Up, Down, Left and Right the table's with
+        // no modifier under the prefix, and the plain key without it; Home
+        // and End the plain key either way. Held (`ESC [ 1 ; m X`,
+        // `:721-737`): the table's, the plain key where it answers `null`.
+        // The modifiers are one less than the field (`:722`).
+        fn cursor_key(letter: u8, modifiers: u16, meta: bool) -> Fx {
+            or_plain(modified_arrow_action(letter, modifiers, meta))
+        }
+        // A kitty report of a keypad key or of kitty's own Up and Down
+        // (`kittyUnicodeKeyAction`, `:185-217`): the lock bits masked off
+        // (`:187`); a keypad key with Hyper or Meta's bit is not the keypad,
+        // and nothing after it reads a keypad code (`:191`, `:265`); a
+        // keypad key otherwise `navigationKeyAction` (`:163-167`, `:196-197`);
+        // kitty's Up and Down the table's, or `.ignore` where it answers
+        // `null`, held or prefixed, and the plain key with neither
+        // (`:208-217`).
+        fn kitty_navigation(letter: u8, arrow: bool, modifiers: u16, meta: bool) -> Fx {
+            let mods = modifiers & 0x3f;
+            if !arrow {
+                if mods & !(SHIFT_BIT | ALT_BIT | CTRL_BIT | SUPER_BIT) != 0 {
+                    return Fx::Ignore;
+                }
+                if !meta && mods == 0 {
+                    return Fx::Plain;
+                }
+                return or_plain(modified_arrow_action(letter, mods, meta));
+            }
+            if meta || mods != 0 {
+                return modified_arrow_action(letter, mods, meta)
+                    .map_or(Fx::Ignore, |(kind, shifted)| Fx::Moved(kind, shifted));
+            }
+            Fx::Plain
+        }
         // The tilde Home and End with a modifier field (`:694-718`): the
         // bare key with none, else the draft's edge under Ctrl and the line's
-        // otherwise, Shift extending.
-        fn tilde_home_end(home: bool, modifiers: u16) -> Option<(Move, bool)> {
+        // otherwise, Shift extending. Neither tilde stage reads the prefix
+        // (`:620-635`, `:694-719`).
+        fn tilde_home_end(home: bool, modifiers: u16) -> Fx {
             if modifiers == 0 {
-                return None;
+                return Fx::Plain;
             }
             let draft = modifiers & CTRL_BIT != 0;
             let kind = match (home, draft) {
@@ -3892,22 +4125,25 @@ mod tests {
                 (false, true) => Move::DraftEnd,
                 (false, false) => Move::LineEnd,
             };
-            Some((kind, modifiers & SHIFT_BIT != 0))
+            Fx::Moved(kind, modifiers & SHIFT_BIT != 0)
         }
-        // What xfx spells each result with; `None` is the plain key
-        // (`plainNavigationAction`, `:149-159`). The selection Shift extends
-        // is dropped where xfx has no action to remember it in
+        // What xfx spells each result with. The selection Shift extends is
+        // dropped where xfx has no action to remember it in
         // (COMPOSER-SELECTION-EXTEND): the word moves and the step.
-        fn spelled(letter: u8, upstream: Option<(Move, bool)>) -> Action {
-            let Some((kind, shifted)) = upstream else {
-                return match letter {
-                    b'A' => Action::Up,
-                    b'B' => Action::Down,
-                    b'C' => Action::Right,
-                    b'D' => Action::Left,
-                    b'H' => Action::Home,
-                    _ => Action::End,
-                };
+        fn spelled(letter: u8, upstream: Fx) -> Action {
+            let (kind, shifted) = match upstream {
+                Fx::Ignore => return Action::Ignore,
+                Fx::Plain => {
+                    return match letter {
+                        b'A' => Action::Up,
+                        b'B' => Action::Down,
+                        b'C' => Action::Right,
+                        b'D' => Action::Left,
+                        b'H' => Action::Home,
+                        _ => Action::End,
+                    };
+                }
+                Fx::Moved(kind, shifted) => (kind, shifted),
             };
             match kind {
                 Move::LineStart => Action::LineStart { shifted },
@@ -3926,65 +4162,562 @@ mod tests {
                 Move::CharacterRight => Action::ComposerRight,
             }
         }
+        // One key, one action, and no `Escape` in front of it: the prefix is
+        // part of the key, not a key of its own.
+        let check = |bytes: String, want: Action| {
+            assert_eq!(
+                decode(bytes.as_bytes()),
+                vec![Input::Action(want)],
+                "{bytes:?}"
+            );
+        };
         let mut checked = 0;
-        for letter in *b"ABCDHF" {
-            // The keypad's code for the letter, and kitty's own arrow codes
-            // for Up and Down (`:134-144`, `:208-217`).
-            let keypad: u32 = match letter {
-                b'A' => 57419,
-                b'B' => 57420,
-                b'C' => 57418,
-                b'D' => 57417,
-                b'H' => 57423,
-                _ => 57424,
-            };
-            for modifiers in 0..16u16 {
-                let want = spelled(letter, modified_arrow_action(letter, modifiers));
-                let field = modifiers + 1;
-                let csi = format!("\x1b[1;{field}{}", char::from(letter));
-                assert_eq!(decode(csi.as_bytes()), vec![Input::Action(want)], "{csi:?}");
-                let report = format!("\x1b[{keypad};{field}u");
-                assert_eq!(
-                    decode(report.as_bytes()),
-                    vec![Input::Action(want)],
-                    "{report:?}"
-                );
+        for meta in [false, true] {
+            let prefix = if meta { "\x1b" } else { "" };
+            for letter in *b"ABCDHF" {
+                let key = char::from(letter);
+                // The keypad's code for the letter, and kitty's own arrow
+                // codes for Up and Down (`:134-144`, `:208-217`).
+                let keypad: u32 = match letter {
+                    b'A' => 57419,
+                    b'B' => 57420,
+                    b'C' => 57418,
+                    b'D' => 57417,
+                    b'H' => 57423,
+                    _ => 57424,
+                };
+                let bare = spelled(letter, cursor_key(letter, 0, meta));
+                check(format!("{prefix}\x1b[{key}"), bare);
+                check(format!("{prefix}\x1bO{key}"), bare);
                 checked += 2;
-                if matches!(letter, b'A' | b'B') {
-                    let code = if letter == b'A' { KITTY_UP } else { KITTY_DOWN };
-                    let report = format!("\x1b[{code};{field}u");
-                    assert_eq!(
-                        decode(report.as_bytes()),
-                        vec![Input::Action(want)],
-                        "{report:?}"
-                    );
-                    checked += 1;
-                }
-                if matches!(letter, b'H' | b'F') {
-                    let home = letter == b'H';
-                    let want = spelled(letter, tilde_home_end(home, modifiers));
-                    let keys: [&str; 2] = if home { ["1", "7"] } else { ["4", "8"] };
-                    for key in keys {
-                        let tilde = format!("\x1b[{key};{field}~");
-                        assert_eq!(
-                            decode(tilde.as_bytes()),
-                            vec![Input::Action(want)],
-                            "{tilde:?}"
-                        );
+                for modifiers in 0..256u16 {
+                    let field = modifiers + 1;
+                    let want = spelled(letter, cursor_key(letter, modifiers, meta));
+                    check(format!("{prefix}\x1b[1;{field}{key}"), want);
+                    let want = spelled(letter, kitty_navigation(letter, false, modifiers, meta));
+                    check(format!("{prefix}\x1b[{keypad};{field}u"), want);
+                    checked += 2;
+                    if matches!(letter, b'A' | b'B') {
+                        let code = if letter == b'A' { KITTY_UP } else { KITTY_DOWN };
+                        let want = spelled(letter, kitty_navigation(letter, true, modifiers, meta));
+                        check(format!("{prefix}\x1b[{code};{field}u"), want);
                         checked += 1;
+                    }
+                    if matches!(letter, b'H' | b'F') {
+                        let home = letter == b'H';
+                        let want = spelled(letter, tilde_home_end(home, modifiers));
+                        let keys: [&str; 2] = if home { ["1", "7"] } else { ["4", "8"] };
+                        for tilde in keys {
+                            check(format!("{prefix}\x1b[{tilde};{field}~"), want);
+                            checked += 1;
+                        }
                     }
                 }
             }
         }
-        // 6 letters x 16 masks in the CSI and keypad forms, kitty's Up and
-        // Down, and four tilde keys.
-        assert_eq!(checked, 6 * 16 * 2 + 2 * 16 + 4 * 16);
-        // Not here: a `CSI 1;m X` modifier past 16 -- Meta (32), Hyper (16)
-        // and the lock bits -- which this decoder refuses (`modifier`) where
-        // fx reads the four bits above, and the `ESC ESC` prefix fx reads as
-        // `meta_prefixed`. Both are META-PREFIX-DECODE's and are left as they
-        // are; the tilde fields past 16 are
-        // `every_modifier_field_on_the_tilde_home_and_end_is_upstreams_move`'s.
+        // Each form with the prefix and without it: 6 letters bare and in
+        // SS3, and with each of 256 masks in the CSI and keypad forms,
+        // kitty's Up and Down, and four tilde keys.
+        assert_eq!(checked, 2 * (6 * 2 + 256 * (6 * 2 + 2 + 4)));
+        // And a field past 256 is no key here, where fx reads its low byte
+        // (`appendCsiDigitSaturating`, `:19-23`; `:722`): the grammar's one
+        // spelling per field, which kitty's field keeps too (`key_modifiers`),
+        // recorded in `docs/parity.md`. The tilde keys read upstream's
+        // numbers (`a_modifier_field_past_256_is_read_as_upstreams_sixteen_bits`).
+        for stream in [&b"\x1b[1;257C"[..], b"\x1b[1;300H", b"\x1b\x1b[1;257A"] {
+            assert_eq!(
+                decode(stream),
+                vec![Input::Action(Action::Ignore)],
+                "{stream:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn two_escapes_a_person_pressed_are_two_and_so_are_two_in_one_burst() {
+        // fx's rule for a second `ESC`: in front of anything it is the meta
+        // prefix, a bit of the stage with no event (`escape_parser.zig:552-555`;
+        // the clock started at it, `terminal_action_decoder.zig:42-44`,
+        // `:186-192@481104fd`). With nothing behind it, fx delivers the pair as two
+        // Escapes: its theme monitor, started at every launch
+        // (`app_bootstrap_runtime.zig:481-483`), holds the first ESC and hands
+        // the second to the key decoder at once (`theme_monitor.zig:82-93`),
+        // which resolves it as one Escape (`escape_parser.zig:327-329`,
+        // `terminal_action_decoder.zig:174-183`), and the held one follows on
+        // its own after 75 ms (`theme_monitor.zig:7`, `:150-164`). fx's
+        // captures show it: `p5-cancel-double-escape`'s burst clears a draft
+        // and `-turn`'s cancels a turn. There is no rule per read.
+        //
+        // First the person: each Escape on its own, the quiet between them --
+        // two Escapes, the gesture's two presses (`super::gesture`).
+        let mut decoder = Decoder::new();
+        let start = Instant::now();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+        let later = start + Decoder::ESC_TIMEOUT * 3;
+        decoder.feed(0x1b, later, &mut out);
+        decoder.flush(later + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
+            "a person's two Escapes were not two"
+        );
+        // The same with no flush between them: the second byte, a quiet
+        // later, finds the first already the Escape key (`feed`'s flush).
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start + Decoder::ESC_TIMEOUT, &mut out);
+        decoder.flush(start + Decoder::ESC_TIMEOUT * 2, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
+            "an Escape that had gone quiet was read as the next one's prefix"
+        );
+        // Two in one burst are two Escapes, and so are three, as fx's
+        // decoder resolves every ESC behind the monitor's held one as one:
+        // nothing comes out until the quiet after the last.
+        for burst in [&b"\x1b\x1b"[..], b"\x1b\x1b\x1b"] {
+            let mut decoder = Decoder::new();
+            let mut out = Vec::new();
+            for byte in burst {
+                decoder.feed(*byte, start, &mut out);
+            }
+            assert!(
+                out.is_empty(),
+                "{burst:?} resolved before the quiet: {out:?}"
+            );
+            decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+            assert_eq!(
+                out,
+                vec![Input::Action(Action::Escape), Input::Action(Action::Escape)],
+                "{burst:?} was not two Escapes"
+            );
+        }
+        // The clock starts again at the second `ESC`: a flush a timeout after
+        // the first and not after the second resolves nothing.
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        let second = start + Decoder::ESC_TIMEOUT / 2;
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, second, &mut out);
+        decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+        assert!(
+            out.is_empty(),
+            "the prefix's clock ran from the first ESC: {out:?}"
+        );
+        decoder.flush(second + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Escape), Input::Action(Action::Escape)]
+        );
+        // And a prefix that went quiet is the Escape key whatever follows:
+        // the byte after it is its own (`an_escape_that_went_quiet_...`).
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(b'[', start + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(
+            out,
+            vec![
+                Input::Action(Action::Escape),
+                Input::Action(Action::Escape),
+                Input::Text('[')
+            ],
+            "a quiet prefix swallowed the keystroke after it"
+        );
+    }
+
+    #[test]
+    fn a_prefixed_key_is_one_key_as_upstream_reads_it() {
+        // The brief's three and their kin, each one key and no `Escape`: the
+        // prefix is read where Alt's bit is (`escape_parser.zig:83@481104fd`),
+        // so a prefixed Up is a paragraph, a prefixed Ctrl-Home the plain
+        // Home (Alt's arm has no Home row, `:83-89`, `:727-733`), and Super
+        // still wins (`:74-82`). A modifier field past 16 is read for its four
+        // bits (`:73-108`, `:722`): Meta's bit (32) alone is the key, and
+        // Ctrl with Caps Lock (`1;69`) the draft's start.
+        for (bytes, expected) in [
+            (&b"\x1b\x1b[A"[..], Action::ParagraphUp),
+            (b"\x1b\x1b[B", Action::ParagraphDown),
+            (b"\x1b\x1b[C", Action::WordRight),
+            (b"\x1b\x1b[D", Action::WordLeft),
+            (b"\x1b\x1bOA", Action::ParagraphUp),
+            (b"\x1b\x1bOD", Action::WordLeft),
+            (b"\x1b\x1b[H", Action::Home),
+            (b"\x1b\x1bOF", Action::End),
+            (b"\x1b\x1b[1;5H", Action::Home),
+            (b"\x1b\x1b[1;9D", Action::LineStart { shifted: false }),
+            (b"\x1b\x1b[1;2D", Action::WordLeft),
+            (b"\x1b\x1b[1;5A", Action::ParagraphUp),
+            (b"\x1b\x1b\x1b[A", Action::ParagraphUp),
+            (b"\x1b[1;33H", Action::Home),
+            (b"\x1b[1;69H", Action::DraftStart { shifted: false }),
+            (b"\x1b[1;17C", Action::Right),
+            (b"\x1b[1;129D", Action::Left),
+            (b"\x1b[1;37C", Action::WordRight),
+            (b"\x1b[1;256A", Action::DraftStart { shifted: true }),
+            // Shift-Tab with any modifier at all (`:723-725`), the prefix
+            // read by neither of its stages (`:569`).
+            (b"\x1b[1;17Z", Action::BackTab),
+            (b"\x1b[1;256Z", Action::BackTab),
+            (b"\x1b\x1b[Z", Action::BackTab),
+            (b"\x1b\x1b[1;2Z", Action::BackTab),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn what_follows_a_prefix_is_read_as_upstreams_prefixed_stage_reads_it() {
+        // The bytes the bare stage reads (`escape_parser.zig:501-560
+        // @481104fd`) read the same behind the prefix: Alt-b, Alt-f, Alt-d,
+        // Alt-Backspace and Alt-Enter. Anything else is `.ignore` and the
+        // byte goes with it -- a control too: the replay is only for a bare
+        // ESC (`prior_stage == 1`, `terminal_action_decoder.zig:92-101`), and
+        // the prefixed stage is `0x81`.
+        for (bytes, expected) in [
+            (&b"\x1b\x1bb"[..], Action::AltB),
+            (b"\x1b\x1bf", Action::AltF),
+            (b"\x1b\x1bd", Action::DeleteWordRight),
+            (b"\x1b\x1b\x7f", Action::DeleteWordBackward),
+            (b"\x1b\x1b\x08", Action::DeleteWordBackward),
+            (b"\x1b\x1b\r", Action::InsertNewline),
+            (b"\x1b\x1b\n", Action::InsertNewline),
+            (b"\x1b\x1bx", Action::Ignore),
+            (b"\x1b\x1bo", Action::Ignore),
+            (b"\x1b\x1b\x03", Action::Ignore),
+            (b"\x1b\x1b\x02", Action::Ignore),
+            (b"\x1b\x1b\x09", Action::Ignore),
+            // The tilde stages read no prefix (`escape_parser.zig:620-635`,
+            // `:694-719`).
+            (b"\x1b\x1b[1~", Action::Home),
+            (b"\x1b\x1b[5~", Action::PageUp),
+            (b"\x1b\x1b[6;5~", Action::ComposerPageDown),
+            (b"\x1b\x1b[3~", Action::Delete),
+            (b"\x1b\x1b[3;5~", Action::DeleteWordRight),
+            (b"\x1b\x1b[7;5~", Action::DraftStart { shifted: false }),
+            // A key report reads it where `kittyUnicodeKeyAction` does
+            // (`escape_parser.zig:185-266`): Escape is Escape (`:188`); a keypad digit is not
+            // typed (`:195`) and nothing after reads its code (`:265`); the
+            // keypad's Enter is Enter's (`:203`), and Enter with Ctrl Enter
+            // still, through the bare Enter (`:218`, `:262`); Shift-Space is
+            // not a space (`:222`); `d` deletes the word on its right with
+            // anything held (`:251`), before Ctrl could make it `0x04`; `o`
+            // is nothing (`:111-114`); `b` with nothing held is no Alt-b
+            // (`:243`); the keypad's page keys and Delete read no prefix
+            // (`:169-180`, `:198-205`).
+            (b"\x1b\x1b[27u", Action::Escape),
+            (b"\x1b\x1b[57399u", Action::Ignore),
+            (b"\x1b\x1b[57399;2u", Action::Ignore),
+            (b"\x1b\x1b[57414u", Action::Submit),
+            (b"\x1b\x1b[13;5u", Action::Submit),
+            (b"\x1b\x1b[13;2u", Action::InsertNewline),
+            (b"\x1b\x1b[32;2u", Action::Ignore),
+            (b"\x1b\x1b[100u", Action::DeleteWordRight),
+            (b"\x1b\x1b[100;5u", Action::DeleteWordRight),
+            (b"\x1b\x1b[27;5;100~", Action::DeleteWordRight),
+            (b"\x1b\x1b[111;5u", Action::Ignore),
+            (b"\x1b\x1b[27;5;111~", Action::Ignore),
+            (b"\x1b\x1b[98u", Action::Ignore),
+            (b"\x1b\x1b[98;3u", Action::AltB),
+            (b"\x1b\x1b[57421u", Action::PageUp),
+            (b"\x1b\x1b[57426u", Action::Delete),
+            (b"\x1b\x1b[97;9u", Action::SelectAll),
+            (b"\x1b\x1b[99;5u", Action::Cancel),
+            // kitty's Up and Down with Hyper alone: `.ignore` bare
+            // (`:208-217`), a paragraph under the prefix (`:209`, `:83`).
+            (b"\x1b[57352;17u", Action::Ignore),
+            (b"\x1b\x1b[57352;17u", Action::ParagraphUp),
+            (b"\x1b\x1b[57353;33u", Action::ParagraphDown),
+            // A release is never a key, prefixed or not
+            // (`escape_parser.zig:774-777`).
+            (b"\x1b\x1b[100;1:3u", Action::Ignore),
+            // An unknown sequence is one `.ignore`, the prefix with it
+            // (`escape_parser.zig:589`, `:349-351`).
+            (b"\x1b\x1b[>4;2m", Action::Ignore),
+            (b"\x1b\x1b[999C", Action::Ignore),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(expected)], "{bytes:?}");
+        }
+        // Shift+Space under the prefix, and a keypad digit: nothing typed.
+        assert_eq!(typed(b"\x1b\x1b[32;2u\x1b\x1b[57400u"), "");
+        // A paste's start marker behind the prefix is the marker
+        // (`escape_parser.zig:625`):
+        // the paste opens, and its bytes are content.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b\x1b[200~\x03" {
+            decoder.feed(*byte, now, &mut out);
+        }
+        assert!(
+            decoder.pasting(),
+            "the prefixed start marker opened no paste"
+        );
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::PasteStart), Input::PasteByte(0x03)]
+        );
+    }
+
+    #[test]
+    fn a_report_behind_a_second_escape_gives_the_first_back_as_the_escape_key() {
+        // A report is not a key, and fx's key decoder never sees one behind
+        // a prefix: with theme reports on, the monitor sees every byte first
+        // (`terminalInputOwner`, `src/ui/input/runtime.zig:46-55`;
+        // `main.zig:3127-3134@481104fd`), hands a lone `ESC` on when a second
+        // arrives (`theme_monitor.zig:85-88`) and keeps the report
+        // (`:96-105`, `:123-146`). So the user's Escape in front of a report
+        // is the Escape key, and the report is the report: here the
+        // background notification and a string a terminal volunteers.
+        assert_eq!(
+            decode(b"\x1b\x1b[?997;1n"),
+            vec![
+                Input::Action(Action::Escape),
+                Input::Report(super::super::theme::Mode::Dark)
+            ]
+        );
+        assert_eq!(
+            decode(b"\x1b\x1b]11;rgb:0000/0000/0000\x07"),
+            vec![Input::Action(Action::Escape), Input::Action(Action::Ignore)]
+        );
+        assert_eq!(typed(b"\x1b\x1b]11;rgb:0000/0000/0000\x07"), "");
+    }
+
+    #[test]
+    fn a_control_behind_the_prefix_is_one_ignore_and_leaves_nothing_pending() {
+        // `ESC ESC` and a control is fx's `.ignore`, the control with it
+        // (`terminal_action_decoder.zig:92-101@481104fd`), and the stage is
+        // over (`escape_parser.zig:556-559`): the quiet after it resolves no
+        // Escape, and the next byte is its own key.
+        let start = Instant::now();
+        for control in [0x03u8, 0x02, 0x09] {
+            let mut decoder = Decoder::new();
+            let mut out = Vec::new();
+            for byte in [0x1b, 0x1b, control] {
+                decoder.feed(byte, start, &mut out);
+            }
+            decoder.flush(start + Decoder::ESC_TIMEOUT * 2, &mut out);
+            decoder.feed(b'x', start + Decoder::ESC_TIMEOUT * 2, &mut out);
+            assert_eq!(
+                out,
+                vec![Input::Action(Action::Ignore), Input::Text('x')],
+                "ESC ESC {control:#04x}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_escape_inside_a_prefixed_sequence_starts_a_bare_one() {
+        // fx drops the prefix when an ESC arrives inside a pending CSI or SS3
+        // and starts a bare stage, with no event for the one abandoned
+        // (`escape_parser.zig:492-498`, `terminal_action_decoder.zig:84-88
+        // @481104fd`): `ESC ESC [ ESC [ A` is `cursor_up`. Here the abandoned
+        // sequence is one `Ignore` first (`intruded`), as it is without the
+        // prefix (`ESC [ ESC [ A`): a keystroke with no binding, which no
+        // surface acts on and no gesture counts. The key is fx's.
+        assert_eq!(
+            decode(b"\x1b\x1b[\x1b[A"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Up)]
+        );
+        assert_eq!(
+            decode(b"\x1b\x1bO\x1b[D"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Left)]
+        );
+        assert_eq!(
+            decode(b"\x1b[\x1b[A"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Up)]
+        );
+    }
+
+    #[test]
+    fn a_leading_zero_in_a_cursor_keys_modifier_is_the_number_up_to_three_digits() {
+        // fx's modifier field is its digits' number, a leading zero and all
+        // (`appendCsiDigitSaturating`, `escape_parser.zig:19-23`; `:662-666`,
+        // `:722@481104fd`). Here it is too, within three digits; a fourth is
+        // no key, where fx reads the number (`modifier`, `docs/parity.md`).
+        assert_eq!(
+            decode(b"\x1b[1;05C"),
+            vec![Input::Action(Action::WordRight)]
+        );
+        assert_eq!(
+            decode(b"\x1b[1;005C"),
+            vec![Input::Action(Action::WordRight)]
+        );
+        assert_eq!(
+            decode(b"\x1b[1;069H"),
+            vec![Input::Action(Action::DraftStart { shifted: false })]
+        );
+        for stream in [&b"\x1b[1;0005C"[..], b"\x1b[1;0069H"] {
+            assert_eq!(
+                decode(stream),
+                vec![Input::Action(Action::Ignore)],
+                "{stream:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_pair_resolves_at_fxs_30_ms_and_a_lone_esc_at_xfxs_50() {
+        // fx times two stages: its monitor holds a lone ESC 75 ms
+        // (`theme_monitor.zig:7`, `:85-93@481104fd`) and hands a second one to
+        // its decoder at once, whose stage resolves after 30 ms
+        // (`main.zig:187`). The pair's stage is copied here (the decoder's
+        // `PAIR_TIMEOUT`): 30 ms after `ESC ESC` with nothing
+        // behind it, one Escape, and one lone ESC still pending. A lone ESC's
+        // hold is not: one quiet of [`Decoder::ESC_TIMEOUT`], 50 ms, where fx
+        // holds it 75 ms; that is ESC-MONITOR-TIMING's, and rows 2 and 3 below
+        // are pinned as xfx reads them for it to flip. fx's results, in the
+        // comments: rows 2 and 3 from the monitor's source, rows 1 and 4 also
+        // assuming one of fx's loop turns read its clock between 30 and 40 ms
+        // -- its poll waits at most 8 ms (`main.zig:174`, `:189-207`), so what
+        // can push that read past 40 ms is more than about 2 ms of the same
+        // turn's work between it (`main.zig:2975`) and the poll
+        // (`event_loop.zig:92`): the worker's and pacer's ticks, collected
+        // bytes -- inferred, not measured.
+        let ms = Duration::from_millis;
+        assert!(ms(40) < Decoder::ESC_TIMEOUT && ms(60) > Decoder::ESC_TIMEOUT);
+        let start = Instant::now();
+        // Feeds each (offset, bytes) at its offset, the loop's flush first
+        // at each, as the shell's turn does, and a last flush long after.
+        let run = |schedule: &[(u64, &[u8])]| {
+            let mut decoder = Decoder::new();
+            let mut out = Vec::new();
+            for (offset, bytes) in schedule {
+                let now = start + ms(*offset);
+                decoder.flush(now, &mut out);
+                for byte in *bytes {
+                    decoder.feed(*byte, now, &mut out);
+                }
+            }
+            decoder.flush(start + ms(1000), &mut out);
+            out
+        };
+        let escape = || Input::Action(Action::Escape);
+        // The four rows, compared at once so that a failure shows every
+        // row's reading:
+        // - row 1, `ESC ESC` then `[ A` 40 ms later. fx: Escape (its
+        //   decoder's stage, resolved at 30 ms), then Up (the monitor's held
+        //   ESC with `[ A`). xfx the same: the pair's stage resolves one
+        //   Escape at 30 ms and keeps one ESC, which `[ A` follows;
+        // - row 2, Escape then `ESC [ A` 60 ms later. fx: `paragraph_up` --
+        //   the monitor still holds the first ESC and puts it in front of
+        //   `[ A`, behind the second. xfx: Escape, then Up (a lone ESC's
+        //   50 ms);
+        // - row 3, Escape then CR 60 ms later. fx: Alt-Enter, the held ESC
+        //   with CR (`insert_newline`, `escape_parser.zig:515-520`). xfx:
+        //   Escape, then Submit;
+        // - row 4, `ESC ESC` then Ctrl-C 40 ms later. fx: Escape (the
+        //   decoder's stage at 30 ms), then the held ESC with Ctrl-C, a bare
+        //   ESC and a control: Escape and Cancel
+        //   (`terminal_action_decoder.zig:92-101`). xfx the same, through the
+        //   kept ESC and its replay.
+        let rows: Vec<Vec<Input>> = vec![
+            run(&[(0, b"\x1b\x1b"), (40, b"[A")]),
+            run(&[(0, b"\x1b"), (60, b"\x1b[A")]),
+            run(&[(0, b"\x1b"), (60, b"\r")]),
+            run(&[(0, b"\x1b\x1b"), (40, &[0x03])]),
+        ];
+        assert_eq!(
+            rows,
+            vec![
+                vec![escape(), Input::Action(Action::Up)],
+                vec![escape(), Input::Action(Action::Up)],
+                vec![escape(), Input::Action(Action::Submit)],
+                vec![escape(), escape(), Input::Action(Action::Cancel)],
+            ]
+        );
+    }
+
+    #[test]
+    fn the_pairs_stage_is_30_ms_from_the_second_esc_and_keeps_one_esc() {
+        // The pair's stage, copied from fx's decoder (`main.zig:187`;
+        // `terminal_action_decoder.zig:42-44`, `:174-192@481104fd`): its
+        // edges, its clock, and what it leaves pending.
+        let ms = Duration::from_millis;
+        let start = Instant::now();
+        let run = |schedule: &[(u64, &[u8])]| {
+            let mut decoder = Decoder::new();
+            let mut out = Vec::new();
+            for (offset, bytes) in schedule {
+                let now = start + ms(*offset);
+                decoder.flush(now, &mut out);
+                for byte in *bytes {
+                    decoder.feed(*byte, now, &mut out);
+                }
+            }
+            decoder.flush(start + ms(1000), &mut out);
+            out
+        };
+        let escape = || Input::Action(Action::Escape);
+        // Inside the pair's 30 ms the pair is still a prefix: `[ A` at 29 ms
+        // is one prefixed Up, Ctrl-C one Ignore; at 30 ms the stage has
+        // resolved and they are row 1's and row 4's.
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (29, b"[A")]),
+            vec![Input::Action(Action::ParagraphUp)]
+        );
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (29, &[0x03])]),
+            vec![Input::Action(Action::Ignore)]
+        );
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (30, b"[A")]),
+            vec![escape(), Input::Action(Action::Up)]
+        );
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (30, &[0x03])]),
+            vec![escape(), escape(), Input::Action(Action::Cancel)]
+        );
+        // The pair's clock is the second ESC's: with fx's monitor holding
+        // the first, the second reaches fx's decoder at its ground stage,
+        // which starts the clock (`beginEscape`,
+        // `terminal_action_decoder.zig:42-44`, `:186-192`). `ESC`, `ESC` 20 ms
+        // later, `[ A` 20 ms after that is still one prefixed Up.
+        assert_eq!(
+            run(&[(0, b"\x1b"), (20, b"\x1b"), (40, b"[A")]),
+            vec![Input::Action(Action::ParagraphUp)]
+        );
+        // A third ESC starts it again (`:84-88`, an ESC while a stage is
+        // pending): `ESC ESC`, a third 20 ms later, `[ A` 20 ms after that
+        // is still one prefixed Up.
+        assert_eq!(
+            run(&[(0, b"\x1b\x1b"), (20, b"\x1b"), (40, b"[A")]),
+            vec![Input::Action(Action::ParagraphUp)]
+        );
+        // And the pair with nothing behind it: one Escape at 30 ms, the
+        // other at the kept ESC's 50 ms -- its clock, too, from the second
+        // ESC, where fx's monitor restarts its hold (`theme_monitor.zig:85-88`).
+        // Two in all, the count fx gives.
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start, &mut out);
+        decoder.flush(start + ms(29), &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        decoder.flush(start + ms(30), &mut out);
+        assert_eq!(out, vec![escape()], "the pair's stage at 30 ms");
+        decoder.flush(start + ms(49), &mut out);
+        assert_eq!(out, vec![escape()], "the kept ESC before its quiet");
+        decoder.flush(start + ms(50), &mut out);
+        assert_eq!(out, vec![escape(), escape()], "the kept ESC at its quiet");
+        decoder.flush(start + ms(1000), &mut out);
+        assert_eq!(out, vec![escape(), escape()], "a third Escape");
+        // The same with the two ESCs 20 ms apart: both steps count from the
+        // second, so one Escape at 50 ms and the other at 70 ms, cumulative
+        // 0, 1, 1, 2 at 49, 50, 69, 70, and no more after.
+        let mut decoder = Decoder::new();
+        let mut out = Vec::new();
+        decoder.feed(0x1b, start, &mut out);
+        decoder.feed(0x1b, start + ms(20), &mut out);
+        for (at, count) in [(49, 0), (50, 1), (69, 1), (70, 2), (1000, 2)] {
+            decoder.flush(start + ms(at), &mut out);
+            assert_eq!(out.len(), count, "at {at} ms: {out:?}");
+            assert!(out.iter().all(|event| *event == escape()), "{out:?}");
+        }
     }
 
     #[test]

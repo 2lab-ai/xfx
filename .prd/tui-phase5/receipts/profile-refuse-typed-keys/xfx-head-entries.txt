@@ -1,0 +1,95 @@
+== PROBE_ENTRIES=all probe.sh xfx <xfx at 1157fe3e> <run> typed-key dup-key provider models-bad provider-type
+binary sha256 before: cdda96e894c4
+== typed-key
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=484B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=1157fe3eb3bc|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  ask --json             exit=1 stdout=57B stderr= | touched: 
+    stdout: {"kind":"error","message":"InvalidProfileConfiguration"}|
+  doctor                 exit=0 stdout=836B stderr= | touched: 
+    stdout: [doctor] ok=5 warn=1 fail=1|[doctor] workspace=<run>/typed-key/work|[doctor] model=zai/glm-5.2|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/typed-key/work|[ok] config: 
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/typed-key/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dup-key
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  status                 exit=0 stdout=482B stderr= | touched: 
+    stdout: [status] model=zai/glm-5.2|[status] provider=gateway|[status] build_channel=debug|[status] build_revision=1157fe3eb3bc|[status] auth=missing|[status] auth_refreshable=false|[status] auth_help=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|[status] permission_mode
+  ask --json             exit=1 stdout=57B stderr= | touched: 
+    stdout: {"kind":"error","message":"InvalidProfileConfiguration"}|
+  doctor                 exit=0 stdout=862B stderr= | touched: 
+    stdout: [doctor] ok=4 warn=2 fail=1|[doctor] workspace=<run>/dup-key/work|[doctor] model=zai/glm-5.2|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/dup-key/work|[warn] config: fo
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/dup-key/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== provider
+  ask                    exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  ask --json             exit=1 stdout=55B stderr= | touched: 
+    stdout: {"kind":"error","message":"UnknownConfiguredProvider"}|
+  doctor                 exit=0 stdout=1108B stderr= | touched: 
+    stdout: [doctor] ok=5 warn=2 fail=1|[doctor] workspace=<run>/provider/work|[doctor] model=zai/glm-5.2|[doctor] provider=rejected|[doctor] provider_rejected=not-a-provider|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using wo
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/provider/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: UnknownConfiguredProvider| | touched: 
+== models-bad
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidModelValue| | touched: 
+  ask --json             exit=1 stdout=47B stderr= | touched: 
+    stdout: {"kind":"error","message":"InvalidModelValue"}|
+  doctor                 exit=0 stdout=773B stderr= | touched: 
+    stdout: [doctor] ok=5 warn=0 fail=1|[doctor] workspace=<run>/models-bad/work|[doctor] model=openai/gpt-5|[doctor] provider=gateway|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <run>/models-bad/work|[ok] confi
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/models-bad/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidModelValue| | touched: 
+== provider-type
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProviderType| | touched: 
+  status                 exit=1 stdout=0B stderr=xfx: InvalidProviderType| | touched: 
+  ask --json             exit=1 stdout=49B stderr= | touched: 
+    stdout: {"kind":"error","message":"InvalidProviderType"}|
+  doctor                 exit=0 stdout=1116B stderr= | touched: 
+    stdout: [doctor] ok=5 warn=2 fail=1|[doctor] workspace=<run>/provider-type/work|[doctor] model=zai/glm-5.2|[doctor] provider=rejected|[doctor] provider_rejected=|[doctor] auth=missing|[doctor] auth_refreshable=false|[doctor] permission_mode=auto|[doctor] agent_step_limit=25|[ok] workspace: using workspace <
+  sessions               exit=0 stdout=84B stderr= | touched: 
+    stdout: [sessions] scope=workspace count=0 has_more=false truncated=false skipped_invalid=0|
+  session last           exit=1 stdout=0B stderr=xfx: no saved session belongs to <run>/provider-type/work; run `xfx ask` here first, or name a session id| | touched: 
+  --version              exit=0 stdout=6B stderr= | touched: 
+    stdout: 0.1.0|
+  help                   exit=0 stdout=748B stderr= | touched: 
+    stdout: Unofficial Rust port of the fx terminal coding agent||Usage: xfx [OPTIONS] [COMMAND]||Commands:|  ask       Ask the model one question and stream the answer|  setup     Switch providers and record the selection|  status    Report the resolved model, credential source, and workspace|  doctor    Check
+  bare, no terminal      exit=1 stdout=0B stderr=xfx requires an interactive terminal (TTY); run `xfx ask <prompt>` when there is not one| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProviderType| | touched: 
+  --version, terminal    exited exit=0 tty=7B stderr= | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProviderType| | touched: 
+binary sha256 after: cdda96e894c4

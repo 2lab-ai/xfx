@@ -1,0 +1,7 @@
+# RED, round 3, MUST 2: each bypass alone on the throwaway clone at a74073dd, then round 2's binding check and the start rule's scan under sentinel-run.sh, under the suite lock:
+#   TMPDIR=<short> suite-lock.sh python3 red-must2.py <clone> a74073dd
+# at a74073dd: round 2's checks after each bypass
+PASSED (the bypass got past them) enumeration inside an allowed function :: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 1.73s
+PASSED (the bypass got past them) an unbound key: the name held in a variable outside the allow :: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 1.83s
+PASSED (the bypass got past them) a function-level allow over a read the check cannot name :: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 1.19s
+PASSED (the bypass got past them) an aliased Command started with .output() inside an allow :: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4647 filtered out; finished in 1.64s

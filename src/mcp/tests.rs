@@ -1816,9 +1816,11 @@ fn a_name_that_is_not_a_plain_variable_name_is_never_looked_up() {
             skipped("unclosed"),
         ]
     );
-    // Through the process's own `getenv`: `PATH` is set in every test run,
-    // and `${PATH=}` must not read it.
-    let process = |name: &str| std::env::var(name).ok();
+    // With `PATH` set, as it is in every process: `${PATH=}` must not read
+    // it. A fake process's, not the real one (`crate::test_env`).
+    let process = crate::test_env::FakeProcess::new()
+        .var("PATH", "/usr/bin:/bin")
+        .run(|| crate::test_env::lookup("mcp::tests"));
     let loaded = config::load_workspace(dir.path(), &approved, &process);
     assert!(
         !loaded.servers.iter().any(|server| server.name == "path"),

@@ -1,0 +1,4 @@
+# round 3: round2/mutants.py M12 M13 on a --no-local clone at 802dd239, under the suite lock, each running cargo test --lib -- tui::
+M12 the early refusal at twice the room, not more than twice: KILLED (102s) a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces
+M13 the early refusal takes the paste as empty, and says nothing: KILLED (44s) a_cr_lf_paste_of_twice_the_room_is_taken_as_spaces, a_paste_refused_on_its_bytes_alone_is_said_as_one_refused_on_its_text
+2 of 2 killed; the clone's tree after the run: clean

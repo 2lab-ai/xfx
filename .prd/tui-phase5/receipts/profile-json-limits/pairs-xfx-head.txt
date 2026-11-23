@@ -1,0 +1,40 @@
+binary sha256 before: 5f01a31205e1
+== mcp-approved
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== mcp-approved-big
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== mcp-approved-deep
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== mcp-none
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== mcp-bad-list
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== mcp-bad-name
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== mcp-bad-switch
+  doctor  exit=0 stderr=
+    | [ok] config: loaded settings from ~/.xfx/settings.json
+  ask     exit=1 stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+== utf8-profile
+  doctor  exit=0 stderr=
+    | [warn] config: found but could not use ~/.xfx/settings.json; using defaults and env overrides
+    | [warn] config: user config diagnostic: malformed_settings
+  ask     exit=1 stderr=xfx: InvalidProfileConfiguration|
+== utf8-project
+  doctor  exit=0 stderr=
+    | [warn] config: found but could not use .xfx.json; loaded settings from ~/.xfx/settings.json
+    | [warn] config: project config diagnostic: malformed_settings
+  ask     exit=1 stderr=xfx ask: config project: malformed_settings|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.|
+binary sha256 after: 5f01a31205e1

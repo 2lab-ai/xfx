@@ -1,0 +1,139 @@
+== probe.sh xfx <xfx at b209c786, round 2> <run> (every fixture: ask, interactive, line shell)
+binary sha256 before: e63738794c0f
+== truncated
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== toolarge
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== at-ceiling
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== model-space
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-nonstring
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== model-inner-space
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=model|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=290B stderr=xfx: config user: invalid_value; key=model|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== model-long
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=model|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx: config user: invalid_value; key=model| | touched: ./.xfx ./.xfx/sessions 
+== ws-nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-nonobject
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== entry-model
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== typed-key
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=fast_mode|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=282B stderr=xfx: config user: invalid_value; key=fast_mode|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== provider
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: invalid_value; key=provider|provider=rejected: the `provider` setting is `not-a-provider`, which xfx cannot read; set it to `gateway` or `llmux`. Until then every turn refuses, because guessing would send the prompt to an endpoint you did not choose| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=281B stderr=xfx: config user: invalid_value; key=provider|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== models-bad
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=395B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=284B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== dir-settings
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=285B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx:  | touched: ./.xfx ./.xfx/sessions 
+== link-settings
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=286B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== link-profile
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/link-profile/home/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/link-profile/home/.xfx cannot hold session state: it is a symbolic link, and xfx will not follow one to decide where session state lives| | touched: 
+== unreadable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== project-malformed
+  ask                    exit=1 stdout=0B stderr=xfx ask: config project: malformed_settings|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=526B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=290B stderr=xfx: config project: malformed_settings|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== retired-then-model
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=395B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=292B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== group-writable
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=287B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== group-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: malformed_settings|xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=292B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== group-writable-model
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=391B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=283B stderr=xfx:  | touched: ./.xfx ./.xfx/sessions 
+== other-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: malformed_settings|xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=292B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== dir-group-writable-torn
+  ask                    exit=1 stdout=0B stderr=xfx ask: config user: malformed_settings|xfx ask: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings)|xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/dir-group-writable-torn/home/.xfx cannot hold session state: it is mode 770; session state must not be reachable by group or other (`chmod 700 <run>/dir-group-writable-torn/home/.xfx` makes it private)| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/dir-group-writable-torn/home/.xfx cannot hold session state: it is mode 770; session state must not be reachable by group or other (`chmod 700 <run>/dir-group-writable-torn/home/.xfx` makes it private)| | touched: 
+== write-only
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== dir-unlistable
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+== hardlink
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=281B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== profile-file
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            exited exit=1 tty=78B stderr=xfx: <run>/profile-file/home/.xfx cannot hold session state: it is not a directory| | touched: 
+  line shell             exited exit=1 tty=0B stderr=xfx: <run>/profile-file/home/.xfx cannot hold session state: it is not a directory| | touched: 
+== fifo
+  ask                    exit=1 stdout=0B stderr=xfx: InvalidProfileConfiguration| | touched: 
+  interactive            still running after 6 s exit= tty=796B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=277B stderr=xfx: config user: malformed_settings|xfx: permissions: every tool is refused: a permission table did not read (user config diagnostic: malformed_settings); fix it, then /allowlist reads it again|xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+== valid
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=278B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+binary sha256 after: e63738794c0f
+
+== probe.sh xfx <xfx at b209c786, round 2> <run> (round 3's new fixtures)
+binary sha256 before: e63738794c0f
+== home-unlistable
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=397B stderr= | touched: 
+  line shell             still running after 6 s exit= tty=288B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: 
+== dup-key
+  ask                    exit=1 stdout=0B stderr=xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.| | touched: 
+  interactive            still running after 6 s exit= tty=366B stderr= | touched: ./.xfx ./.xfx/sessions 
+  line shell             still running after 6 s exit= tty=279B stderr=xfx: cannot write output: Input/output error (os error 5)| | touched: ./.xfx ./.xfx/sessions 
+binary sha256 after: e63738794c0f

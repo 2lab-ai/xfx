@@ -1,0 +1,13 @@
+# RED, round 2: items 2, 3 and 6 at 945fc373 (e26e27dd + the cases and the test-only launch hook), binary built at that head
+# run: TMPDIR=<short> sentinel-run.sh <bin> <the three cases>
+test tui::worker::tests::a_launched_worker_reads_the_whole_fake_process_it_was_launched_in ... FAILED
+test test_env::tests::an_https_client_takes_no_proxy_from_the_process ... FAILED
+test test_env::tests::a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is ... FAILED
+thread 'tui::worker::tests::a_launched_worker_reads_the_whole_fake_process_it_was_launched_in' (<tid>) panicked at src/tui/worker.rs:8601:9:
+the worker's XFX_GATEWAY_URL is not the case's
+thread 'test_env::tests::an_https_client_takes_no_proxy_from_the_process' (<tid>) panicked at src/test_env/tests.rs:280:5:
+an https client a unit test built sent 1 request(s) to the process's proxy
+thread 'test_env::tests::a_git_planned_with_no_home_reads_no_global_configuration_wherever_home_is' (<tid>) panicked at src/test_env/tests.rs:226:5:
+a git planned with no home read a global configuration file
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4642 filtered out; finished in 0.12s
+sentinel-run: exit 101

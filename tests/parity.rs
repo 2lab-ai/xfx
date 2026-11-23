@@ -13,10 +13,13 @@
 //! about something that does not exist, which is the more embarrassing of the
 //! two.
 
+// Runs this binary's cases in a copy of it whose environment is built from
+// nothing (`support::isolated`).
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 use serde_json::Value;
 use xfx::cli::{help_text, parser_command_names, ADVERTISED_COMMANDS, ADVERTISED_ENTRYPOINTS};
@@ -303,7 +306,7 @@ fn run_xfx(args: &[&str]) -> std::process::Output {
     let workspace = root.path().join("workspace");
     fs::create_dir_all(&home).expect("create home");
     fs::create_dir_all(&workspace).expect("create workspace");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+    let mut command = support::command(env!("CARGO_BIN_EXE_xfx"));
     command
         .args(args)
         .current_dir(&workspace)
@@ -1040,14 +1043,9 @@ fn the_readme_says_plainly_that_what_the_model_reads_is_saved() {
 #[test]
 fn every_doctor_check_the_binary_emits_is_documented() {
     // Run the real binary: the check list is built at runtime from the
-    // configuration, so the only honest inventory is the one it prints.
-    let output = xfx::process::output(
-        Command::new(env!("CARGO_BIN_EXE_xfx"))
-            .args(["doctor", "--json"])
-            .env_remove("VERCEL_OIDC_TOKEN")
-            .env_remove("AI_GATEWAY_API_KEY"),
-    )
-    .expect("spawn xfx doctor");
+    // configuration, so the only honest inventory is the one it prints -- in
+    // an empty profile, never the developer's ([`run_xfx`]).
+    let output = run_xfx(&["doctor", "--json"]);
     let document: Value = serde_json::from_slice(&output.stdout).expect("doctor prints one JSON");
     let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
     let doctor_row = ledger
@@ -1077,7 +1075,7 @@ fn the_tracked_tree_carries_only_the_current_product_name() {
     // its own controls before it reports on this repository.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let output = xfx::process::output(
-        Command::new(root.join("scripts").join("check-xfx-identity.sh")).current_dir(&root),
+        support::command(root.join("scripts").join("check-xfx-identity.sh")).current_dir(&root),
     )
     .expect("spawn scripts/check-xfx-identity.sh");
     assert!(

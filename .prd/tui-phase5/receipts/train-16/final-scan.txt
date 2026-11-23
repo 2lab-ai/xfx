@@ -1,0 +1,68 @@
+# final-scan.sh <repo> 866747ff 75c91708 23819f7a (MAIN=afeaea7c: main before the join, so main's four new commits are read too), at the receipt's second-to-last commit; exit 0
+## 1. each commit this train adds, first-parent 866747ff..75c91708: the brief's count; a merge also as everything it brings
+b2d044c9 0; as everything it brings (git diff ^1): 0  Merge the profile line into train 16 (fix/p5-profile-json-limits @ bac
+e8b004a5 0; as everything it brings (git diff ^1): 0  Merge the slash line into train 16 (fix/p5-slash-mixed-skills @ 32eb85
+849f5017 0; as everything it brings (git diff ^1): 0  Merge TEST-ENV-ISOLATION into train 16 (fix/p5-test-env-isolation @ 7c
+dd2ac93d 0; as everything it brings (git diff ^1): 0  Merge LOCAL-PATHS-WRAP into train 16 (fix/p5-local-paths-wrap @ dd9f5f
+71787971 0; as everything it brings (git diff ^1): 0  Merge APPROVAL-PASTE-SPACES into train 16 (fix/p5-approval-paste-space
+1bce5348 0; as everything it brings (git diff ^1): 0  Merge META-PREFIX-DECODE into train 16 (fix/p5-meta-prefix-decode @ 6d
+622b2865 0  train 16: the join MUSTs and the decoder's meetings, three join tests
+c637ed4c 0  train 16: the 42 references the merges and TEST-ENV-ISOLATION moved, r
+15c9744b 0  train 16: four references the content check reads SAME, re-pointed by 
+3d1376b2 0  ci: the script-test rows' comment says what the env self-test exercise
+2b78aab6 0  train 16: a pinned reference the first re-point moved, put back
+37b292a8 0  docs(receipt): P5 train 16 -- the receipt at the code head 2b78aab6
+f2cb84d6 0  docs(receipt): train 16 -- the file and reference checks at 37b292a8 (
+7d63b764 0  docs(receipt): train 16 -- the final scan through f2cb84d6 (final-scan
+adb809f5 0  train 16: tests/tui.rs's clear-line list, its ten numbers after the fi
+1ddeda00 0  train 16: the join's two rows round 2 asked for -- choice 2, and the p
+6137bd3d 0  train 16: round 2's two cases at the end of shell.rs' tests, so no cit
+34c97078 0  docs(receipt): train 16 round 2 -- the reviews' items, the gate at 613
+1b3fbdc2 0  docs(receipt): train 16 round 2 -- the file checks with the receipt in
+ac0b0ff5 0  docs(receipt): train 16 round 2 -- the final scan through 1b3fbdc2 (fi
+75d1318c 0; as everything it brings (git diff ^1): 0  Merge main (e0aedbf6: #101, #99, #100) into train 16
+a4452753 0  train 16: the join of main -- the gate lists name the five script test
+37caa8b3 0  docs(receipt): train 16 round 3 -- the join of main, the gate at a4452
+8928a19b 0  docs(receipt): train 16 round 3 -- the file checks with the receipt in
+398e5f68 0  docs(receipt): train 16 round 3 -- the final scan through 8928a19b (fi
+26f290f9 0  docs(receipt): train 16 round 4 -- which five each line means
+1b65aea6 0  docs(receipt): train 16 round 4 -- the file checks with the receipt in
+8be4693b 0  docs(receipt): train 16 round 4 -- the final scan through 1b65aea6 (fi
+ac5882fb 0  train 16: the profile's group/other bit test in st_mode's own type
+96cbaab2 0  train 16: check-env-reads.py finds a file whichever way its root is sp
+3ed1c082 0  train 16: an integration test's clean copy runs the toolchain that bui
+a078fb83 0  docs(receipt): train 16 round 5 -- PR #102's CI, three causes, the gat
+93bff397 0  docs(receipt): train 16 round 5 -- the file checks with the receipt in
+a3f8ee26 0  docs(receipt): train 16 round 5 -- the final scan through 93bff397 (fi
+bbb2c109 0  train 16: say what the clean copy does with no PATH to put the toolcha
+23819f7a 0  train 16: CARGO, a compile-time name only the clean copy may read
+28d72d88 0  docs(receipt): train 16 round 6 -- CARGO scoped, the no-PATH copy said
+d74cb195 0  docs(receipt): train 16 round 6 -- the file checks with the receipt in
+e33838cb 0  docs(receipt): train 16 round 6 -- the final scan through d74cb195 (fi
+75c91708 0  docs(receipt): train 16 round 6 -- the no-PATH default read from the c
+# the brief's count, summed over this train's commits: 0
+# the brief's count over the range, git diff 866747ff..75c91708: 0
+# shapes.py over the range's added lines (not gating; the brief's count is the first): brief 0; run-name 8; uid-tail 0
+#   the run-name lines by file: scripts/fxcap/test_capture.py 8
+
+## 2. every commit of the range, and the range (midbranch_scan.py)
+# commits per unit stack since its merge base with 866747ff: 3943d667..bacb1052 49; afd891af..32eb858f 36; 32afd307..7c3f6c1e 51; 71d3e02b..dd9f5f0a 14; df45025c..ca496c10 21; df45025c..6d94fbc0 18; the range 866747ff..75c91708 233
+# the check's documented homes at 75c91708: <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>, <local-path>
+# 233 commits scanned; 0 lines hit (the brief's count, summed); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0; commit messages holding the account's name: 0
+
+## the range, git diff 866747ff..75c91708
+# the range: 0 lines hit (the brief's count); matches: placeholder 0, review 0, SCRATCH 0, NAME 0, CREDENTIAL 0
+# midbranch_scan.py exit 0
+
+## 3. files of this directory holding the pattern: 0
+shapes.py over this directory: brief 0; run-name 0; uid-tail 0 (over 210 files)
+
+## 4. each commit after the code head 23819f7a, and the files it touches outside this directory
+28d72d88 outside: 0; inside: 11 file(s)
+d74cb195 outside: 0; inside: 1 file(s)
+e33838cb outside: 0; inside: 1 file(s)
+75c91708 outside: 0; inside: 1 file(s)
+# files outside this directory touched after the code head: 0
+
+## 5. the dispatcher's per-commit check: every commit of `git rev-list --no-merges 75c91708 --not afeaea7c` (the units' own included), its added lines and its message; then every merge commit's own message
+# 371 non-merge commits: 0 hits (lines and messages); 15 merge commits' messages: 0 hits

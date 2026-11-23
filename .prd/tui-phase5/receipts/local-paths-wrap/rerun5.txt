@@ -1,0 +1,7 @@
+LOCAL-PATHS-WRAP round 5 reruns, TMPDIR=<the harness scratch root>, over d7e797a0's tree with this round's receipt files staged
+== split_marks.py: exit 0 (split-marks.txt)
+self-check: the 2 split forms match, the 2 that are not split do not
+split marks, by their bytes: 12824 tracked files hold a rail, 0 of them a split rail-arrow, 0 occurrences
+the widened filter: 8466 files read, 173 with round 3's filter; rows behind a mark in them 213 and 213 -- it adds 0 marked rows
+== scripts/check-no-local-paths.sh: exit 0
+check-no-local-paths: ok (18920 tracked file(s) scanned; 8 marked fixture line(s), 83 placeholder line(s))

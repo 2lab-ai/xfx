@@ -254,14 +254,16 @@ cargo build --locked --release
 ./target/release/xfx --version
 ```
 
-The full local gate, which is what CI runs (CI runs the three script tests,
-`test-gate-env.sh`, `test-preview-contract.sh` and `test-check-no-local-paths.sh`,
-on one row per OS; see
-[`CONTRIBUTING.md`](CONTRIBUTING.md)):
+The full local gate, which is what CI runs (CI runs the five script tests,
+`test-gate-env.sh`, `test-preview-contract.sh`, `test-check-no-local-paths.sh`,
+`test-early-stop.sh` and `check-env-reads.py --self-test`, on one row per OS;
+see [`CONTRIBUTING.md`](CONTRIBUTING.md)):
 
 ```bash
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
+python3 scripts/check-env-reads.py
+python3 scripts/check-env-reads.py --self-test
 cargo test --locked --all-targets
 cargo build --locked --release
 ./scripts/check-no-stubs.sh
@@ -272,6 +274,7 @@ cargo build --locked --release
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
 ./scripts/test-preview-contract.sh
+./scripts/test-early-stop.sh
 ./scripts/smoke.sh target/release/xfx
 ```
 

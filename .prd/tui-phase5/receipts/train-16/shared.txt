@@ -1,0 +1,1146 @@
+## merge b2d044c9 (src/app.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 4 functions of src/app.rs changed against 3943d667; 3 hunks in no function (base lines 616-620, 659 (an insertion after), 664)
+    `fn run_streams` (base :162): base eb05ca5a7583 | ours ae52c88f8cf5 | head 89ea28febdc5; changed by another side too (below)
+    `fn run_ask` (base :366): base 430990df5bc9 | ours d78077277858 | head d78077277858; changed by this side alone, the head holds its text: True
+    `fn open_session` (base :674): base 743d52e26c21 | ours 99778cb2569c | head 99778cb2569c; changed by this side alone, the head holds its text: True
+    `fn version_prints_only_the_version_on_stdout` (base :1313): base 493bf6a0c760 | ours - | head -; changed by this side alone, the head holds its text: True
+# theirs: 4 functions of src/app.rs changed against 3943d667; 0 hunks in no function (base lines )
+    `fn run_streams` (base :162): base eb05ca5a7583 | theirs f05b58f0579f | head 89ea28febdc5; changed by another side too (below)
+    `fn ask` (base :326): base 0352cd36dcb5 | theirs 8b0f5ed99ccb | head 8b0f5ed99ccb; changed by this side alone, the head holds its text: True
+    `fn doctor_checks` (base :956): base 3136b687e523 | theirs 2dadd35fa807 | head 2dadd35fa807; changed by this side alone, the head holds its text: True
+    `fn permissions_check` (base :1083): base aadd1de5ab8a | theirs 0fb407e4f5f8 | head 0fb407e4f5f8; changed by this side alone, the head holds its text: True
+## ours x theirs: 1 functions both changed
+  `fn run_streams` (base src/app.rs:162): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 1 edits)
+      base eb05ca5a7583 | ours ae52c88f8cf5 | theirs f05b58f0579f | head 89ea28febdc5
+# 1 shared functions; 0 not kept both ways
+# exit 0
+## merge b2d044c9 (src/interactive.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 3 functions of src/interactive.rs changed against 3943d667; 8 hunks in no function (base lines 161, 1155-1157, 1171-1207, 1834-1848, 2832, 2834-2836, 2872 (an insertion after), 3947-4050)
+    `fn bind_conversation` (base :1448): base 021173cb6d8d | ours 445ff1ddae1a | head 445ff1ddae1a; changed by this side alone, the head holds its text: True
+    `fn one_turn` (base :1850): base ba29083a87d3 | ours ceff7e651a17 | head ceff7e651a17; changed by this side alone, the head holds its text: True
+    `fn version_line` (base :2837): base fabb169c681d | ours ddf1ee4f4b71 | head ddf1ee4f4b71; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/interactive.rs changed against 3943d667; 0 hunks in no function (base lines )
+    `fn run` (base :1494): base a4a4d74ff8a0 | theirs 504a0474eec6 | head 504a0474eec6; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge b2d044c9 (src/output.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 2 functions of src/output.rs changed against 3943d667; 2 hunks in no function (base lines 171 (an insertion after), 2311 (an insertion after))
+    `fn new` (base :230): base 3c99aeab29ed | ours 2d7c06133caf | head 2d7c06133caf; changed by this side alone, the head holds its text: True
+    `fn lines` (base :372): base 321e09be9694 | ours 9b80386f1cf6 | head 039294883234; changed by another side too (below)
+# theirs: 3 functions of src/output.rs changed against 3943d667; 1 hunks in no function (base lines 153 (an insertion after))
+    `fn panel_rows` (base :274): base e49e1b7436a4 | theirs 449561afcdaa | head 449561afcdaa; changed by this side alone, the head holds its text: True
+    `fn lines` (base :372): base 321e09be9694 | theirs a6935b6e4405 | head 039294883234; changed by another side too (below)
+    `fn render_text` (base :706): base 17593d883f35 | theirs e6aabc7a5ee8 | head e6aabc7a5ee8; changed by this side alone, the head holds its text: True
+## ours x theirs: 1 functions both changed
+  `fn lines` (base src/output.rs:372): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 1 edits)
+      base 321e09be9694 | ours 9b80386f1cf6 | theirs a6935b6e4405 | head 039294883234
+# 1 shared functions; 0 not kept both ways
+# exit 0
+## merge b2d044c9 (src/tui/mod.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 2 functions of src/tui/mod.rs changed against 3943d667; 1 hunks in no function (base lines 526 (an insertion after))
+    `fn hold` (base :329): base 10e8c33c8fae | ours e425fe86e7bf | head e425fe86e7bf; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_a_band_is_refused_by_name_and_by_number` (base :1172): base cdd5b34448bc | ours cdd5b34448bc | head cdd5b34448bc; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/tui/mod.rs changed against 3943d667; 0 hunks in no function (base lines )
+    `fn run_blocking` (base :73): base ea371f087087 | theirs 78b6f466bab9 | head 78b6f466bab9; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge b2d044c9 (tests/cli.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 2 functions of tests/cli.rs changed against 3943d667; 1 hunks in no function (base lines 158 (an insertion after))
+    `fn version_aliases_print_the_bare_package_version` (base :164): base 62490455bb78 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn status_json_is_a_single_newline_terminated_document` (base :386): base b36b17238002 | ours 1cbf0ad212ea | head 1cbf0ad212ea; changed by this side alone, the head holds its text: True
+# theirs: 4 functions of tests/cli.rs changed against 3943d667; 2 hunks in no function (base lines 18 (an insertion after), 810 (an insertion after))
+    `fn write_user_settings` (base :105): base 026d31f5556c | theirs 114d24494627 | head 114d24494627; changed by this side alone, the head holds its text: True
+    `fn an_unreadable_provider_poisons_the_turn_even_when_backend_is_readable` (base :1461): base a1749d577efb | theirs 78628f97c95d | head 78628f97c95d; changed by this side alone, the head holds its text: True
+    `fn a_rejected_provider_from_newer_layer_poisons_at_binary_level` (base :1879): base ed48d60f3a4a | theirs 83684895d4cd | head 83684895d4cd; changed by this side alone, the head holds its text: True
+    `fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused` (base :1894): base 6cb1ea8c0ef4 | theirs 63670a005dbb | head 63670a005dbb; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge b2d044c9 (tests/sessions.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 10 functions of tests/sessions.rs changed against 3943d667; 3 hunks in no function (base lines 37-38, 1910 (an insertion after), 3239)
+    `fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one` (base :1912): base 667afcceaef2 | ours 7c11a3c6c7a2 | head 7c11a3c6c7a2; changed by this side alone, the head holds its text: True
+    `fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire` (base :2876): base f92114d9d7c7 | ours b037c9cde88b | head b037c9cde88b; changed by this side alone, the head holds its text: True
+    `fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire` (base :2895): base 1c7d99a62e66 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn responses_state_recorded_under_one_authority_is_never_sent_to_another` (base :2918): base 5ff42338a0be | ours f2d187efd896 | head f2d187efd896; changed by this side alone, the head holds its text: True
+    `fn a_wire_this_version_does_not_know_drops_rather_than_guessing` (base :2950): base d6d21561fa39 | ours f6e3ab3716db | head f6e3ab3716db; changed by this side alone, the head holds its text: True
+    `fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active` (base :2972): base b209c299b2d0 | ours dafef31b3b9d | head dafef31b3b9d; changed by this side alone, the head holds its text: True
+    `fn codex_responses_wire_replays_state_verbatim_under_codex` (base :2998): base 56899178ecde | ours 3da04071fc24 | head 3da04071fc24; changed by this side alone, the head holds its text: True
+    `fn grok_responses_wire_replays_state_verbatim_under_grok` (base :3023): base 70139c214eb0 | ours e5dd37b62380 | head e5dd37b62380; changed by this side alone, the head holds its text: True
+    `fn a_dropped_state_is_not_deleted_from_the_log` (base :3048): base 80d3350a0bed | ours 654784c753a2 | head 654784c753a2; changed by this side alone, the head holds its text: True
+    `fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_nor_its_sentence` (base :3152): base 31efb2a1bc03 | ours 13f8ca3293f3 | head 13f8ca3293f3; changed by this side alone, the head holds its text: True
+# theirs: 0 functions of tests/sessions.rs changed against 3943d667; 1 hunks in no function (base lines 3239)
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge b2d044c9 (tests/tui.rs): base 3943d667, ours 866747ff, theirs bacb1052
+# ours: 6 functions of tests/tui.rs changed against 3943d667; 3 hunks in no function (base lines 591, 1062 (an insertion after), 2404)
+    `fn a_live_theme_notification_repaints_the_band_without_losing_the_draft` (base :2422): base 4cdea1c34e31 | ours 23f0ba12d3b2 | head 23f0ba12d3b2; changed by another side too (below)
+    `fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal` (base :3124): base 8eb3ccceb27b | ours 3212d865ef41 | head 3212d865ef41; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows` (base :9300): base 09ce91a812c8 | ours e06becb85e98 | head e06becb85e98; changed by this side alone, the head holds its text: True
+    `fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind` (base :9714): base 2ac305b63b46 | ours 23118f9cedfb | head 23118f9cedfb; changed by this side alone, the head holds its text: True
+    `fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent` (base :9855): base ad5546186da2 | ours 506366750950 | head 506366750950; changed by this side alone, the head holds its text: True
+    `fn a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says` (base :10019): base d384bcce6d2d | ours 6cca84d751a2 | head 6cca84d751a2; changed by this side alone, the head holds its text: True
+# theirs: 2 functions of tests/tui.rs changed against 3943d667; 3 hunks in no function (base lines 21 (an insertion after), 591, 1062 (an insertion after))
+    `fn a_live_theme_notification_repaints_the_band_without_losing_the_draft` (base :2422): base 4cdea1c34e31 | theirs 07b1c2aa4917 | head 23f0ba12d3b2; changed by another side too (below)
+    `fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses` (base :6277): base 725b927f4e1e | theirs b2237a4f9a47 | head b2237a4f9a47; changed by this side alone, the head holds its text: True
+## ours x theirs: 1 functions both changed
+  `fn a_live_theme_notification_repaints_the_band_without_losing_the_draft` (base tests/tui.rs:2422): ours -> head is theirs's edits: False; theirs -> head is ours's edits: False (1 and 1 edits)
+      base 4cdea1c34e31 | ours 23f0ba12d3b2 | theirs 07b1c2aa4917 | head 23f0ba12d3b2
+# 1 shared functions; 1 not kept both ways
+# exit 1
+## merge e8b004a5 (src/tui/mod.rs): base afd891af, ours b2d044c9, theirs 32eb858f
+# ours: 3 functions of src/tui/mod.rs changed against afd891af; 1 hunks in no function (base lines 526 (an insertion after))
+    `fn run_blocking` (base :73): base ea371f087087 | ours 78b6f466bab9 | head 78b6f466bab9; changed by this side alone, the head holds its text: True
+    `fn hold` (base :329): base 10e8c33c8fae | ours e425fe86e7bf | head e425fe86e7bf; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_a_band_is_refused_by_name_and_by_number` (base :1172): base cdd5b34448bc | ours cdd5b34448bc | head cdd5b34448bc; changed by this side alone, the head holds its text: True
+# theirs: 0 functions of src/tui/mod.rs changed against afd891af; 1 hunks in no function (base lines 756 (an insertion after))
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge e8b004a5 (src/tui/shell.rs): base afd891af, ours b2d044c9, theirs 32eb858f
+# ours: 57 functions of src/tui/shell.rs changed against afd891af; 52 hunks in no function (base lines 171-174, 240-242, 245, 252-253, 1309 (an insertion after), 3603-3609, 3615-3616, 3729, 5360, 5461 (an insertion after), 5670 (an insertion after), 6235, ...)
+    `fn welcome_line` (base :175): base c874495b858c | ours 24726ff41b74 | head 24726ff41b74; changed by this side alone, the head holds its text: True
+    `fn new` (base :2520): base 86a7c954d8d0 | ours 0bb3ba68e009 | head fcff772a9877; changed by another side too (below)
+    `fn anchor_at` (base :3617): base beb4582378cb | ours a5d1c0c89ec5 | head a5d1c0c89ec5; changed by this side alone, the head holds its text: True
+    `fn file_picker_column` (base :3730): base 2bf11a49cca6 | ours c35f1606d833 | head c35f1606d833; changed by this side alone, the head holds its text: True
+    `fn modal` (base :5361): base 99595c5da54e | ours 26adf3aca12b | head 26adf3aca12b; changed by this side alone, the head holds its text: True
+    `fn offer_to_settings` (base :6254): base 85cfa552a828 | ours c4d376122484 | head c4d376122484; changed by this side alone, the head holds its text: True
+    `fn offer_to_files` (base :6358): base 47430f9463b9 | ours 0d880d5c4301 | head 0d880d5c4301; changed by this side alone, the head holds its text: True
+    `fn complete_file` (base :6997): base 91a8901aa49e | ours fb7e90a779c8 | head fb7e90a779c8; changed by this side alone, the head holds its text: True
+    `fn refresh_file_picker` (base :7028): base b17794692b9c | ours cd00b84d3aa2 | head cd00b84d3aa2; changed by this side alone, the head holds its text: True
+    `fn column_rows` (base :7308): base a96449288194 | ours 7aceafe3eb4e | head 7aceafe3eb4e; changed by this side alone, the head holds its text: True
+    `fn offer_to_column` (base :7363): base 30827b985f46 | ours 43280654f82e | head 43280654f82e; changed by this side alone, the head holds its text: True
+    `fn offer_to_rule_confirm` (base :7824): base 2ddc6b32ee18 | ours b27b0d9042a2 | head b27b0d9042a2; changed by this side alone, the head holds its text: True
+    `fn adopt_workspace` (base :8564): base 5f252559d570 | ours a2f264844241 | head a2f264844241; changed by this side alone, the head holds its text: True
+    `fn settle_files` (base :8777): base 1077351f17e9 | ours 8ed24160cb67 | head 8ed24160cb67; changed by this side alone, the head holds its text: True
+    `fn offer_to_picker` (base :8798): base 36b8841fa006 | ours 12d9f9029856 | head 5a60e6a31f10; changed by another side too (below)
+    `fn reconcile_picker` (base :9046): base 40406ce04289 | ours 04d488c8f6ac | head f4bc05144eab; changed by another side too (below)
+    `fn offer_to_mcp_args` (base :9278): base 752141c0f566 | ours 0945733cba64 | head f67fd9613295; changed by another side too (below)
+    `fn decide` (base :9620): base 5fedc5badb25 | ours 25c7b22d9405 | head 25c7b22d9405; changed by this side alone, the head holds its text: True
+    `fn settle_band` (base :10842): base e87bff237cd7 | ours ba5b26717591 | head ba5b26717591; changed by this side alone, the head holds its text: True
+    `fn consume_inputs` (base :12286): base 711026e4ee5a | ours 3044936af4d2 | head 3044936af4d2; changed by this side alone, the head holds its text: True
+    `fn act` (base :12695): base 460b75fc0df8 | ours b809f180945b | head b809f180945b; changed by this side alone, the head holds its text: True
+    `fn cancel_turn` (base :13164): base 7f023bdb8d40 | ours a6816c4a9fe3 | head a6816c4a9fe3; changed by this side alone, the head holds its text: True
+    `fn unspelled` (base :14189): base 08a7346b6a60 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn version` (base :14534): base ecfa8f571ca5 | ours 51185d90e941 | head 51185d90e941; changed by this side alone, the head holds its text: True
+    `fn fit` (base :16694): base a210d09bdad6 | ours 5a8b9f2373c7 | head 7e3579818014; changed by another side too (below)
+    `fn an_enter_another_surface_took_counts_for_the_held_rule` (base :18591): base ef3181728dd7 | ours 30205d787b1d | head 30205d787b1d; changed by this side alone, the head holds its text: True
+    `fn asking` (base :22243): base b12788b9c3e5 | ours cb34efb43e62 | head cb34efb43e62; changed by this side alone, the head holds its text: True
+    `fn enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it` (base :22749): base 7ca315ccae93 | ours 16b8a483dfef | head 16b8a483dfef; changed by this side alone, the head holds its text: True
+    `fn alt_b_at_a_choice_goes_back_a_question_and_the_word_arrows_do_not` (base :23536): base 54ef48bab4f0 | ours c8f19ddd215f | head c8f19ddd215f; changed by this side alone, the head holds its text: True
+    `fn a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown` (base :24034): base b795a6f61436 | ours da8ee1ad8c0c | head da8ee1ad8c0c; changed by this side alone, the head holds its text: True
+    `fn the_fold_maps_the_question_only_keys_to_the_plain_ones_and_leaves_the_rest` (base :24118): base 03d308d96bbd | ours e0848b2cb0fb | head e0848b2cb0fb; changed by this side alone, the head holds its text: True
+    `fn the_full_transcript_holds_the_composer_spellings_of_the_arrows_as_it_holds_the_arrows` (base :24174): base ada2b93b1d92 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half` (base :24547): base 2a3f4a2b460c | ours 6b717ff6628c | head 6b717ff6628c; changed by this side alone, the head holds its text: True
+    `fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation` (base :24860): base 54fdbb93398e | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn a_command_is_not_echoed_and_its_answer_is_upstreams_notice` (base :26690): base 00a5a476a62f | ours 0fcf606b2400 | head 0fcf606b2400; changed by this side alone, the head holds its text: True
+    `fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it` (base :27372): base 68df46775d7d | ours 5e7d54963177 | head 5e7d54963177; changed by this side alone, the head holds its text: True
+    `fn a_status` (base :27402): base 6ff9f83163c4 | ours 1da2ffdd5cf5 | head 1da2ffdd5cf5; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_confirmation_silently_and_two_says_cancelled` (base :28667): base f80d689775ec | ours f2650da57852 | head f2650da57852; changed by this side alone, the head holds its text: True
+    `fn tab_completes_the_marked_command_and_the_menu_follows_the_word` (base :36231): base 7e95bc9d1c04 | ours 70ae0202db70 | head 70ae0202db70; changed by this side alone, the head holds its text: True
+    `fn the_list_says_it_is_indexing_until_the_index_lands` (base :36752): base 76b25e1f1a57 | ours 76b25e1f1a57 | head 76b25e1f1a57; changed by this side alone, the head holds its text: True
+    `fn a_model_line_is_the_model_columns_and_never_an_at_word` (base :36771): base 47a863163778 | ours 47a863163778 | head 47a863163778; changed by this side alone, the head holds its text: True
+    `fn the_rows_fill_in_while_the_first_index_is_published` (base :36784): base 66f943cf415c | ours 66f943cf415c | head 66f943cf415c; changed by this side alone, the head holds its text: True
+    `fn a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose` (base :36846): base caef3f935d3b | ours 11122e00d066 | head 11122e00d066; changed by this side alone, the head holds its text: True
+    `fn a_directory_choice_keeps_the_list_up_on_that_directory` (base :36906): base 3b84ebe76835 | ours 7163a1243d33 | head 7163a1243d33; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_list_until_the_caret_leaves_the_word` (base :36927): base c85053c42262 | ours c85053c42262 | head c85053c42262; changed by this side alone, the head holds its text: True
+    `fn an_unmatched_mention_is_sent_by_enter` (base :36950): base 3b17a8d7f296 | ours 3b17a8d7f296 | head 3b17a8d7f296; changed by this side alone, the head holds its text: True
+    `fn control_j_and_k_walk_the_list_and_alt_enter_is_still_a_newline` (base :36971): base 143d13af3052 | ours 143d13af3052 | head 143d13af3052; changed by this side alone, the head holds its text: True
+    `fn control_j_and_k_walk_the_slash_menu_too_and_are_edits_without_one` (base :36987): base 0ea406e6064a | ours 0ea406e6064a | head 0ea406e6064a; changed by this side alone, the head holds its text: True
+    `fn a_page_key_moves_the_list_a_page_and_wraps_past_its_end` (base :37012): base 8ee4e6863079 | ours 8ee4e6863079 | head 8ee4e6863079; changed by this side alone, the head holds its text: True
+    `fn a_space_typed_right_after_a_completion_is_the_one_it_added` (base :37042): base 3d726841e6fb | ours 3d726841e6fb | head 3d726841e6fb; changed by this side alone, the head holds its text: True
+    `fn a_choice_in_the_middle_of_a_line_reuses_the_space_after_it` (base :37060): base a28e91c00ba8 | ours a28e91c00ba8 | head a28e91c00ba8; changed by this side alone, the head holds its text: True
+    `fn tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing` (base :37076): base 6832bbf4f871 | ours 6832bbf4f871 | head 6832bbf4f871; changed by this side alone, the head holds its text: True
+    `fn only_a_frame_that_landed_showing_the_list_changes_the_rows_its_arrows_scroll` (base :37121): base bb65bfb76d89 | ours bb65bfb76d89 | head bb65bfb76d89; changed by this side alone, the head holds its text: True
+    `fn pages_as_far_as_steps` (base :37410): base a053a9336faf | ours 8b2129d7aab8 | head 8b2129d7aab8; changed by this side alone, the head holds its text: True
+    `fn mcp_args_shell` (base :38303): base 1ca283be0ce3 | ours 946ae1677c19 | head 946ae1677c19; changed by this side alone, the head holds its text: True
+    `fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open` (base :40485): base 0590b947a7d6 | ours e50185acc470 | head e50185acc470; changed by this side alone, the head holds its text: True
+    `fn a_notice_written_while_a_line_streams_lands_above_it_and_leaves_it_whole` (base :42247): base 6a6601893cea | ours 3768aed6aad1 | head 3768aed6aad1; changed by this side alone, the head holds its text: True
+# theirs: 15 functions of src/tui/shell.rs changed against afd891af; 15 hunks in no function (base lines 1526-1528, 1538, 1540-1542, 1544, 1546-1547, 8860-8861, 8871, 8876, 8917, 8919-8920, 9271-9274, 36229 (an insertion after), ...)
+    `fn new` (base :2520): base 86a7c954d8d0 | theirs 8a38ed7d2486 | head fcff772a9877; changed by another side too (below)
+    `fn band_rows` (base :2832): base fd0bd791ba25 | theirs f1ab3b305afb | head f1ab3b305afb; changed by this side alone, the head holds its text: True
+    `fn skills_landed` (base :5886): base fb3e1114c783 | theirs 14d4defaded1 | head 14d4defaded1; changed by this side alone, the head holds its text: True
+    `fn offer_to_picker` (base :8798): base 36b8841fa006 | theirs 21c2d5f69f63 | head 5a60e6a31f10; changed by another side too (below)
+    `fn reconcile_picker` (base :9046): base 40406ce04289 | theirs f30a708bd785 | head f4bc05144eab; changed by another side too (below)
+    `fn reconcile_mcp_args` (base :9225): base 49857cb695b2 | theirs cea741f1bced | head cea741f1bced; changed by this side alone, the head holds its text: True
+    `fn offer_to_mcp_args` (base :9278): base 752141c0f566 | theirs 8d1cb7bddd0c | head f67fd9613295; changed by another side too (below)
+    `fn submit` (base :13363): base c3a1bc3d97c0 | theirs 87dd825a0a91 | head 87dd825a0a91; changed by this side alone, the head holds its text: True
+    `fn recall` (base :16479): base 4ca2e11f9bbc | theirs 904be0c7d602 | head 904be0c7d602; changed by this side alone, the head holds its text: True
+    `fn fit` (base :16694): base a210d09bdad6 | theirs eccf23438653 | head 7e3579818014; changed by another side too (below)
+    `fn a_slash_completion_is_a_boundary_and_never_a_half_undo` (base :20951): base cfe04a08fb98 | theirs cd588bab6729 | head cd588bab6729; changed by this side alone, the head holds its text: True
+    `fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing` (base :27170): base 066677e12fef | theirs 88972400c237 | head 88972400c237; changed by this side alone, the head holds its text: True
+    `fn a_bare_permissions_opens_upstreams_panel_and_changes_nothing` (base :27492): base 8e27c8eb5d53 | theirs 0ef5212b9d44 | head 0ef5212b9d44; changed by this side alone, the head holds its text: True
+    `fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing` (base :28846): base bcd8d8fea08a | theirs 3a49eee5ffba | head 3a49eee5ffba; changed by this side alone, the head holds its text: True
+    `fn an_argument_that_names_no_item_is_upstreams_usage_error` (base :39644): base 026536cadd78 | theirs 2af8e1a74eaf | head 2af8e1a74eaf; changed by this side alone, the head holds its text: True
+## ours x theirs: 5 functions both changed
+  `fn new` (base src/tui/shell.rs:2520): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (2 and 1 edits)
+      base 86a7c954d8d0 | ours 0bb3ba68e009 | theirs 8a38ed7d2486 | head fcff772a9877
+  `fn offer_to_picker` (base src/tui/shell.rs:8798): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 4 edits)
+      base 36b8841fa006 | ours 12d9f9029856 | theirs 21c2d5f69f63 | head 5a60e6a31f10
+  `fn reconcile_picker` (base src/tui/shell.rs:9046): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (2 and 9 edits)
+      base 40406ce04289 | ours 04d488c8f6ac | theirs f30a708bd785 | head f4bc05144eab
+  `fn offer_to_mcp_args` (base src/tui/shell.rs:9278): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (3 and 2 edits)
+      base 752141c0f566 | ours 0945733cba64 | theirs 8d1cb7bddd0c | head f67fd9613295
+  `fn fit` (base src/tui/shell.rs:16694): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 4 edits)
+      base a210d09bdad6 | ours 5a8b9f2373c7 | theirs eccf23438653 | head 7e3579818014
+# 5 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/app.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 7 functions of src/app.rs changed against 32afd307; 3 hunks in no function (base lines 616-620, 659 (an insertion after), 664)
+    `fn run_streams` (base :162): base eb05ca5a7583 | ours 89ea28febdc5 | head 89ea28febdc5; changed by this side alone, the head holds its text: True
+    `fn ask` (base :326): base 0352cd36dcb5 | ours 8b0f5ed99ccb | head 8b0f5ed99ccb; changed by this side alone, the head holds its text: True
+    `fn run_ask` (base :366): base 430990df5bc9 | ours d78077277858 | head d78077277858; changed by this side alone, the head holds its text: True
+    `fn open_session` (base :674): base 743d52e26c21 | ours 99778cb2569c | head 99778cb2569c; changed by this side alone, the head holds its text: True
+    `fn doctor_checks` (base :956): base 3136b687e523 | ours 2dadd35fa807 | head 2dadd35fa807; changed by this side alone, the head holds its text: True
+    `fn permissions_check` (base :1083): base aadd1de5ab8a | ours 0fb407e4f5f8 | head 0fb407e4f5f8; changed by this side alone, the head holds its text: True
+    `fn version_prints_only_the_version_on_stdout` (base :1313): base 493bf6a0c760 | ours - | head -; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/app.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn the_shell_is_dispatched_and_refuses_a_test_harness_that_is_not_a_terminal` (base :1349): base 72587e560fab | theirs efa2f74b56c9 | head efa2f74b56c9; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/config.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 7 functions of src/config.rs changed against 32afd307; 10 hunks in no function (base lines 27 (an insertion after), 396-399, 403-404, 832 (an insertion after), 843-844, 982 (an insertion after), 1369 (an insertion after), 2179 (an insertion after), 2181, 2386 (an insertion after))
+    `fn parse_choice` (base :405): base 9104fb9d735a | ours d0dc5ffe9a09 | head d0dc5ffe9a09; changed by this side alone, the head holds its text: True
+    `fn load_with` (base :999): base d01a11f7f5cd | ours b39f2ccdfd8f | head b39f2ccdfd8f; changed by this side alone, the head holds its text: True
+    `fn parse_layer` (base :1603): base a952af4a7c84 | ours d4e2be6dc7c3 | head d4e2be6dc7c3; changed by this side alone, the head holds its text: True
+    `fn parse_environment` (base :1927): base 297d25c12f32 | ours 0c8e5be99b47 | head 0c8e5be99b47; changed by this side alone, the head holds its text: True
+    `fn read_layer` (base :2182): base 763440d86e9b | ours 7a44e1f20233 | head 7a44e1f20233; changed by this side alone, the head holds its text: True
+    `fn a_typed_mode_reads_upstreams_words_in_any_case` (base :2288): base db3b74358ec4 | ours fc7bb385a9b8 | head fc7bb385a9b8; changed by this side alone, the head holds its text: True
+    `fn a_relative_home_gives_no_profile_and_no_path_under_the_workspace` (base :3956): base d1d35223e7d5 | ours d1d35223e7d5 | head d1d35223e7d5; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/config.rs changed against 32afd307; 1 hunks in no function (base lines 2269 (an insertion after))
+    `fn from_process` (base :800): base abc83eaecf92 | theirs e7187b047dd1 | head e7187b047dd1; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/gateway/mod.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 1 functions of src/gateway/mod.rs changed against 32afd307; 1 hunks in no function (base lines 618 (an insertion after))
+    `fn fmt` (base :658): base 9b5666ef3288 | ours e2cbbb5a02a6 | head e2cbbb5a02a6; changed by this side alone, the head holds its text: True
+# theirs: 2 functions of src/gateway/mod.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn bearer_rules` (base :120): base d5a894b753c5 | theirs 77344773231c | head 77344773231c; changed by this side alone, the head holds its text: True
+    `fn from_process` (base :357): base 7e47b54434b3 | theirs b55e95a8995e | head b55e95a8995e; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/image.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 1 functions of src/image.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn withhold` (base :885): base 1deb95865247 | ours c5f20a5049df | head c5f20a5049df; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/image.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn a_fifo_named_like_an_image_is_refused_without_waiting_for_a_writer` (base :1944): base bc2e0e7b1bd2 | theirs 3bc9ceb5706d | head 3bc9ceb5706d; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/interactive.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 5 functions of src/interactive.rs changed against 32afd307; 8 hunks in no function (base lines 161, 1155-1157, 1171-1207, 1834-1848, 2832, 2834-2836, 2872 (an insertion after), 3947-4050)
+    `fn bind_conversation` (base :1448): base 021173cb6d8d | ours 445ff1ddae1a | head 445ff1ddae1a; changed by this side alone, the head holds its text: True
+    `fn run` (base :1494): base a4a4d74ff8a0 | ours 504a0474eec6 | head 056878a6ab63; changed by another side too (below)
+    `fn one_turn` (base :1850): base ba29083a87d3 | ours ceff7e651a17 | head ceff7e651a17; changed by this side alone, the head holds its text: True
+    `fn apply_setup` (base :2095): base 33c3cf3b4c39 | ours 568955003eeb | head 568955003eeb; changed by this side alone, the head holds its text: True
+    `fn version_line` (base :2837): base fabb169c681d | ours ddf1ee4f4b71 | head ddf1ee4f4b71; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/interactive.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn run` (base :1494): base a4a4d74ff8a0 | theirs 0aece7c6f02e | head 056878a6ab63; changed by another side too (below)
+## ours x theirs: 1 functions both changed
+  `fn run` (base src/interactive.rs:1494): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 1 edits)
+      base a4a4d74ff8a0 | ours 504a0474eec6 | theirs 0aece7c6f02e | head 056878a6ab63
+# 1 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/lib.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 2 functions of src/lib.rs changed against 32afd307; 3 hunks in no function (base lines 66, 74-75, 124 (an insertion after))
+    `fn build_info` (base :79): base ea8b5abdbbb0 | ours 1144136a73b1 | head 1144136a73b1; changed by this side alone, the head holds its text: True
+    `fn a_reported_revision_is_lowercase_hex_of_fixed_width` (base :113): base c936f54da9d9 | ours b209f99539cc | head b209f99539cc; changed by this side alone, the head holds its text: True
+# theirs: 0 functions of src/lib.rs changed against 32afd307; 2 hunks in no function (base lines 31 (an insertion after), 98 (an insertion after))
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/mcp/command/tests.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 1 functions of src/mcp/command/tests.rs changed against 32afd307; 1 hunks in no function (base lines 960 (an insertion after))
+    `fn an_entry_rewritten_after_its_approval_was_saved_stays_pending` (base :962): base 2a1b1ef12f75 | ours 5ee6f4cba619 | head 5ee6f4cba619; changed by this side alone, the head holds its text: True
+# theirs: 2 functions of src/mcp/command/tests.rs changed against 32afd307; 1 hunks in no function (base lines 80)
+    `fn new` (base :43): base bcd29a49628b | theirs 7ff9c6bbe8ab | head 7ff9c6bbe8ab; changed by this side alone, the head holds its text: True
+    `fn runtime_reading` (base :81): base 0ede2224ffd6 | theirs a6f8dae8b853 | head a6f8dae8b853; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/mcp/config.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 0 functions of src/mcp/config.rs changed against 32afd307; 2 hunks in no function (base lines 2819-2825, 3211 (an insertion after))
+# theirs: 2 functions of src/mcp/config.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn scratch_repo` (base :3759): base b39308d27442 | theirs 13505dd7b320 | head 13505dd7b320; changed by this side alone, the head holds its text: True
+    `fn the_runtime_starts_only_what_the_expansion_and_the_name_check_leave` (base :5299): base 23f2acf6da54 | theirs 00f3d32fc0c3 | head 00f3d32fc0c3; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/mcp/runtime.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 1 functions of src/mcp/runtime.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn read_configuration` (base :1146): base 75cb75751d57 | ours 5b4f98eaa2d6 | head 5b4f98eaa2d6; changed by this side alone, the head holds its text: True
+# theirs: 2 functions of src/mcp/runtime.rs changed against 32afd307; 2 hunks in no function (base lines 804, 821 (an insertion after))
+    `fn new` (base :799): base 769de290ed98 | theirs 92a62872a9fb | head 92a62872a9fb; changed by this side alone, the head holds its text: True
+    `fn with_environment` (base :806): base f029e7da5136 | theirs 936f0b6bd9c5 | head 936f0b6bd9c5; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/provider/model.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 32 functions of src/provider/model.rs changed against 32afd307; 24 hunks in no function (base lines 10, 15 (an insertion after), 1295 (an insertion after), 1316-1318, 1323, 1392, 1396, 1399-1400, 1405-1422, 1426, 1447-1448, 1539 (an insertion after), ...)
+    `fn activity_due` (base :1432): base 49208febf15b | ours 7fb897139e04 | head 7fb897139e04; changed by this side alone, the head holds its text: True
+    `fn of` (base :1480): base f0b9526e3035 | ours 0d63b5e65bbd | head 0d63b5e65bbd; changed by this side alone, the head holds its text: True
+    `fn began` (base :1561): base 279ea95e13f2 | ours 5ec50393e60d | head 5ec50393e60d; changed by this side alone, the head holds its text: True
+    `fn answered_at` (base :1572): base abdf18a0ca2b | ours d5d12b4eb51a | head d5d12b4eb51a; changed by this side alone, the head holds its text: True
+    `fn start` (base :1633): base 8a7d09ebacf1 | ours d3e3e30c146b | head d3e3e30c146b; changed by this side alone, the head holds its text: True
+    `fn unstarted` (base :1728): base 64d49500cc76 | ours 72fc9246e983 | head 72fc9246e983; changed by this side alone, the head holds its text: True
+    `fn answer` (base :1773): base d1bcfbd16869 | ours 15f643fcfd50 | head 15f643fcfd50; changed by this side alone, the head holds its text: True
+    `fn taken` (base :1784): base 7febe3b9e5f2 | ours b88b1dfe8be2 | head b88b1dfe8be2; changed by this side alone, the head holds its text: True
+    `fn answer_unstarted` (base :1825): base cdcdc424557e | ours abcaee0aa2cd | head abcaee0aa2cd; changed by this side alone, the head holds its text: True
+    `fn begin` (base :1836): base b36abd477400 | ours 68c4fdacef60 | head 68c4fdacef60; changed by this side alone, the head holds its text: True
+    `fn new` (base :1852): base 93149a0aad29 | ours b216fbdbbe60 | head b216fbdbbe60; changed by this side alone, the head holds its text: True
+    `fn follow_model` (base :1876): base 1f9dfaf1c7f0 | ours 4e8f252391e2 | head 4e8f252391e2; changed by this side alone, the head holds its text: True
+    `fn ensure_catalog` (base :1909): base b1e6100c0178 | ours 73669369ef60 | head 73669369ef60; changed by this side alone, the head holds its text: True
+    `fn begin_load` (base :1948): base 065860e32879 | ours da82e56f0a49 | head da82e56f0a49; changed by this side alone, the head holds its text: True
+    `fn would_load` (base :1980): base 7eabcd0d35f3 | ours ea48a6aea12b | head ea48a6aea12b; changed by this side alone, the head holds its text: True
+    `fn begin_load_on` (base :1993): base b603186028d9 | ours 87edda1f3877 | head 87edda1f3877; changed by this side alone, the head holds its text: True
+    `fn reader` (base :2017): base ba1487caa281 | ours c6b19c345c3d | head c6b19c345c3d; changed by this side alone, the head holds its text: True
+    `fn take` (base :2119): base 1137a5bf76ef | ours ef2cb17eb5c7 | head ef2cb17eb5c7; changed by this side alone, the head holds its text: True
+    `fn last_attempt` (base :2145): base b3125343f218 | ours 1d3ef32d0f7e | head 1d3ef32d0f7e; changed by this side alone, the head holds its text: True
+    `fn retry_at` (base :2156): base 3a33f31be072 | ours b9b0c6793704 | head b9b0c6793704; changed by this side alone, the head holds its text: True
+    `fn for_test` (base :2275): base f8af2ceeb8e4 | ours 933991646879 | head 933991646879; changed by this side alone, the head holds its text: True
+    `fn backdate_for_test` (base :2309): base 55626cd38d44 | ours 568382d6e070 | head 568382d6e070; changed by this side alone, the head holds its text: True
+    `fn a_failure_is_asked_again_only_when_model_asks_for_it` (base :2895): base 3aa27344dccf | ours 18953b6eec97 | head 18953b6eec97; changed by this side alone, the head holds its text: True
+    `fn the_clock_decides_a_read_as_upstreams_begin_load_does` (base :2954): base 940bc1c19f04 | ours 2c4ddba17a75 | head 2c4ddba17a75; changed by this side alone, the head holds its text: True
+    `fn a_background_read_counts_its_age_from_when_it_began_and_its_backoff_from_when_it_failed` (base :3029): base f3c95ba79697 | ours af4ae9583ccb | head af4ae9583ccb; changed by this side alone, the head holds its text: True
+    `fn would_read` (base :3926): base ef293e11454c | ours 1f33add7d00d | head 1f33add7d00d; changed by this side alone, the head holds its text: True
+    `fn start_read` (base :3932): base eb8b34e7847d | ours ef898774810e | head ef898774810e; changed by this side alone, the head holds its text: True
+    `fn a_failure_holds_every_read_off_for_upstreams_backoff_which_doubles_to_five_minutes` (base :4007): base 17a70c6eea26 | ours f273b1a8dc7a | head f273b1a8dc7a; changed by this side alone, the head holds its text: True
+    `fn a_held_catalog_is_read_again_by_the_menu_five_seconds_on_and_by_activity_five_minutes_on` (base :4047): base ea6c9d0923fe | ours ed700aeb0924 | head ed700aeb0924; changed by this side alone, the head holds its text: True
+    `fn a_refresh_that_fails_keeps_the_rows_says_so_and_is_tried_again_after_its_backoff` (base :4076): base eccbdbfe181a | ours 4b8c05e742f0 | head 4b8c05e742f0; changed by this side alone, the head holds its text: True
+    `fn a_retry_reads_behind_the_failure_it_retries` (base :4118): base d921abadd8e8 | ours 6b62e80a4df9 | head 6b62e80a4df9; changed by this side alone, the head holds its text: True
+    `fn activity_is_due_exactly_when_the_clock_says_it_is` (base :4166): base dc0f3b0e868c | ours 609a0278fbf2 | head 609a0278fbf2; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/provider/model.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn an_unreadable_provider_has_no_catalog_to_ask_with_the_key` (base :3456): base 6067032e77d1 | theirs de5a80260a78 | head de5a80260a78; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/session/store/fork/tests.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 3 functions of src/session/store/fork/tests.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn a_fork_replays_as_the_source_did_before_the_prompt_it_was_made_at` (base :369): base 214ddff8cffe | ours 681a8d2b8134 | head 681a8d2b8134; changed by this side alone, the head holds its text: True
+    `fn live_snapshot` (base :513): base 3b8378d6f26c | ours 81a9e07d9a74 | head 81a9e07d9a74; changed by this side alone, the head holds its text: True
+    `fn a_pasted_image_is_named_by_the_forks_own_copy` (base :532): base 3d904706b376 | ours 2c80ee93f14e | head 2c80ee93f14e; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/session/store/fork/tests.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn under_an_open_umask_a_forks_folders_are_private_from_creation` (base :1258): base 7e121e13f4b2 | theirs 2d3410c8b88c | head 2d3410c8b88c; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/tui/file_index.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 30 functions of src/tui/file_index.rs changed against 32afd307; 40 hunks in no function (base lines 19-29, 41, 60, 63, 66, 93, 96, 97 (an insertion after), 441, 476-477, 479 (an insertion after), 481-483, ...)
+    `fn merged` (base :310): base bb15ea21250f | ours 3221657d9f07 | head 3221657d9f07; changed by this side alone, the head holds its text: True
+    `fn list_directory` (base :447): base bd976e97f6b9 | ours 730f212436b9 | head 730f212436b9; changed by this side alone, the head holds its text: True
+    `fn score_order` (base :491): base f874df44f1ae | ours 4fafe2697311 | head 4fafe2697311; changed by this side alone, the head holds its text: True
+    `fn new` (base :520): base 262c75465fac | ours 94de27809f46 | head 94de27809f46; changed by this side alone, the head holds its text: True
+    `fn fold` (base :527): base a5656c17ba1c | ours 3d7b08e0f8f8 | head 3d7b08e0f8f8; changed by this side alone, the head holds its text: True
+    `fn score` (base :549): base b9396efa0ade | ours 49291caabc9a | head 49291caabc9a; changed by this side alone, the head holds its text: True
+    `fn score_range` (base :578): base 57286621e99b | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn is_boundary` (base :619): base 381d6a50b164 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn spans` (base :636): base c7f349cd0f3f | ours d11d67e49ce6 | head d11d67e49ce6; changed by this side alone, the head holds its text: True
+    `fn matched_offsets` (base :672): base 35f41deec679 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn search` (base :690): base 7acf4a821917 | ours 345edfb8da87 | head 345edfb8da87; changed by this side alone, the head holds its text: True
+    `fn rank_listing` (base :739): base 846c9d3d3d78 | ours 7e4816855667 | head 7e4816855667; changed by this side alone, the head holds its text: True
+    `fn discover_roots` (base :810): base 17e6265159cc | ours 0ad5d0258160 | head 0ad5d0258160; changed by this side alone, the head holds its text: True
+    `fn new` (base :925): base defbfdf959c8 | ours 7e65b7604f91 | head 7e65b7604f91; changed by this side alone, the head holds its text: True
+    `fn begin_episode` (base :943): base f909549c716b | ours 2c968daaaf3f | head 2c968daaaf3f; changed by this side alone, the head holds its text: True
+    `fn set_extra_roots` (base :958): base b8f7b4619b1e | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn start_walk` (base :970): base 962ed984e1ce | ours 099d5610aeb2 | head 099d5610aeb2; changed by this side alone, the head holds its text: True
+    `fn poll` (base :993): base 05b98fa29776 | ours 346287da4f14 | head 346287da4f14; changed by this side alone, the head holds its text: True
+    `fn lookup` (base :1050): base cf7623f54910 | ours 41a2b4a7b2b5 | head 41a2b4a7b2b5; changed by this side alone, the head holds its text: True
+    `fn retry` (base :1107): base 905bdfe31699 | ours e668fe3bd1e0 | head e668fe3bd1e0; changed by this side alone, the head holds its text: True
+    `fn drop` (base :1118): base 14815d356ce6 | ours 5039835f13f9 | head 5039835f13f9; changed by this side alone, the head holds its text: True
+    `fn candidates` (base :1158): base 6bcd4000a13e | ours f11d255405c5 | head f11d255405c5; changed by this side alone, the head holds its text: True
+    `fn a_change_of_added_directories_drops_the_index_and_the_next_picker_walks_them` (base :1240): base 82c4b6db3dd8 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn the_basename_outranks_the_directories_and_an_exact_name_outranks_both` (base :1451): base 316b4083c13b | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn only_the_best_thirty_two_are_kept` (base :1492): base aaba82790913 | ours 67018a381f30 | head 67018a381f30; changed by this side alone, the head holds its text: True
+    `fn a_browsed_directory_lists_its_entries_by_name` (base :1539): base c6cebc437355 | ours 4a767592e409 | head 4a767592e409; changed by this side alone, the head holds its text: True
+    `fn the_index_is_built_off_the_calling_thread_and_adopted_by_a_poll` (base :1578): base ae0b5d9f7b97 | ours 66b59153f8d7 | head 66b59153f8d7; changed by this side alone, the head holds its text: True
+    `fn driven` (base :1601): base 46847c6a68a8 | ours ca9fed0c0e17 | head ca9fed0c0e17; changed by this side alone, the head holds its text: True
+    `fn a_browsed_directory_is_read_once_on_a_worker_and_then_ranked_here` (base :1750): base 5d44de3136ec | ours 952177146698 | head 952177146698; changed by this side alone, the head holds its text: True
+    `fn home_is_where_a_tilde_goes` (base :1771): base e7f2d5656c22 | ours ad778cd7cd36 | head ad778cd7cd36; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of src/tui/file_index.rs changed against 32afd307; 1 hunks in no function (base lines 1134)
+    `fn a_work_tree_is_listed_by_git_and_its_ignore_rules_hold` (base :1347): base e77c5c0bf080 | theirs 170c530de947 | head 170c530de947; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/tui/mod.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 3 functions of src/tui/mod.rs changed against 32afd307; 2 hunks in no function (base lines 526 (an insertion after), 756 (an insertion after))
+    `fn run_blocking` (base :73): base ea371f087087 | ours 78b6f466bab9 | head 78b6f466bab9; changed by this side alone, the head holds its text: True
+    `fn hold` (base :329): base 10e8c33c8fae | ours e425fe86e7bf | head 1942139d3a26; changed by another side too (below)
+    `fn a_screen_too_small_for_a_band_is_refused_by_name_and_by_number` (base :1172): base cdd5b34448bc | ours cdd5b34448bc | head cdd5b34448bc; changed by this side alone, the head holds its text: True
+# theirs: 2 functions of src/tui/mod.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn should_run` (base :65): base b435b920565b | theirs 941324acbed7 | head 941324acbed7; changed by this side alone, the head holds its text: True
+    `fn hold` (base :329): base 10e8c33c8fae | theirs 5c37dab36549 | head 1942139d3a26; changed by another side too (below)
+## ours x theirs: 1 functions both changed
+  `fn hold` (base src/tui/mod.rs:329): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 2 edits)
+      base 10e8c33c8fae | ours e425fe86e7bf | theirs 5c37dab36549 | head 1942139d3a26
+# 1 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/tui/shell.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 405 functions of src/tui/shell.rs changed against 32afd307; 189 hunks in no function (base lines 77 (an insertion after), 169-172, 238-240, 243, 250-251, 491 (an insertion after), 493, 501, 504, 548 (an insertion after), 851-860, 1243 (an insertion after), ...)
+    `fn welcome_line` (base :173): base c874495b858c | ours 24726ff41b74 | head 24726ff41b74; changed by this side alone, the head holds its text: True
+    `fn new` (base :2423): base 7d71a080a6f3 | ours fcff772a9877 | head 413b33ea1dbd; changed by another side too (below)
+    `fn band_rows` (base :2731): base 3326b0cb1c04 | ours f1ab3b305afb | head f1ab3b305afb; changed by this side alone, the head holds its text: True
+    `fn anchor_at` (base :3504): base beb4582378cb | ours a5d1c0c89ec5 | head a5d1c0c89ec5; changed by this side alone, the head holds its text: True
+    `fn file_picker_column` (base :3617): base 2bf11a49cca6 | ours c35f1606d833 | head c35f1606d833; changed by this side alone, the head holds its text: True
+    `fn hydrate_as` (base :3856): base dfc77bfc0607 | ours 959047ccd624 | head 959047ccd624; changed by this side alone, the head holds its text: True
+    `fn replay_turn` (base :4005): base 2894301ecbb3 | ours 55993d3e67e4 | head 55993d3e67e4; changed by this side alone, the head holds its text: True
+    `fn owes_document` (base :4142): base 431bea650637 | ours 58a0981348a4 | head 58a0981348a4; changed by this side alone, the head holds its text: True
+    `fn emit_document_front` (base :4160): base 77da18fa4a61 | ours d264e1ec18e8 | head d264e1ec18e8; changed by this side alone, the head holds its text: True
+    `fn apply_event` (base :4265): base 36443b490da3 | ours 4e8b281f7774 | head 4e8b281f7774; changed by this side alone, the head holds its text: True
+    `fn modal` (base :5145): base 99595c5da54e | ours 26adf3aca12b | head 26adf3aca12b; changed by this side alone, the head holds its text: True
+    `fn skills_landed` (base :5670): base fb3e1114c783 | ours 14d4defaded1 | head 14d4defaded1; changed by this side alone, the head holds its text: True
+    `fn offer_to_settings` (base :6038): base 85cfa552a828 | ours c4d376122484 | head c4d376122484; changed by this side alone, the head holds its text: True
+    `fn offer_to_files` (base :6142): base 47430f9463b9 | ours 0d880d5c4301 | head 0d880d5c4301; changed by this side alone, the head holds its text: True
+    `fn complete_file` (base :6781): base 91a8901aa49e | ours fb7e90a779c8 | head fb7e90a779c8; changed by this side alone, the head holds its text: True
+    `fn refresh_file_picker` (base :6812): base b17794692b9c | ours cd00b84d3aa2 | head cd00b84d3aa2; changed by this side alone, the head holds its text: True
+    `fn column_rows` (base :7092): base a96449288194 | ours 7aceafe3eb4e | head 7aceafe3eb4e; changed by this side alone, the head holds its text: True
+    `fn offer_to_column` (base :7147): base 30827b985f46 | ours 43280654f82e | head 43280654f82e; changed by this side alone, the head holds its text: True
+    `fn reconcile_column` (base :7437): base 87cfa5b3ff97 | ours 92f5cc2324b3 | head 92f5cc2324b3; changed by this side alone, the head holds its text: True
+    `fn offer_to_rule_confirm` (base :7608): base 2ddc6b32ee18 | ours b27b0d9042a2 | head b27b0d9042a2; changed by this side alone, the head holds its text: True
+    `fn adopt_workspace` (base :8348): base 5f252559d570 | ours a2f264844241 | head a2f264844241; changed by this side alone, the head holds its text: True
+    `fn settle_files` (base :8561): base 1077351f17e9 | ours 8ed24160cb67 | head 8ed24160cb67; changed by this side alone, the head holds its text: True
+    `fn offer_to_picker` (base :8582): base 36b8841fa006 | ours 5a60e6a31f10 | head 5a60e6a31f10; changed by this side alone, the head holds its text: True
+    `fn reconcile_picker` (base :8830): base 40406ce04289 | ours f4bc05144eab | head f4bc05144eab; changed by this side alone, the head holds its text: True
+    `fn reconcile_mcp_args` (base :9009): base 49857cb695b2 | ours cea741f1bced | head cea741f1bced; changed by this side alone, the head holds its text: True
+    `fn offer_to_mcp_args` (base :9062): base 752141c0f566 | ours f67fd9613295 | head f67fd9613295; changed by this side alone, the head holds its text: True
+    `fn decide` (base :9404): base 398b2e902e0c | ours 25c7b22d9405 | head 25c7b22d9405; changed by this side alone, the head holds its text: True
+    `fn flush_paced` (base :9980): base 901ac47a7c6d | ours 2877d77483b2 | head 2877d77483b2; changed by this side alone, the head holds its text: True
+    `fn end_delivery` (base :10450): base 30e8f2093b87 | ours 0f9b065f5234 | head 0f9b065f5234; changed by this side alone, the head holds its text: True
+    `fn route_bytes` (base :10467): base d4eda40b0948 | ours de5df1aeb6f6 | head de5df1aeb6f6; changed by this side alone, the head holds its text: True
+    `fn settle_input` (base :10477): base b525d9ef61b1 | ours 865bd4a8e373 | head 865bd4a8e373; changed by this side alone, the head holds its text: True
+    `fn settle_band` (base :10493): base 3afb03b08fb5 | ours ba5b26717591 | head ba5b26717591; changed by this side alone, the head holds its text: True
+    `fn consume_inputs` (base :11937): base 8af142324cf3 | ours 3044936af4d2 | head 3044936af4d2; changed by this side alone, the head holds its text: True
+    `fn ignored_behind_paste` (base :12230): base 96e1690b7c18 | ours 6e0726fb3f0d | head 6e0726fb3f0d; changed by this side alone, the head holds its text: True
+    `fn act` (base :12327): base 299f7fab3ba3 | ours b809f180945b | head b809f180945b; changed by this side alone, the head holds its text: True
+    `fn cancel_turn` (base :12788): base 7f023bdb8d40 | ours a6816c4a9fe3 | head a6816c4a9fe3; changed by this side alone, the head holds its text: True
+    `fn submit` (base :12987): base c3a1bc3d97c0 | ours 87dd825a0a91 | head 87dd825a0a91; changed by this side alone, the head holds its text: True
+    `fn send` (base :13187): base dbc87eb68a24 | ours c33500ea5db3 | head c33500ea5db3; changed by this side alone, the head holds its text: True
+    `fn write_card` (base :13445): base 94113a90ff3e | ours b95039adfd4c | head b95039adfd4c; changed by this side alone, the head holds its text: True
+    `fn unshifted` (base :13717): base 01be1f695d67 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn version` (base :14029): base ecfa8f571ca5 | ours 51185d90e941 | head 51185d90e941; changed by this side alone, the head holds its text: True
+    `fn settings` (base :14357): base ce3282264a5b | ours 7e1200830450 | head 7e1200830450; changed by this side alone, the head holds its text: True
+    `fn open_models_with` (base :14865): base e88aed1a702e | ours 592c60ad257b | head 592c60ad257b; changed by this side alone, the head holds its text: True
+    `fn note_catalog_activity` (base :14957): base 0567574a58a0 | ours 0c411bf76705 | head 0c411bf76705; changed by this side alone, the head holds its text: True
+    `fn want_catalog` (base :14983): base 4ce8c587059b | ours cf0baa3bd6df | head cf0baa3bd6df; changed by this side alone, the head holds its text: True
+    `fn settle_column` (base :15021): base 96b94e12b975 | ours edc7828205d0 | head edc7828205d0; changed by this side alone, the head holds its text: True
+    `fn speed_command` (base :15141): base 50ad0af2bf28 | ours da0ff5f5fe2c | head da0ff5f5fe2c; changed by this side alone, the head holds its text: True
+    `fn refloat` (base :15885): base 5a275365af77 | ours 8d7164a56bb0 | head 8d7164a56bb0; changed by this side alone, the head holds its text: True
+    `fn placed` (base :15901): base f39faa60e1c8 | ours 7289f8604c4c | head 7289f8604c4c; changed by this side alone, the head holds its text: True
+    `fn recall` (base :15916): base 4ca2e11f9bbc | ours 904be0c7d602 | head 904be0c7d602; changed by this side alone, the head holds its text: True
+    `fn refit` (base :16108): base 786258f56a3b | ours 78e817d44469 | head 78e817d44469; changed by this side alone, the head holds its text: True
+    `fn fit` (base :16130): base a210d09bdad6 | ours 7e3579818014 | head 7e3579818014; changed by this side alone, the head holds its text: True
+    `fn resize` (base :16413): base 18999bd68dae | ours 54aeae74fb4c | head 54aeae74fb4c; changed by this side alone, the head holds its text: True
+    `fn failed_long_ago` (base :16941): base 0ca6fb131476 | ours 72d3d3c075f5 | head 72d3d3c075f5; changed by this side alone, the head holds its text: True
+    `fn failed_just_now` (base :16950): base 2acc210605a5 | ours f2f039c527d0 | head f2f039c527d0; changed by this side alone, the head holds its text: True
+    `fn an_enter_another_surface_took_counts_for_the_held_rule` (base :17765): base ef3181728dd7 | ours 30205d787b1d | head 30205d787b1d; changed by this side alone, the head holds its text: True
+    `fn a_delivery_is_every_read_until_the_terminal_is_drained` (base :18925): base 5c73e5aa151e | ours be5db4c590f8 | head be5db4c590f8; changed by this side alone, the head holds its text: True
+    `fn a_large_paste_is_a_summary_in_the_composer_and_the_whole_text_on_the_wire_and_the_card` (base :18993): base 7f01562a18c7 | ours 800dd90e69b7 | head 800dd90e69b7; changed by this side alone, the head holds its text: True
+    `fn a_slash_completion_is_a_boundary_and_never_a_half_undo` (base :19760): base cfe04a08fb98 | ours cd588bab6729 | head cd588bab6729; changed by this side alone, the head holds its text: True
+    `fn the_band_grows_with_the_composer_and_shrinks_back_with_it` (base :20282): base 25174b9919e9 | ours ec2abc156703 | head ec2abc156703; changed by this side alone, the head holds its text: True
+    `fn asking` (base :21040): base b12788b9c3e5 | ours cb34efb43e62 | head cb34efb43e62; changed by this side alone, the head holds its text: True
+    `fn as_the_session_builds_it` (base :21057): base 19387e040790 | ours dcfeb5be405c | head dcfeb5be405c; changed by this side alone, the head holds its text: True
+    `fn a_review_plane_that_cannot_disclose_says_so_on_its_own_screen_and_recovers_when_widened` (base :21153): base de8effebe394 | ours c45bf289e4ea | head c45bf289e4ea; changed by this side alone, the head holds its text: True
+    `fn enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it` (base :21546): base 7ca315ccae93 | ours 16b8a483dfef | head 16b8a483dfef; changed by this side alone, the head holds its text: True
+    `fn a_model_question_takes_the_composers_rows_and_gives_them_back` (base :22333): base 476a4ddb73cc | ours 476a4ddb73cc | head 476a4ddb73cc; changed by this side alone, the head holds its text: True
+    `fn the_hint_row_under_a_model_question_is_the_questions_own` (base :22366): base dd9d15592ac8 | ours dd9d15592ac8 | head dd9d15592ac8; changed by this side alone, the head holds its text: True
+    `fn an_answered_batch_leaves_each_question_and_its_answer_in_the_document` (base :22390): base bc68738d924b | ours bc68738d924b | head bc68738d924b; changed by this side alone, the head holds its text: True
+    `fn the_answer_rows_are_in_the_answer_grey_with_their_indent` (base :22417): base 3cda1400c3da | ours 3cda1400c3da | head 3cda1400c3da; changed by this side alone, the head holds its text: True
+    `fn escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document` (base :22442): base 6bd0f4c6aa0e | ours 6bd0f4c6aa0e | head 6bd0f4c6aa0e; changed by this side alone, the head holds its text: True
+    `fn escape_at_a_draft_with_text_arms_a_clear_and_only_an_empty_one_cancels` (base :22462): base 8de6a634de04 | ours 8de6a634de04 | head 8de6a634de04; changed by this side alone, the head holds its text: True
+    `fn a_bracketed_paste_at_an_open_answer_goes_into_it_and_shift_arrows_choose` (base :22500): base e5862e4e2503 | ours e5862e4e2503 | head e5862e4e2503; changed by this side alone, the head holds its text: True
+    `fn a_paste_with_input_behind_its_end_marker_reaches_the_answer_and_answers_nothing` (base :22529): base 06bbd789dea2 | ours 06bbd789dea2 | head 06bbd789dea2; changed by this side alone, the head holds its text: True
+    `fn a_paste_with_input_behind_its_end_marker_says_so_at_a_choice_too` (base :22565): base 43a31ccee976 | ours 43a31ccee976 | head 43a31ccee976; changed by this side alone, the head holds its text: True
+    `fn shift_on_the_arrows_is_the_arrow_everywhere_but_a_question` (base :22585): base 555dc43b4130 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn escape_at_a_question_cancels_the_turn_and_sends_nothing_else` (base :22596): base f5bf7ef6de4e | ours f5bf7ef6de4e | head f5bf7ef6de4e; changed by this side alone, the head holds its text: True
+    `fn ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else` (base :22626): base 5f7f1d29ebf2 | ours 5f7f1d29ebf2 | head 5f7f1d29ebf2; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half` (base :22663): base a24d0c941c97 | ours 6b717ff6628c | head 6b717ff6628c; changed by this side alone, the head holds its text: True
+    `fn a_resize_that_shrinks_under_a_standing_question_keeps_the_selection_visible` (base :22696): base 8bce9f59fc93 | ours 8bce9f59fc93 | head 8bce9f59fc93; changed by this side alone, the head holds its text: True
+    `fn a_question_dismisses_the_menu_and_leaves_the_approval_panel_alone` (base :22720): base 34128f66a64b | ours 34128f66a64b | head 34128f66a64b; changed by this side alone, the head holds its text: True
+    `fn a_question_leaves_the_draft_and_the_caret_exactly_where_they_were` (base :22741): base bcb90550a815 | ours bcb90550a815 | head bcb90550a815; changed by this side alone, the head holds its text: True
+    `fn the_freeform_answer_is_the_text_that_was_typed_at_the_question` (base :22784): base 67699811867e | ours 67699811867e | head 67699811867e; changed by this side alone, the head holds its text: True
+    `fn the_caret_sits_on_the_marked_choice_and_moves_into_the_draft_with_it` (base :22803): base a1783ec05422 | ours a1783ec05422 | head a1783ec05422; changed by this side alone, the head holds its text: True
+    `fn the_turns_clock_stops_while_a_model_question_is_up_too` (base :22844): base 668e96af6407 | ours 668e96af6407 | head 668e96af6407; changed by this side alone, the head holds its text: True
+    `fn a_question_the_band_can_show_does_not_touch_the_other_plane` (base :22876): base 2cd23533b62a | ours 2cd23533b62a | head 2cd23533b62a; changed by this side alone, the head holds its text: True
+    `fn a_submission_the_runtime_will_not_take_keeps_the_draft_and_says_so` (base :22897): base c62289ba8558 | ours c62289ba8558 | head c62289ba8558; changed by this side alone, the head holds its text: True
+    `fn a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so` (base :22947): base dcb432983fe3 | ours dcb432983fe3 | head dcb432983fe3; changed by this side alone, the head holds its text: True
+    `fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation` (base :22976): base dbf3446d1030 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys` (base :23056): base 29006b10906b | ours 29006b10906b | head 29006b10906b; changed by this side alone, the head holds its text: True
+    `fn an_interrupt_says_that_the_queue_goes_with_the_turn` (base :23094): base 3a119a87aeeb | ours 3a119a87aeeb | head 3a119a87aeeb; changed by this side alone, the head holds its text: True
+    `fn the_ctrl_c_that_stopped_a_turn_leaves_only_while_the_row_says_it_will` (base :23141): base ea6137cea3f4 | ours ea6137cea3f4 | head ea6137cea3f4; changed by this side alone, the head holds its text: True
+    `fn a_waiting_prompt_is_numbered_as_the_runtime_numbers_its_turn` (base :23212): base 11f88cf17402 | ours 11f88cf17402 | head 11f88cf17402; changed by this side alone, the head holds its text: True
+    `fn a_prompt_sent_while_a_turn_runs_goes_into_it_and_its_card_waits_for_delivery` (base :23247): base 4e4a756e70c1 | ours 4e4a756e70c1 | head 4e4a756e70c1; changed by this side alone, the head holds its text: True
+    `fn a_steer_is_its_text_and_a_prompt_with_an_image_is_not_one` (base :23302): base 74fef5783f44 | ours 74fef5783f44 | head 74fef5783f44; changed by this side alone, the head holds its text: True
+    `fn a_steered_paste_waits_as_its_text_and_its_card_is_the_text` (base :23346): base b2f862e168c9 | ours b2f862e168c9 | head b2f862e168c9; changed by this side alone, the head holds its text: True
+    `fn up_takes_back_a_steer_waiting_on_a_tool_and_not_one_that_cut_an_answer` (base :23387): base 6cbe87030a4a | ours 6cbe87030a4a | head 6cbe87030a4a; changed by this side alone, the head holds its text: True
+    `fn a_steer_the_turn_never_took_is_the_next_prompt_and_a_stop_drops_it` (base :23457): base dd7b31d50aaf | ours dd7b31d50aaf | head dd7b31d50aaf; changed by this side alone, the head holds its text: True
+    `fn a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between` (base :23483): base fd50fb593332 | ours fd50fb593332 | head fd50fb593332; changed by this side alone, the head holds its text: True
+    `fn the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed` (base :23519): base a874dcd1dca6 | ours a874dcd1dca6 | head a874dcd1dca6; changed by this side alone, the head holds its text: True
+    `fn the_interrupt_warning_gives_way_to_the_screen_rather_than_disappearing` (base :23555): base 9dcd17d391e8 | ours 9dcd17d391e8 | head 9dcd17d391e8; changed by this side alone, the head holds its text: True
+    `fn a_ctrl_c_over_a_running_turn_takes_the_draft_first_and_nothing_else` (base :23587): base a4ffcb5e79c2 | ours a4ffcb5e79c2 | head a4ffcb5e79c2; changed by this side alone, the head holds its text: True
+    `fn an_idle_ctrl_c_says_the_next_one_leaves_and_the_row_comes_back_after` (base :23614): base bb5ce5157584 | ours bb5ce5157584 | head bb5ce5157584; changed by this side alone, the head holds its text: True
+    `fn any_other_key_takes_the_exit_back` (base :23636): base bf02f879dc0a | ours bf02f879dc0a | head bf02f879dc0a; changed by this side alone, the head holds its text: True
+    `fn the_catalog_says_the_next_ctrl_c_leaves_in_place_of_its_keys` (base :23655): base 796c44c1cf6d | ours 796c44c1cf6d | head 796c44c1cf6d; changed by this side alone, the head holds its text: True
+    `fn ctrl_d_is_not_an_exit_while_a_turn_is_running` (base :23691): base 9a5094a7c420 | ours 9a5094a7c420 | head 9a5094a7c420; changed by this side alone, the head holds its text: True
+    `fn operational_text_is_answer_prose_ahead_of_the_line_the_presenter_holds` (base :23713): base 33784ac75be9 | ours 33784ac75be9 | head 33784ac75be9; changed by this side alone, the head holds its text: True
+    `fn what_a_cancelled_turn_was_still_saying_never_reaches_the_screen` (base :23755): base 726de1033b54 | ours 726de1033b54 | head 726de1033b54; changed by this side alone, the head holds its text: True
+    `fn the_answer_after_a_cancelled_one_is_painted` (base :23799): base b767a9c47d44 | ours b767a9c47d44 | head b767a9c47d44; changed by this side alone, the head holds its text: True
+    `fn a_retry_the_turn_waits_on_is_the_activity_row_counting_down` (base :23817): base 22002e947f90 | ours 22002e947f90 | head 22002e947f90; changed by this side alone, the head holds its text: True
+    `fn escape_at_a_retry_arms_the_interrupt_as_upstreams_does_for_a_retry` (base :23876): base c6b64e5360ae | ours c6b64e5360ae | head c6b64e5360ae; changed by this side alone, the head holds its text: True
+    `fn a_retry_leaves_upstreams_recovery_record_on_the_full_transcript_only` (base :23929): base 21ad1308c146 | ours 21ad1308c146 | head 21ad1308c146; changed by this side alone, the head holds its text: True
+    `fn a_retry_row_too_wide_wraps_onto_the_band_as_upstreams_does` (base :23973): base 2f82143c4dfa | ours 2f82143c4dfa | head 2f82143c4dfa; changed by this side alone, the head holds its text: True
+    `fn a_ctrl_c_at_a_models_question_leaves_only_the_questions_cancelled_line` (base :24043): base 0e9e6c651626 | ours 0e9e6c651626 | head 0e9e6c651626; changed by this side alone, the head holds its text: True
+    `fn a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile` (base :24093): base b84f04b95b47 | ours b84f04b95b47 | head b84f04b95b47; changed by this side alone, the head holds its text: True
+    `fn a_prompt_the_cancel_dropped_before_it_started_does_not_silence_the_next` (base :24137): base a54b9b383f11 | ours a54b9b383f11 | head a54b9b383f11; changed by this side alone, the head holds its text: True
+    `fn a_cancel_that_landed_after_its_turn_ended_does_not_silence_the_next` (base :24167): base ebb5982ea27d | ours ebb5982ea27d | head ebb5982ea27d; changed by this side alone, the head holds its text: True
+    `fn a_prompt_typed_while_an_answer_streams_waits_in_the_band_and_never_splits_its_line` (base :24189): base 0662e90d7748 | ours 0662e90d7748 | head 0662e90d7748; changed by this side alone, the head holds its text: True
+    `fn a_waiting_prompts_rows_come_out_of_the_at_lists_growth` (base :24288): base 0210fae49582 | ours 0210fae49582 | head 0210fae49582; changed by this side alone, the head holds its text: True
+    `fn a_cancel_drops_the_waiting_prompt_and_its_row` (base :24321): base 2f5b5f3aa391 | ours 2f5b5f3aa391 | head 2f5b5f3aa391; changed by this side alone, the head holds its text: True
+    `fn an_escape_at_an_empty_composer_does_not_warn_about_a_clear` (base :24343): base 6ef5b242e7ea | ours 6ef5b242e7ea | head 6ef5b242e7ea; changed by this side alone, the head holds its text: True
+    `fn the_ctrl_c_that_stopped_one_turn_does_not_end_the_session_on_the_next` (base :24353): base 8eb4b8d5124a | ours 8eb4b8d5124a | head 8eb4b8d5124a; changed by this side alone, the head holds its text: True
+    `fn a_second_ctrl_c_leaves_with_the_status_an_interrupted_process_leaves_with` (base :24390): base b9da4a71b104 | ours b9da4a71b104 | head b9da4a71b104; changed by this side alone, the head holds its text: True
+    `fn a_ctrl_c_at_an_idle_prompt_throws_the_draft_away_rather_than_stopping_anything` (base :24406): base 56513eee06f9 | ours 56513eee06f9 | head 56513eee06f9; changed by this side alone, the head holds its text: True
+    `fn ctrl_c_leaves_only_from_a_session_whose_exit_the_user_asked_for_twice` (base :24421): base 656f4948fd6d | ours 656f4948fd6d | head 656f4948fd6d; changed by this side alone, the head holds its text: True
+    `fn a_double_escape_clears_the_composer_and_the_band_warns_before_it_does` (base :24457): base ad1ada7f1d12 | ours ad1ada7f1d12 | head ad1ada7f1d12; changed by this side alone, the head holds its text: True
+    `fn two_alt_backspaces_delete_two_words_instead_of_clearing_the_draft` (base :24480): base b49f2c4421b7 | ours b49f2c4421b7 | head b49f2c4421b7; changed by this side alone, the head holds its text: True
+    `fn every_advertised_slash_command_is_answered_without_asking_the_model` (base :24501): base df1ff6b3c268 | ours 58cf1c0b0676 | head 58cf1c0b0676; changed by this side alone, the head holds its text: True
+    `fn a_name_that_is_not_one_of_the_six_is_refused_rather_than_asked` (base :24778): base 712012b11e2b | ours 712012b11e2b | head 712012b11e2b; changed by this side alone, the head holds its text: True
+    `fn a_command_is_not_echoed_and_its_answer_is_upstreams_notice` (base :24805): base 00a5a476a62f | ours 0fcf606b2400 | head 0fcf606b2400; changed by this side alone, the head holds its text: True
+    `fn copy_with_no_reply_says_so_and_copies_nothing` (base :24843): base 7ca3ece190fa | ours 7ca3ece190fa | head 7ca3ece190fa; changed by this side alone, the head holds its text: True
+    `fn copy_puts_the_raw_reply_on_the_clipboard_and_then_says_so` (base :24862): base fa3074b7d2d8 | ours fa3074b7d2d8 | head fa3074b7d2d8; changed by this side alone, the head holds its text: True
+    `fn copy_that_the_clipboard_refused_is_an_error_notice` (base :24884): base 52eb62f0246b | ours 52eb62f0246b | head 52eb62f0246b; changed by this side alone, the head holds its text: True
+    `fn copy_with_nowhere_to_copy_to_is_an_error_notice` (base :24902): base a7ff24a23f66 | ours a7ff24a23f66 | head a7ff24a23f66; changed by this side alone, the head holds its text: True
+    `fn copy_takes_no_argument` (base :24918): base 8456e9612933 | ours 8456e9612933 | head 8456e9612933; changed by this side alone, the head holds its text: True
+    `fn copy_does_not_wait_behind_the_work_the_runtime_has_in_hand` (base :24942): base b18231fd897f | ours b18231fd897f | head b18231fd897f; changed by this side alone, the head holds its text: True
+    `fn trace_writes_what_the_screen_was_given_into_a_private_file_and_says_so` (base :25005): base 251512aec6c9 | ours 251512aec6c9 | head 251512aec6c9; changed by this side alone, the head holds its text: True
+    `fn trace_masks_what_looks_like_a_secret_in_what_the_screen_was_given` (base :25069): base a8364c5264fb | ours a8364c5264fb | head a8364c5264fb; changed by this side alone, the head holds its text: True
+    `fn a_notice_naming_a_path_wraps_where_upstreams_does` (base :25115): base 8ab0043b1807 | ours e46a3aa4075e | head e46a3aa4075e; changed by this side alone, the head holds its text: True
+    `fn trace_takes_no_argument` (base :25141): base 88ec18b541d7 | ours 88ec18b541d7 | head 88ec18b541d7; changed by this side alone, the head holds its text: True
+    `fn trace_mid_turn_is_answered_at_once_and_says_the_turn_was_running` (base :25168): base 029b06e5e035 | ours 029b06e5e035 | head 029b06e5e035; changed by this side alone, the head holds its text: True
+    `fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing` (base :25284): base 066677e12fef | ours 88972400c237 | head 88972400c237; changed by this side alone, the head holds its text: True
+    `fn a_save_that_failed_says_so_before_the_level` (base :25309): base 90417906578d | ours 90417906578d | head 90417906578d; changed by this side alone, the head holds its text: True
+    `fn a_save_with_nowhere_to_go_is_said_before_the_level` (base :25340): base 7d7f707f9fed | ours 7d7f707f9fed | head 7d7f707f9fed; changed by this side alone, the head holds its text: True
+    `fn a_whole_turn` (base :25358): base 9a2cde83ec9e | ours 9a2cde83ec9e | head 9a2cde83ec9e; changed by this side alone, the head holds its text: True
+    `fn a_turn_that_ends_rings_once_its_answer_is_on_the_screen` (base :25373): base 3fd21c281e5f | ours 3fd21c281e5f | head 3fd21c281e5f; changed by this side alone, the head holds its text: True
+    `fn a_turn_ends_in_silence_when_sound_is_off_or_the_user_stopped_it` (base :25404): base cfc84fedf32d | ours cfc84fedf32d | head cfc84fedf32d; changed by this side alone, the head holds its text: True
+    `fn a_question_nobody_is_shown_or_sound_off_rings_nothing` (base :25457): base dc13d8e24da4 | ours dc13d8e24da4 | head dc13d8e24da4; changed by this side alone, the head holds its text: True
+    `fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it` (base :25486): base 68df46775d7d | ours 5e7d54963177 | head 5e7d54963177; changed by this side alone, the head holds its text: True
+    `fn a_bare_permissions_opens_upstreams_panel_and_changes_nothing` (base :25606): base 8e27c8eb5d53 | ours 0ef5212b9d44 | head 0ef5212b9d44; changed by this side alone, the head holds its text: True
+    `fn a_bare_permissions_lists_the_grants_the_runtime_published` (base :25664): base 5147c45dcb4e | ours 5147c45dcb4e | head 5147c45dcb4e; changed by this side alone, the head holds its text: True
+    `fn an_open_permissions_panel_says_the_authority_as_it_moves_and_keeps_its_scroll` (base :25693): base 0c0807ae9506 | ours 0c0807ae9506 | head 0c0807ae9506; changed by this side alone, the head holds its text: True
+    `fn an_unreadable_saved_rule_store_opens_no_panel_and_says_why` (base :25762): base 131480651f69 | ours 131480651f69 | head 131480651f69; changed by this side alone, the head holds its text: True
+    `fn keep_rule` (base :25781): base 5a7345b335f3 | ours 5a7345b335f3 | head 5a7345b335f3; changed by this side alone, the head holds its text: True
+    `fn a_saved_rule_store_that_breaks_while_the_panel_is_up_closes_it` (base :25800): base 9dec35744d5f | ours 9dec35744d5f | head 9dec35744d5f; changed by this side alone, the head holds its text: True
+    `fn an_open_permissions_panel_follows_a_saved_rule_store_another_hand_changed` (base :25822): base e31343b47542 | ours e31343b47542 | head e31343b47542; changed by this side alone, the head holds its text: True
+    `fn an_open_permissions_panel_whose_store_cannot_be_stamped_reads_it_again` (base :25849): base d9305dc57745 | ours d9305dc57745 | head d9305dc57745; changed by this side alone, the head holds its text: True
+    `fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting` (base :25895): base cc1ec2ce744f | ours cc1ec2ce744f | head f2ef95c2b1f6; changed by another side too (below)
+    `fn a_store_replaced_by_another_of_the_same_size_and_time_is_read_again` (base :25942): base 0e8a6a6e20a5 | ours 0e8a6a6e20a5 | head 0e8a6a6e20a5; changed by this side alone, the head holds its text: True
+    `fn a_reset_alone_rebuilds_an_open_permissions_panel` (base :26007): base ad9b1dbcea98 | ours ad9b1dbcea98 | head ad9b1dbcea98; changed by this side alone, the head holds its text: True
+    `fn a_bare_permissions_panel_names_what_a_model_or_a_file_put_in_it` (base :26034): base a599f6c4a69b | ours a599f6c4a69b | head a599f6c4a69b; changed by this side alone, the head holds its text: True
+    `fn an_allowlist_change_is_one_notice_and_in_force_for_the_next_decision` (base :26097): base 806f02e91ddd | ours 806f02e91ddd | head 806f02e91ddd; changed by this side alone, the head holds its text: True
+    `fn sgr_free` (base :26261): base 54f1568404aa | ours 54f1568404aa | head 54f1568404aa; changed by this side alone, the head holds its text: True
+    `fn files_under` (base :26295): base ec874796cbec | ours ec874796cbec | head ec874796cbec; changed by this side alone, the head holds its text: True
+    `fn a_rule_remembered_before_the_first_prompt_is_held_and_written_nowhere_yet` (base :26317): base 988fd5a4031a | ours 988fd5a4031a | head 988fd5a4031a; changed by this side alone, the head holds its text: True
+    `fn a_rule_revoked_before_the_first_prompt_is_gone_and_its_id_is_never_reused` (base :26378): base 4f31620c2fe3 | ours 4f31620c2fe3 | head 4f31620c2fe3; changed by this side alone, the head holds its text: True
+    `fn a_new_session_before_the_first_prompt_forgets_the_rules_held_for_the_last` (base :26449): base e7dd588502b4 | ours e7dd588502b4 | head e7dd588502b4; changed by this side alone, the head holds its text: True
+    `fn a_rule_typed_while_a_new_session_waits_for_the_last_to_unwind_is_refused` (base :26481): base 519683446e2b | ours 519683446e2b | head 519683446e2b; changed by this side alone, the head holds its text: True
+    `fn a_rule_typed_while_a_resume_is_on_its_way_is_refused` (base :26542): base afe086ea3251 | ours afe086ea3251 | head afe086ea3251; changed by this side alone, the head holds its text: True
+    `fn a_confirmation_held_across_the_first_save_lands_in_the_file_it_was_for` (base :26587): base dfa27c5e4b6a | ours dfa27c5e4b6a | head dfa27c5e4b6a; changed by this side alone, the head holds its text: True
+    `fn remember_opens_upstreams_confirmation_and_enter_keeps_the_rule` (base :26647): base 710e4a927c33 | ours 710e4a927c33 | head 710e4a927c33; changed by this side alone, the head holds its text: True
+    `fn a_change_in_an_added_root_can_be_remembered_as_one_in_the_workspace_can` (base :26725): base 8845093862a3 | ours 8845093862a3 | head 8845093862a3; changed by this side alone, the head holds its text: True
+    `fn a_remember_that_cannot_be_prepared_or_a_revoke_of_nothing_says_why` (base :26802): base afc95f3a1f28 | ours afc95f3a1f28 | head afc95f3a1f28; changed by this side alone, the head holds its text: True
+    `fn an_allowlist_refusal_and_a_listing_are_said_in_upstreams_tones` (base :26835): base 2fe6ad18cccd | ours 2fe6ad18cccd | head 2fe6ad18cccd; changed by this side alone, the head holds its text: True
+    `fn each_mode_word_reaches_the_runtime_and_is_said_as_upstream_says_it` (base :26855): base 8662354c00a2 | ours 8662354c00a2 | head 8662354c00a2; changed by this side alone, the head holds its text: True
+    `fn the_full_access_notice_is_upstreams_warning_tone` (base :26917): base cfd4b4c3efcb | ours cfd4b4c3efcb | head cfd4b4c3efcb; changed by this side alone, the head holds its text: True
+    `fn reset_is_ask_and_says_the_grants_went` (base :26942): base 02d1ffee4ee2 | ours 02d1ffee4ee2 | head 02d1ffee4ee2; changed by this side alone, the head holds its text: True
+    `fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing` (base :26960): base bcd8d8fea08a | ours 3a49eee5ffba | head 3a49eee5ffba; changed by this side alone, the head holds its text: True
+    `fn shift_tab_cycles_ask_auto_full_access_and_says_it_only_on_the_row` (base :26983): base 6e23b3a5efdd | ours 6e23b3a5efdd | head 6e23b3a5efdd; changed by this side alone, the head holds its text: True
+    `fn shift_tab_belongs_to_the_catalog_while_it_is_up_and_to_the_draft_never` (base :27016): base 6b1428a6105b | ours 6b1428a6105b | head 6b1428a6105b; changed by this side alone, the head holds its text: True
+    `fn a_mode_the_runtime_cannot_take_leaves_the_row_alone_and_says_why` (base :27039): base 7195a1048c60 | ours 7195a1048c60 | head 7195a1048c60; changed by this side alone, the head holds its text: True
+    `fn the_mode_is_lifted_out_of_the_row_as_upstream_lifts_it` (base :27057): base b0c347e0da20 | ours b0c347e0da20 | head b0c347e0da20; changed by this side alone, the head holds its text: True
+    `fn status_and_the_hint_row_agree_on_the_authority_while_a_turn_runs` (base :27092): base 21703e560c6b | ours 21703e560c6b | head 21703e560c6b; changed by this side alone, the head holds its text: True
+    `fn full_access_shows_its_warning_once_and_for_four_seconds_on_the_screen` (base :27136): base 5a88cabca158 | ours 5a88cabca158 | head 5a88cabca158; changed by this side alone, the head holds its text: True
+    `fn a_person_already_warned_is_not_warned_again_and_one_never_warned_is_at_launch` (base :27190): base 6946d9d44d0f | ours 6946d9d44d0f | head 6946d9d44d0f; changed by this side alone, the head holds its text: True
+    `fn the_warning_waits_behind_whatever_owns_the_row_without_spending_its_time` (base :27214): base d241565fa858 | ours d241565fa858 | head d241565fa858; changed by this side alone, the head holds its text: True
+    `fn status_opens_upstreams_panel_of_what_the_runtime_last_published` (base :27290): base e7b57793407f | ours e7b57793407f | head e7b57793407f; changed by this side alone, the head holds its text: True
+    `fn status_says_the_ultra_request_this_shell_holds` (base :27355): base abba61f08926 | ours abba61f08926 | head abba61f08926; changed by this side alone, the head holds its text: True
+    `fn an_open_status_panel_follows_the_turn_and_keeps_its_scroll` (base :27367): base 757b471883ba | ours 757b471883ba | head 757b471883ba; changed by this side alone, the head holds its text: True
+    `fn an_open_status_panel_follows_a_new_session_id_with_nothing_else_moved` (base :27421): base 4bd6268d30df | ours 4bd6268d30df | head 4bd6268d30df; changed by this side alone, the head holds its text: True
+    `fn status_makes_a_quoted_path_terminal_safe_before_it_reaches_the_terminal` (base :27453): base e19b0dd26c54 | ours e19b0dd26c54 | head e19b0dd26c54; changed by this side alone, the head holds its text: True
+    `fn status_says_settings_it_cannot_read_on_the_gateway_with_no_credential_once` (base :27484): base 930ccc8b9a24 | ours 930ccc8b9a24 | head 930ccc8b9a24; changed by this side alone, the head holds its text: True
+    `fn status_names_a_session_this_shell_cannot_save` (base :27551): base 1f8c3df80802 | ours 1f8c3df80802 | head 1f8c3df80802; changed by this side alone, the head holds its text: True
+    `fn stats_is_upstreams_five_counters_as_they_stand_before_it_is_written` (base :27573): base 071f51b908e2 | ours 071f51b908e2 | head 071f51b908e2; changed by this side alone, the head holds its text: True
+    `fn status_and_stats_take_nothing_after_their_names` (base :27597): base 9f27ece2b418 | ours 9f27ece2b418 | head 9f27ece2b418; changed by this side alone, the head holds its text: True
+    `fn a_lone_name_nobody_has_is_unknown_and_one_with_words_is_a_prompt` (base :27623): base d1db38892192 | ours d1db38892192 | head d1db38892192; changed by this side alone, the head holds its text: True
+    `fn a_prompt_is_still_echoed_as_its_card` (base :27643): base 6902a893824d | ours 6902a893824d | head 6902a893824d; changed by this side alone, the head holds its text: True
+    `fn a_notice_has_a_blank_row_above_it_unless_the_document_already_ends_on_one` (base :27655): base 2e75966a3c07 | ours 2e75966a3c07 | head 2e75966a3c07; changed by this side alone, the head holds its text: True
+    `fn a_notice_under_a_tool_group_shares_its_blank_row` (base :27677): base ac136cfb121e | ours ac136cfb121e | head ac136cfb121e; changed by this side alone, the head holds its text: True
+    `fn a_notice_body_of_several_lines_is_its_head_and_rows_two_columns_in` (base :27701): base eb3dafc3fedb | ours eb3dafc3fedb | head eb3dafc3fedb; changed by this side alone, the head holds its text: True
+    `fn an_informational_notice_has_upstreams_bold_label` (base :27731): base be67acd1a998 | ours be67acd1a998 | head be67acd1a998; changed by this side alone, the head holds its text: True
+    `fn the_window_title_is_the_workspace_until_the_first_turn_titles_the_session` (base :27750): base 4e9567c393af | ours 4e9567c393af | head 4e9567c393af; changed by this side alone, the head holds its text: True
+    `fn dropping_the_conversation_takes_the_window_title_back_to_the_workspace` (base :27784): base 42952ec4468a | ours 42952ec4468a | head 42952ec4468a; changed by this side alone, the head holds its text: True
+    `fn a_failed_first_turn_does_not_title_the_session` (base :27836): base 0b386a373e0a | ours 0b386a373e0a | head 0b386a373e0a; changed by this side alone, the head holds its text: True
+    `fn quit_and_exit_end_the_session_with_status_zero_and_say_nothing` (base :27857): base 98f16dcb40b4 | ours 98f16dcb40b4 | head 98f16dcb40b4; changed by this side alone, the head holds its text: True
+    `fn quit_or_exit_with_an_argument_is_an_unknown_command_and_leaves_nothing` (base :27879): base 64ce6727adc0 | ours 64ce6727adc0 | head 64ce6727adc0; changed by this side alone, the head holds its text: True
+    `fn the_handoff_is_upstreams_dim_line_naming_the_xfx_command` (base :27901): base 53af5c85d196 | ours 53af5c85d196 | head 53af5c85d196; changed by this side alone, the head holds its text: True
+    `fn the_handoff_breaks_before_the_command_when_one_row_cannot_hold_it` (base :27921): base ee0e178a48b7 | ours ee0e178a48b7 | head ee0e178a48b7; changed by this side alone, the head holds its text: True
+    `fn a_resumed_session_says_so_and_its_title_is_the_windows` (base :27945): base 792ac8814959 | ours 792ac8814959 | head 792ac8814959; changed by this side alone, the head holds its text: True
+    `fn a_resume_onto_the_recorded_provider_puts_it_on_the_band_and_says_what_it_lacks` (base :27969): base f67473f52df1 | ours f67473f52df1 | head f67473f52df1; changed by this side alone, the head holds its text: True
+    `fn a_resume_that_could_not_restore_the_sessions_model_says_so_once` (base :28005): base 3deced26861d | ours 3deced26861d | head 3deced26861d; changed by this side alone, the head holds its text: True
+    `fn the_band_never_announces_or_sends_a_model_id_xfx_would_not_have_written` (base :28036): base 36b10109fcfe | ours 627b8637634a | head 627b8637634a; changed by this side alone, the head holds its text: True
+    `fn a_resumed_session_with_no_title_is_untitled_and_keeps_the_fallback` (base :28093): base f46533e1c8f0 | ours f46533e1c8f0 | head f46533e1c8f0; changed by this side alone, the head holds its text: True
+    `fn an_answers_links_reach_the_document_as_upstreams_and_the_full_transcript_and_a_replay_agree` (base :28199): base 31ece9ba1435 | ours 31ece9ba1435 | head 31ece9ba1435; changed by this side alone, the head holds its text: True
+    `fn a_replayed_card_links_its_badges_to_the_files_the_log_names` (base :28272): base 3055faf325fe | ours 3055faf325fe | head 3055faf325fe; changed by this side alone, the head holds its text: True
+    `fn a_live_card_links_the_images_it_sent_by_token_and_no_words_that_look_like_one` (base :28305): base 3256c59dc50b | ours 3256c59dc50b | head 3256c59dc50b; changed by this side alone, the head holds its text: True
+    `fn a_resumed_session_replays_its_turns_as_the_live_ones_were_written` (base :28326): base fe409682ff21 | ours fe409682ff21 | head fe409682ff21; changed by this side alone, the head holds its text: True
+    `fn ctrl_o_after_a_resume_shows_the_replayed_session_and_not_the_one_it_replaced` (base :28410): base 7892fcb1786f | ours 7892fcb1786f | head 7892fcb1786f; changed by this side alone, the head holds its text: True
+    `fn logged_turn` (base :28471): base 25ca4b3b8522 | ours 25ca4b3b8522 | head 25ca4b3b8522; changed by this side alone, the head holds its text: True
+    `fn logged_result` (base :28486): base 650a5d10140c | ours 650a5d10140c | head 650a5d10140c; changed by this side alone, the head holds its text: True
+    `fn an_amendment_is_the_same_card_live_and_resumed_and_a_prompt_in_the_full_transcript` (base :28505): base ea56481b784c | ours ea56481b784c | head ea56481b784c; changed by this side alone, the head holds its text: True
+    `fn a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times` (base :28621): base f0bc1b940444 | ours f0bc1b940444 | head f0bc1b940444; changed by this side alone, the head holds its text: True
+    `fn a_replayed_tool_group_is_the_live_group_with_its_outcomes_and_counts` (base :28744): base e96b1fce67de | ours e96b1fce67de | head e96b1fce67de; changed by this side alone, the head holds its text: True
+    `fn a_hostile_log_paints_no_sequence_of_its_own_on_the_document_or_the_full_transcript` (base :28888): base 5191d49d50d9 | ours 5191d49d50d9 | head 5191d49d50d9; changed by this side alone, the head holds its text: True
+    `fn a_resumed_calls_short_argument_is_looked_for_in_fxs_status_of_the_raw_command` (base :29026): base 6b3fac4e2363 | ours 6b3fac4e2363 | head 6b3fac4e2363; changed by this side alone, the head holds its text: True
+    `fn a_failed_calls_long_reason_is_spelled_and_bounded_alike_on_both_views` (base :29082): base 994c92de623e | ours 994c92de623e | head 994c92de623e; changed by this side alone, the head holds its text: True
+    `fn an_mcp_calls_reason_through_the_channel_is_the_rows_own_spelling_cut_once` (base :29216): base bc3522256cbd | ours bc3522256cbd | head bc3522256cbd; changed by this side alone, the head holds its text: True
+    `fn a_stopped_turn_replays_as_upstreams_cancellation_and_a_failed_one_as_failed` (base :29300): base 69df717d4e78 | ours 69df717d4e78 | head 69df717d4e78; changed by this side alone, the head holds its text: True
+    `fn resume_opens_the_picker_lists_what_the_runtime_read_and_enter_asks_for_the_marked_one` (base :29397): base b54e983c163e | ours b54e983c163e | head b54e983c163e; changed by this side alone, the head holds its text: True
+    `fn the_page_keys_and_ctrl_j_k_move_the_resume_pickers_mark_and_stop_at_the_ends` (base :29480): base 034f6e994f62 | ours 034f6e994f62 | head 034f6e994f62; changed by this side alone, the head holds its text: True
+    `fn a_resume_with_nothing_searched_gives_the_band_its_rows_back` (base :29515): base a1574234e4a6 | ours a1574234e4a6 | head a1574234e4a6; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_picker_and_its_search_and_tab_switches_the_scope` (base :29546): base a98cf23d7fc0 | ours a98cf23d7fc0 | head a98cf23d7fc0; changed by this side alone, the head holds its text: True
+    `fn resume_is_refused_while_a_turn_is_in_hand_and_opens_nothing` (base :29598): base e60d56e30d7b | ours e60d56e30d7b | head e60d56e30d7b; changed by this side alone, the head holds its text: True
+    `fn a_picker_with_more_sessions_than_a_page_loads_the_next_as_the_mark_reaches_it` (base :29626): base 0e5724c665e4 | ours 0e5724c665e4 | head 0e5724c665e4; changed by this side alone, the head holds its text: True
+    `fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work` (base :29680): base f162871ad842 | ours f162871ad842 | head f162871ad842; changed by this side alone, the head holds its text: True
+    `fn rename_refuses_in_upstreams_words_and_titles_the_window_at_once` (base :29710): base 698f1e52653a | ours 698f1e52653a | head 698f1e52653a; changed by this side alone, the head holds its text: True
+    `fn between_turns_a_rename_says_one_thing_what_became_of_the_write` (base :29789): base d35cd3e45ef0 | ours d35cd3e45ef0 | head d35cd3e45ef0; changed by this side alone, the head holds its text: True
+    `fn rename_while_a_turn_runs_applies_at_once_and_follows_a_reset_on_one_channel` (base :29821): base 1bbd47746f01 | ours 1bbd47746f01 | head 1bbd47746f01; changed by this side alone, the head holds its text: True
+    `fn a_fresh_sessions_first_prompt_asks_for_a_title_at_the_keystroke` (base :29925): base bf0d460f3706 | ours bf0d460f3706 | head bf0d460f3706; changed by this side alone, the head holds its text: True
+    `fn a_prompt_asks_for_no_title_once_the_session_has_one_or_a_turn_has_ended` (base :29945): base b9e7c33d6ef2 | ours b9e7c33d6ef2 | head b9e7c33d6ef2; changed by this side alone, the head holds its text: True
+    `fn a_prompt_steered_into_the_first_turn_asks_when_no_title_came_back` (base :29991): base eda46eb68c02 | ours eda46eb68c02 | head eda46eb68c02; changed by this side alone, the head holds its text: True
+    `fn a_reset_moves_the_title_lineage_on_at_the_keystroke` (base :30050): base 9f70ae89e23f | ours 9f70ae89e23f | head 9f70ae89e23f; changed by this side alone, the head holds its text: True
+    `fn a_generated_title_that_comes_after_a_rename_leaves_the_users_title_in_the_window` (base :30078): base 02392e7992a9 | ours 02392e7992a9 | head 02392e7992a9; changed by this side alone, the head holds its text: True
+    `fn a_prompt_behind_a_provider_switch_asks_nothing_at_the_keystroke` (base :30100): base 2b4722897a74 | ours 2b4722897a74 | head 2b4722897a74; changed by this side alone, the head holds its text: True
+    `fn a_line_with_a_slash_that_does_not_lead_it_is_a_prompt` (base :30122): base 1b4dccaaaf11 | ours 1b4dccaaaf11 | head 1b4dccaaaf11; changed by this side alone, the head holds its text: True
+    `fn model_with_one_word_asks_the_runtime_and_bare_model_opens_the_menu` (base :30210): base d08dac41eac1 | ours d08dac41eac1 | head d08dac41eac1; changed by this side alone, the head holds its text: True
+    `fn a_query_the_band_cannot_resolve_is_the_runtimes_to_answer` (base :30293): base 63ddd9265f47 | ours 63ddd9265f47 | head 63ddd9265f47; changed by this side alone, the head holds its text: True
+    `fn a_query_the_band_can_resolve_is_announced_at_once_as_the_id_it_names` (base :30404): base cca4d5f858f0 | ours 076cffb06765 | head 076cffb06765; changed by this side alone, the head holds its text: True
+    `fn a_model_asked_for_while_a_turn_runs_is_for_the_next_turn_and_never_refused` (base :30473): base eec1ce8f6813 | ours eec1ce8f6813 | head eec1ce8f6813; changed by this side alone, the head holds its text: True
+    `fn an_explicit_form_that_does_not_hold_is_upstreams_usage_line_and_the_composer_keeps_it` (base :30524): base 068f96af0585 | ours 068f96af0585 | head 068f96af0585; changed by this side alone, the head holds its text: True
+    `fn a_third_word_is_a_speed_the_model_offers_and_normal_needs_one_to_decline` (base :30559): base da47f12aae43 | ours da47f12aae43 | head da47f12aae43; changed by this side alone, the head holds its text: True
+    `fn an_explicit_form_that_holds_is_applied_with_its_effort_and_announced` (base :30629): base a36d69fba0e8 | ours a36d69fba0e8 | head a36d69fba0e8; changed by this side alone, the head holds its text: True
+    `fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys` (base :30686): base 4b635655435e | ours e77c1309e179 | head e77c1309e179; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_menu_empties_the_search_and_brings_the_hint_row_back` (base :30778): base 080e530d09aa | ours 080e530d09aa | head 080e530d09aa; changed by this side alone, the head holds its text: True
+    `fn a_catalog_that_arrives_or_fails_is_what_the_open_menu_shows` (base :30793): base 11123597f7b7 | ours 5c7b88eb4cb2 | head 5c7b88eb4cb2; changed by this side alone, the head holds its text: True
+    `fn a_model_menu_asking_again_after_a_failed_read_mid_turn_is_control_and_takes_the_answer_when_it_lands` (base :30838): base 8077bab7247c | ours 9bc03070ee71 | head 9bc03070ee71; changed by this side alone, the head holds its text: True
+    `fn the_note_under_a_gateway_menu_names_the_key_it_was_asked_with` (base :30880): base 28a66e71f265 | ours ba3f0eab7b27 | head ba3f0eab7b27; changed by this side alone, the head holds its text: True
+    `fn a_space_after_model_opens_the_models_under_the_argument` (base :30970): base 45083f04562e | ours 45083f04562e | head 45083f04562e; changed by this side alone, the head holds its text: True
+    `fn the_column_asks_for_the_catalog_once_and_says_where_it_is` (base :31015): base 165c817e6c2d | ours 15ce059818c6 | head 15ce059818c6; changed by this side alone, the head holds its text: True
+    `fn the_column_drawn_over_a_failed_catalog_asks_again_from_its_own_frames_once_its_hold_is_over` (base :31039): base 9e6fca115585 | ours 91fa7e1cb3b9 | head 91fa7e1cb3b9; changed by this side alone, the head holds its text: True
+    `fn a_full_queue_does_not_refuse_the_column_and_the_end_of_the_turn_asks_again` (base :31110): base 0678f642bb8b | ours 0678f642bb8b | head 0678f642bb8b; changed by this side alone, the head holds its text: True
+    `fn enter_on_a_model_with_levels_opens_the_effort_column_and_the_footer_previews_it` (base :31133): base 54acfe573f2e | ours 54acfe573f2e | head 54acfe573f2e; changed by this side alone, the head holds its text: True
+    `fn a_level_typed_out_is_taken_and_one_the_model_lacks_is_nothing` (base :31200): base fefceff3a035 | ours fefceff3a035 | head fefceff3a035; changed by this side alone, the head holds its text: True
+    `fn left_steps_back_to_the_model_column_with_the_mark_on_the_model` (base :31220): base 4ab21c78651e | ours 4ab21c78651e | head 4ab21c78651e; changed by this side alone, the head holds its text: True
+    `fn a_level_on_a_model_with_fast_opens_the_speeds_and_the_footer_previews_the_mark` (base :31258): base 7410ef6242d2 | ours 7410ef6242d2 | head 7410ef6242d2; changed by this side alone, the head holds its text: True
+    `fn the_speeds_step_back_complete_and_open_on_a_space_as_upstreams_do` (base :31348): base 26536192705d | ours 26536192705d | head 26536192705d; changed by this side alone, the head holds its text: True
+    `fn fast_and_ultrafast_say_upstreams_words_and_hand_the_switches_over` (base :31387): base fc3762848a4f | ours fc3762848a4f | head fc3762848a4f; changed by this side alone, the head holds its text: True
+    `fn a_speed_change_is_said_once_saved_with_the_saves_report_above_it_and_what_followed_behind` (base :31520): base d61434201420 | ours d61434201420 | head d61434201420; changed by this side alone, the head holds its text: True
+    `fn a_speed_change_mid_answer_holds_the_text_after_it_until_its_save_answers` (base :31592): base 5f464c628ac0 | ours 7e2166839113 | head 7e2166839113; changed by this side alone, the head holds its text: True
+    `fn a_reset_typed_behind_a_save_in_flight_waits_for_it_and_keeps_what_it_said_for_the_old_screen` (base :31633): base 092e94689bef | ours 092e94689bef | head 092e94689bef; changed by this side alone, the head holds its text: True
+    `fn the_exit_waits_for_a_speed_save_and_says_it` (base :31700): base 6f55edaacd19 | ours 6f55edaacd19 | head 6f55edaacd19; changed by this side alone, the head holds its text: True
+    `fn a_speed_command_before_the_catalog_waits_for_it_in_order_and_dies_with_the_provider` (base :31716): base eb56dfe04069 | ours 9f8e3d8576fb | head 9f8e3d8576fb; changed by this side alone, the head holds its text: True
+    `fn a_resume_puts_the_sessions_effort_and_speed_on_the_hint_row` (base :31764): base 5d744f4374c9 | ours 5d744f4374c9 | head 5d744f4374c9; changed by this side alone, the head holds its text: True
+    `fn a_column_over_a_line_the_caret_has_left_hangs_from_the_caret_rows_start` (base :31794): base 4517cf2a3a6a | ours 4517cf2a3a6a | head 4517cf2a3a6a; changed by this side alone, the head holds its text: True
+    `fn a_typed_exact_id_and_a_space_commits_a_model_with_no_levels_and_the_rest_is_a_prompt` (base :31812): base c17cc76b6035 | ours c17cc76b6035 | head c17cc76b6035; changed by this side alone, the head holds its text: True
+    `fn escape_puts_the_column_away_and_enter_is_the_router_form` (base :31837): base df65a402adab | ours df65a402adab | head df65a402adab; changed by this side alone, the head holds its text: True
+    `fn tab_writes_the_marked_row_into_the_composer` (base :31863): base 5a67aae2fc46 | ours 5a67aae2fc46 | head 5a67aae2fc46; changed by this side alone, the head holds its text: True
+    `fn a_paste_puts_the_column_back_to_the_models` (base :31875): base 76d41b676161 | ours 76d41b676161 | head 76d41b676161; changed by this side alone, the head holds its text: True
+    `fn enter_on_a_menu_row_with_levels_goes_on_into_the_effort_column` (base :31884): base 60919bc82b63 | ours 60919bc82b63 | head 60919bc82b63; changed by this side alone, the head holds its text: True
+    `fn a_ctrl_p_draft_stays_lent_through_the_effort_column_and_comes_back_when_it_ends` (base :31911): base dee6a55cfff7 | ours dee6a55cfff7 | head dee6a55cfff7; changed by this side alone, the head holds its text: True
+    `fn a_failed_catalog_says_upstreams_retry_sentence_and_the_next_model_asks_again` (base :31962): base 7f4565ebcc70 | ours 7f4565ebcc70 | head 7f4565ebcc70; changed by this side alone, the head holds its text: True
+    `fn a_model_inside_a_failures_hold_opens_over_the_failure_and_asks_nothing` (base :31992): base 9786b0d5caf9 | ours ddc228656c48 | head ddc228656c48; changed by this side alone, the head holds its text: True
+    `fn a_catalog_request_is_control_an_interrupt_does_not_drop_and_its_answer_ends` (base :32035): base 4d8c9990f566 | ours 933780e01610 | head 933780e01610; changed by this side alone, the head holds its text: True
+    `fn every_name_of_the_reset_reaches_the_runtime_because_the_conversation_lives_there` (base :32092): base 0dc36a227992 | ours 0dc36a227992 | head 0dc36a227992; changed by this side alone, the head holds its text: True
+    `fn a_reset_forgets_what_it_owed_the_old_screen_and_owes_the_handoff` (base :32111): base 6c0aff42c8d6 | ours 6c0aff42c8d6 | head 6c0aff42c8d6; changed by this side alone, the head holds its text: True
+    `fn a_reset_mid_turn_cancels_the_turn_and_does_not_wait_behind_it` (base :32184): base c125a242ceb1 | ours c125a242ceb1 | head c125a242ceb1; changed by this side alone, the head holds its text: True
+    `fn clear_new_and_reset_leave_exactly_the_same_session` (base :32276): base 4ff7523b99fb | ours 4ff7523b99fb | head 4ff7523b99fb; changed by this side alone, the head holds its text: True
+    `fn a_reset_with_a_prompt_waiting_drops_it_and_is_never_refused` (base :32310): base 2b21a233e68f | ours 2b21a233e68f | head 2b21a233e68f; changed by this side alone, the head holds its text: True
+    `fn a_question_the_cancelled_turn_asks_after_a_reset_is_refused_for_the_user` (base :32336): base 3755679d0528 | ours 3755679d0528 | head 3755679d0528; changed by this side alone, the head holds its text: True
+    `fn the_blank_row_a_document_ends_on_is_left_out_only_when_it_is_known` (base :32367): base c14bddfe4733 | ours c14bddfe4733 | head c14bddfe4733; changed by this side alone, the head holds its text: True
+    `fn a_reset_takes_an_open_tool_group_with_it` (base :32448): base 73091c7d6d4a | ours 73091c7d6d4a | head 73091c7d6d4a; changed by this side alone, the head holds its text: True
+    `fn only_the_last_resets_fence_ends_the_draining` (base :32503): base 914335735fe0 | ours 914335735fe0 | head 914335735fe0; changed by this side alone, the head holds its text: True
+    `fn an_undo_is_said_as_upstreams_neutral_notice` (base :32537): base 004eb30b01bd | ours 004eb30b01bd | head 004eb30b01bd; changed by this side alone, the head holds its text: True
+    `fn an_undo_the_runtime_did_past_a_reset_is_still_said` (base :32575): base dd6d3a3483f8 | ours dd6d3a3483f8 | head dd6d3a3483f8; changed by this side alone, the head holds its text: True
+    `fn a_submitted_line_that_is_only_whitespace_is_consumed_and_sent_nowhere` (base :32600): base 406dd812b86d | ours 406dd812b86d | head 406dd812b86d; changed by this side alone, the head holds its text: True
+    `fn a_submission_to_a_runtime_that_is_gone_says_that_instead_of_busy` (base :32618): base a6341c07c549 | ours a6341c07c549 | head a6341c07c549; changed by this side alone, the head holds its text: True
+    `fn the_answer_arrives_as_deltas_and_lands_in_the_document` (base :32636): base d065972bda57 | ours d065972bda57 | head d065972bda57; changed by this side alone, the head holds its text: True
+    `fn the_rows_out_is_every_settled_request_and_the_open_one_as_it_streams` (base :32660): base e2eec1d3906a | ours e2eec1d3906a | head e2eec1d3906a; changed by this side alone, the head holds its text: True
+    `fn work_that_started_no_turn_ends_without_a_summary` (base :32696): base 91c43d88636a | ours 91c43d88636a | head 91c43d88636a; changed by this side alone, the head holds its text: True
+    `fn every_line_of_a_multi_line_card_is_bold` (base :32712): base eb93ac04fc08 | ours eb93ac04fc08 | head eb93ac04fc08; changed by this side alone, the head holds its text: True
+    `fn an_answer_is_released_over_several_frames_rather_than_dumped` (base :32721): base 12847e4a4f76 | ours 12847e4a4f76 | head 12847e4a4f76; changed by this side alone, the head holds its text: True
+    `fn a_turn_that_ended_drains_what_is_left_of_it_faster` (base :32760): base e364ca608ab2 | ours e364ca608ab2 | head e364ca608ab2; changed by this side alone, the head holds its text: True
+    `fn a_tool_that_refused_says_so_where_the_user_can_read_it` (base :32801): base c2384f37af1f | ours c2384f37af1f | head c2384f37af1f; changed by this side alone, the head holds its text: True
+    `fn a_tool_group_spans_the_turns_steps_and_is_closed_by_its_text` (base :32846): base 650c677bc1cc | ours 650c677bc1cc | head 650c677bc1cc; changed by this side alone, the head holds its text: True
+    `fn a_running_command_is_the_groups_last_row_until_its_result_rewrites_it` (base :32900): base eac4bb7b229d | ours eac4bb7b229d | head eac4bb7b229d; changed by this side alone, the head holds its text: True
+    `fn a_file_change_has_no_row_while_its_approval_is_pending` (base :32947): base 589ec816e502 | ours 589ec816e502 | head 589ec816e502; changed by this side alone, the head holds its text: True
+    `fn stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about` (base :32979): base fd528a88a750 | ours fd528a88a750 | head fd528a88a750; changed by this side alone, the head holds its text: True
+    `fn ctrl_c_at_an_approval_leaves_the_calls_row_to_its_refusal` (base :33040): base 52fc5ca9e16b | ours 52fc5ca9e16b | head 52fc5ca9e16b; changed by this side alone, the head holds its text: True
+    `fn stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke` (base :33091): base 9b80fc3ec578 | ours 9b80fc3ec578 | head 9b80fc3ec578; changed by this side alone, the head holds its text: True
+    `fn stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result` (base :33149): base 92e22d7aac2d | ours 92e22d7aac2d | head 92e22d7aac2d; changed by this side alone, the head holds its text: True
+    `fn a_call_its_turn_ended_under_is_shown_cancelled` (base :33199): base b8bce329d894 | ours b8bce329d894 | head b8bce329d894; changed by this side alone, the head holds its text: True
+    `fn a_line_written_while_a_call_runs_stays_under_the_group_its_result_updates` (base :33227): base 05df36d08de2 | ours 05df36d08de2 | head 05df36d08de2; changed by this side alone, the head holds its text: True
+    `fn what_the_user_said_at_an_approval_does_not_split_the_group` (base :33262): base 18b2f57ca318 | ours 18b2f57ca318 | head 18b2f57ca318; changed by this side alone, the head holds its text: True
+    `fn a_question_the_model_asked_leaves_no_row_in_the_group` (base :33328): base 7a30f0d569f6 | ours 7a30f0d569f6 | head 7a30f0d569f6; changed by this side alone, the head holds its text: True
+    `fn two_notices_in_a_row_share_the_one_blank_row_between_them` (base :33341): base db3abf8cd1c2 | ours db3abf8cd1c2 | head db3abf8cd1c2; changed by this side alone, the head holds its text: True
+    `fn a_notice_that_lands_mid_answer_gets_a_row_of_its_own` (base :33358): base 74f7912485c5 | ours 74f7912485c5 | head 74f7912485c5; changed by this side alone, the head holds its text: True
+    `fn a_notice_waits_for_the_answer_it_arrived_behind` (base :33389): base 50acc3902125 | ours 50acc3902125 | head 50acc3902125; changed by this side alone, the head holds its text: True
+    `fn a_line_of_xfx_s_own_is_written_at_once_while_nothing_is_streaming` (base :33438): base 08647e406aae | ours 08647e406aae | head 08647e406aae; changed by this side alone, the head holds its text: True
+    `fn a_turn_that_failed_says_why_in_the_document` (base :33449): base bfab49d683e9 | ours bfab49d683e9 | head bfab49d683e9; changed by this side alone, the head holds its text: True
+    `fn a_fatal_ends_the_session_and_is_remembered_rather_than_painted` (base :33473): base a9d609b0c0c7 | ours a9d609b0c0c7 | head a9d609b0c0c7; changed by this side alone, the head holds its text: True
+    `fn a_wider_screen_rewraps_the_composer_and_unfinished_tail` (base :33492): base ce2327e0984d | ours ce2327e0984d | head ce2327e0984d; changed by this side alone, the head holds its text: True
+    `fn zero_by_zero_after_launch_is_no_new_information` (base :33545): base 10e385e43610 | ours 10e385e43610 | head 10e385e43610; changed by this side alone, the head holds its text: True
+    `fn a_resize_to_the_size_the_screen_already_is_asks_for_nothing` (base :33566): base da314d508d2a | ours da314d508d2a | head da314d508d2a; changed by this side alone, the head holds its text: True
+    `fn resize_keeps_the_question_and_its_answer_channel` (base :33591): base dd3f2969cc35 | ours dd3f2969cc35 | head dd3f2969cc35; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_band_keeps_the_question_until_it_grows_again` (base :33634): base f05dbf04f696 | ours f05dbf04f696 | head f05dbf04f696; changed by this side alone, the head holds its text: True
+    `fn a_resize_keeps_the_turns_row_above_the_composer` (base :33677): base 275684f0f722 | ours 275684f0f722 | head 275684f0f722; changed by this side alone, the head holds its text: True
+    `fn the_caret_stays_in_the_composer_across_a_resize` (base :33699): base 5f154875a82a | ours 5f154875a82a | head 5f154875a82a; changed by this side alone, the head holds its text: True
+    `fn a_truncated_report_does_not_throw_the_draft_away` (base :33712): base ad325b2fb39e | ours ad325b2fb39e | head ad325b2fb39e; changed by this side alone, the head holds its text: True
+    `fn typing_a_slash_word_opens_the_menu_in_the_bands_elastic_slot` (base :33777): base 9d6bff136726 | ours 9d6bff136726 | head 9d6bff136726; changed by this side alone, the head holds its text: True
+    `fn the_menu_never_steals_the_composers_caret` (base :33833): base c70e900dc01a | ours c70e900dc01a | head c70e900dc01a; changed by this side alone, the head holds its text: True
+    `fn escape_dismisses_the_menu_without_arming_the_clear_gesture` (base :33848): base fd7ecd3907df | ours fd7ecd3907df | head fd7ecd3907df; changed by this side alone, the head holds its text: True
+    `fn a_dismissal_survives_query_growth_until_the_draft_stops_being_a_command` (base :33866): base 4d409e8fc0f0 | ours 4d409e8fc0f0 | head 4d409e8fc0f0; changed by this side alone, the head holds its text: True
+    `fn tab_completes_the_marked_command_and_the_menu_follows_the_word` (base :33891): base 7e95bc9d1c04 | ours 70ae0202db70 | head 70ae0202db70; changed by this side alone, the head holds its text: True
+    `fn enter_runs_the_marked_row_in_one_return` (base :33946): base 5b4523284df0 | ours 5b4523284df0 | head 5b4523284df0; changed by this side alone, the head holds its text: True
+    `fn a_slash_word_that_names_nothing_opens_no_menu` (base :33981): base 55213b5aaceb | ours 55213b5aaceb | head 55213b5aaceb; changed by this side alone, the head holds its text: True
+    `fn a_question_takes_the_slot_the_menu_was_using` (base :33989): base 65ab26e37fb3 | ours 65ab26e37fb3 | head 65ab26e37fb3; changed by this side alone, the head holds its text: True
+    `fn the_slot_never_holds_both_a_question_and_a_menu` (base :34036): base 504856e987d9 | ours 504856e987d9 | head 504856e987d9; changed by this side alone, the head holds its text: True
+    `fn a_menu_that_offers_nothing_binds_nothing` (base :34069): base d17c36136dfd | ours d17c36136dfd | head d17c36136dfd; changed by this side alone, the head holds its text: True
+    `fn the_mark_survives_a_keystroke_that_did_not_change_the_word` (base :34086): base 69a2b71ce1c2 | ours 69a2b71ce1c2 | head 69a2b71ce1c2; changed by this side alone, the head holds its text: True
+    `fn the_shortest_screen_still_shows_a_menu_while_a_turn_is_running` (base :34107): base 6df80c38bcec | ours 6df80c38bcec | head 6df80c38bcec; changed by this side alone, the head holds its text: True
+    `fn the_menu_fits_the_shortest_screen_a_band_fits_on` (base :34183): base 0f3e2238dcd3 | ours 0f3e2238dcd3 | head 0f3e2238dcd3; changed by this side alone, the head holds its text: True
+    `fn the_hint_row_is_the_menus_key_help_while_it_is_up` (base :34208): base 0e73285027d3 | ours 0e73285027d3 | head 0e73285027d3; changed by this side alone, the head holds its text: True
+    `fn a_tilde_under_no_usable_home_browses_nothing` (base :34277): base 4d21b55fd719 | ours 4d21b55fd719 | head 4d21b55fd719; changed by this side alone, the head holds its text: True
+    `fn listed` (base :34338): base 194c0bf4994c | ours 194c0bf4994c | head 194c0bf4994c; changed by this side alone, the head holds its text: True
+    `fn file_row` (base :34364): base ab7c3294402e | ours ab7c3294402e | head ab7c3294402e; changed by this side alone, the head holds its text: True
+    `fn an_at_opens_the_file_list_under_the_composer_and_leaves_the_hint_row` (base :34374): base b436b506289f | ours b436b506289f | head b436b506289f; changed by this side alone, the head holds its text: True
+    `fn the_list_says_it_is_indexing_until_the_index_lands` (base :34412): base 76b25e1f1a57 | ours 76b25e1f1a57 | head 76b25e1f1a57; changed by this side alone, the head holds its text: True
+    `fn a_model_line_is_the_model_columns_and_never_an_at_word` (base :34431): base 47a863163778 | ours 47a863163778 | head 47a863163778; changed by this side alone, the head holds its text: True
+    `fn the_rows_fill_in_while_the_first_index_is_published` (base :34444): base 66f943cf415c | ours 66f943cf415c | head 66f943cf415c; changed by this side alone, the head holds its text: True
+    `fn a_query_narrows_the_list_and_bolds_what_it_matched` (base :34490): base 3962035340b8 | ours 3962035340b8 | head 3962035340b8; changed by this side alone, the head holds its text: True
+    `fn a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose` (base :34506): base caef3f935d3b | ours 11122e00d066 | head 11122e00d066; changed by this side alone, the head holds its text: True
+    `fn enter_puts_the_path_in_and_only_a_second_enter_sends_it` (base :34532): base f38af6bb6722 | ours f38af6bb6722 | head f38af6bb6722; changed by this side alone, the head holds its text: True
+    `fn one_undo_takes_a_completion_back_to_what_was_typed` (base :34555): base b96c95588a00 | ours b96c95588a00 | head b96c95588a00; changed by this side alone, the head holds its text: True
+    `fn a_directory_choice_keeps_the_list_up_on_that_directory` (base :34566): base 3b84ebe76835 | ours 7163a1243d33 | head 7163a1243d33; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_list_until_the_caret_leaves_the_word` (base :34587): base c85053c42262 | ours c85053c42262 | head c85053c42262; changed by this side alone, the head holds its text: True
+    `fn an_unmatched_mention_is_sent_by_enter` (base :34610): base 3b17a8d7f296 | ours 3b17a8d7f296 | head 3b17a8d7f296; changed by this side alone, the head holds its text: True
+    `fn control_j_and_k_walk_the_list_and_alt_enter_is_still_a_newline` (base :34631): base 143d13af3052 | ours 143d13af3052 | head 143d13af3052; changed by this side alone, the head holds its text: True
+    `fn control_j_and_k_walk_the_slash_menu_too_and_are_edits_without_one` (base :34647): base 0ea406e6064a | ours 0ea406e6064a | head 0ea406e6064a; changed by this side alone, the head holds its text: True
+    `fn a_page_key_moves_the_list_a_page_and_wraps_past_its_end` (base :34672): base 8ee4e6863079 | ours 8ee4e6863079 | head 8ee4e6863079; changed by this side alone, the head holds its text: True
+    `fn a_space_typed_right_after_a_completion_is_the_one_it_added` (base :34702): base 3d726841e6fb | ours 3d726841e6fb | head 3d726841e6fb; changed by this side alone, the head holds its text: True
+    `fn a_choice_in_the_middle_of_a_line_reuses_the_space_after_it` (base :34720): base a28e91c00ba8 | ours a28e91c00ba8 | head a28e91c00ba8; changed by this side alone, the head holds its text: True
+    `fn tab_and_enter_before_a_new_words_first_frame_choose_nothing_and_send_nothing` (base :34736): base 6832bbf4f871 | ours 6832bbf4f871 | head 6832bbf4f871; changed by this side alone, the head holds its text: True
+    `fn only_a_frame_that_landed_showing_the_list_changes_the_rows_its_arrows_scroll` (base :34781): base bb65bfb76d89 | ours bb65bfb76d89 | head bb65bfb76d89; changed by this side alone, the head holds its text: True
+    `fn enter_under_the_full_transcript_goes_on_to_the_composer` (base :34809): base 53402c0c5001 | ours 71eb9fb3f4cc | head 71eb9fb3f4cc; changed by this side alone, the head holds its text: True
+    `fn a_frame_that_shows_another_surface_over_the_list_neither_trusts_it_nor_sets_its_rows` (base :34837): base b1ad0f287a00 | ours b1ad0f287a00 | head b1ad0f287a00; changed by this side alone, the head holds its text: True
+    `fn a_frame_that_gave_the_list_no_rows_leaves_the_rows_its_arrows_scroll` (base :34877): base c3ac333ec164 | ours c3ac333ec164 | head c3ac333ec164; changed by this side alone, the head holds its text: True
+    `fn alt_d_deletes_the_word_to_the_right_without_killing_it` (base :34959): base cdf4232a2fa9 | ours cdf4232a2fa9 | head cdf4232a2fa9; changed by this side alone, the head holds its text: True
+    `fn a_page_key_moves_the_caret_a_page_and_never_into_history` (base :34979): base c51e216f7f5a | ours c51e216f7f5a | head c51e216f7f5a; changed by this side alone, the head holds its text: True
+    `fn a_page_key_moves_the_slash_menu_a_page` (base :35002): base d8a962ec8df8 | ours d8a962ec8df8 | head d8a962ec8df8; changed by this side alone, the head holds its text: True
+    `fn a_page_key_moves_the_help_catalog_a_page_and_wraps_past_its_end` (base :35012): base 725b651e5d43 | ours 725b651e5d43 | head 725b651e5d43; changed by this side alone, the head holds its text: True
+    `fn mcp_args_shell` (base :35730): base 1ca283be0ce3 | ours 946ae1677c19 | head 946ae1677c19; changed by this side alone, the head holds its text: True
+    `fn a_selected_provider_replaces_the_model_the_credential_fact_and_the_catalog` (base :36284): base 3765be7e9c95 | ours e8c68a55f6ab | head e8c68a55f6ab; changed by this side alone, the head holds its text: True
+    `fn a_catalog_that_arrives_with_no_menu_up_writes_nothing_and_is_kept` (base :36351): base 6b59fdf34972 | ours 961f7b386a16 | head 961f7b386a16; changed by this side alone, the head holds its text: True
+    `fn usage_and_max_context_drive_one_context_meter` (base :36384): base 3250959f7dda | ours ec9d73b63cbe | head ec9d73b63cbe; changed by this side alone, the head holds its text: True
+    `fn the_meter_counts_the_input_tokens_and_not_the_output_ones` (base :36437): base dc55c20d8d46 | ours 815c33ff7d00 | head 815c33ff7d00; changed by this side alone, the head holds its text: True
+    `fn a_turn_that_published_no_usage_leaves_the_meter_off` (base :36464): base 614b130c7197 | ours a4ef9d6aa5c6 | head a4ef9d6aa5c6; changed by this side alone, the head holds its text: True
+    `fn the_denominator_follows_the_model_in_force` (base :36478): base 519dad371fc1 | ours 735212d12ce0 | head 735212d12ce0; changed by this side alone, the head holds its text: True
+    `fn a_new_session_clears_the_meter_it_measured_and_keeps_the_window` (base :36508): base 50075e21d708 | ours ec06629af1e7 | head ec06629af1e7; changed by this side alone, the head holds its text: True
+    `fn an_argument_that_names_no_item_is_upstreams_usage_error` (base :37071): base 026536cadd78 | ours 2af8e1a74eaf | head 2af8e1a74eaf; changed by this side alone, the head holds its text: True
+    `fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open` (base :37912): base 03e18d02569a | ours e50185acc470 | head e50185acc470; changed by this side alone, the head holds its text: True
+    `fn the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it` (base :38482): base d23b43aa11e9 | ours cdf57bf15d7c | head cdf57bf15d7c; changed by this side alone, the head holds its text: True
+    `fn a_notice_written_while_a_line_streams_lands_above_it_and_leaves_it_whole` (base :38862): base 6a6601893cea | ours 3768aed6aad1 | head 3768aed6aad1; changed by this side alone, the head holds its text: True
+    `fn a_bare_settings_opens_upstreams_menu_under_the_composer` (base :41677): base 834e5556bd08 | ours ae02da9423b4 | head ae02da9423b4; changed by this side alone, the head holds its text: True
+    `fn nothing_typed_into_the_search_opens_another_picker_and_c_p_is_nothing_over_it` (base :41774): base 30c058e71f10 | ours 697cc254a916 | head 697cc254a916; changed by this side alone, the head holds its text: True
+    `fn effort_shell` (base :41996): base 926b3c110909 | ours b4eefbbeb263 | head b4eefbbeb263; changed by this side alone, the head holds its text: True
+    `fn effort_without_levels_says_why_and_opens_nothing` (base :42219): base 1176fad80171 | ours ee52cd0f43cc | head ee52cd0f43cc; changed by this side alone, the head holds its text: True
+    `fn the_effort_menu_closes_when_the_model_or_the_provider_it_was_opened_for_goes` (base :42344): base 7eb309d6114a | ours 98d6175e5142 | head 98d6175e5142; changed by this side alone, the head holds its text: True
+    `fn the_effort_menu_and_its_notices_never_show_what_a_terminal_would_obey` (base :42460): base 115deb0e33c2 | ours 71885f6fca24 | head 71885f6fca24; changed by this side alone, the head holds its text: True
+    `fn the_effort_column_goes_when_the_model_or_the_provider_it_was_shown_for_goes` (base :42667): base 0e1b9546dfd2 | ours 6b9a96af3c6a | head 6b9a96af3c6a; changed by this side alone, the head holds its text: True
+    `fn right_on_reasoning_effort_walks_the_models_levels_saves_effort_and_tells_the_runtime` (base :42734): base 321437c35ce1 | ours 1f9ace8ff3ae | head 1f9ace8ff3ae; changed by this side alone, the head holds its text: True
+    `fn enter_or_right_on_model_opens_the_catalog_under_the_row` (base :42927): base 456f08b9ae22 | ours 22c17515da40 | head 22c17515da40; changed by this side alone, the head holds its text: True
+    `fn escape_over_the_model_list_closes_the_settings_menu_and_leaves_the_list_as_models_menu` (base :43056): base a702c3f4eef9 | ours 85b9b592a0a7 | head 85b9b592a0a7; changed by this side alone, the head holds its text: True
+    `fn the_model_list_searches_the_composer_from_its_first_edit` (base :43077): base 6ab562c77d7f | ours f2f8fa10eae2 | head f2f8fa10eae2; changed by this side alone, the head holds its text: True
+    `fn unread_at` (base :48819): base a210a50068de | ours b0d5cdd97bc9 | head b0d5cdd97bc9; changed by this side alone, the head holds its text: True
+    `fn refresh_failed` (base :48829): base 0820da189619 | ours 2686ff282c65 | head 2686ff282c65; changed by this side alone, the head holds its text: True
+    `fn loaded_from` (base :48841): base 08789d87fe54 | ours 64ff19198996 | head 64ff19198996; changed by this side alone, the head holds its text: True
+    `fn refresh_failed_due` (base :48851): base 8f0249b4513a | ours aeecf22be019 | head aeecf22be019; changed by this side alone, the head holds its text: True
+    `fn catalog_asks` (base :48861): base 2ba0fc9601c3 | ours 988ed610d3c5 | head 988ed610d3c5; changed by this side alone, the head holds its text: True
+    `fn a_model_inside_a_failures_backoff_opens_on_the_failure_says_xfx_retries_and_asks_nothing` (base :48899): base ce9e3c133206 | ours 228c55a81180 | head 228c55a81180; changed by this side alone, the head holds its text: True
+    `fn a_prompt_past_a_failed_catalogs_backoff_asks_for_it_and_one_inside_asks_nothing` (base :48977): base a68b35786c96 | ours 272c2f79dd05 | head 272c2f79dd05; changed by this side alone, the head holds its text: True
+    `fn a_read_that_found_no_runtime_ends_the_menus_wait_and_activity_asks_again_past_its_hold` (base :49004): base d9b936b07b02 | ours 717f3f22f624 | head 717f3f22f624; changed by this side alone, the head holds its text: True
+    `fn every_answer_lets_activity_ask_again_a_refresh_failure_over_a_failed_band_too` (base :49041): base 971b9f071be9 | ours 338fba52302f | head 338fba52302f; changed by this side alone, the head holds its text: True
+    `fn rows_a_slow_read_brought_are_read_again_five_minutes_after_it_began` (base :49069): base fda5aec5d1d0 | ours 5aeba1fe39c5 | head 5aeba1fe39c5; changed by this side alone, the head holds its text: True
+    `fn a_refresh_that_failed_for_good_is_read_again_when_the_runtimes_clock_says` (base :49096): base 8967e7a6ca8e | ours 43ca129e4c2d | head 43ca129e4c2d; changed by this side alone, the head holds its text: True
+    `fn the_columns_frames_wait_out_a_failed_catalogs_backoff` (base :49116): base 013252a8da3c | ours cc6985eefbbf | head cc6985eefbbf; changed by this side alone, the head holds its text: True
+    `fn a_catalog_read_that_fails_too_large_or_stalled_then_loads_ranks_in_three_tiers_and_keeps_its_mark_by_id` (base :49273): base 9f96e860daaa | ours 9302cd7b6850 | head 9302cd7b6850; changed by this side alone, the head holds its text: True
+    `fn a_twenty_question_panel_over_an_open_at_list_has_its_tab_arrows_and_enter` (base :49401): base 82f75b7dda6a | ours 82f75b7dda6a | head 82f75b7dda6a; changed by this side alone, the head holds its text: True
+# theirs: 4 functions of src/tui/shell.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn new` (base :2423): base 7d71a080a6f3 | theirs c5e1a295a080 | head 413b33ea1dbd; changed by another side too (below)
+    `fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting` (base :25895): base cc1ec2ce744f | theirs f2ef95c2b1f6 | head f2ef95c2b1f6; changed by another side too (below)
+    `fn a_pasted_fifo_named_like_an_image_is_words_and_the_terminal_never_waits` (base :40262): base 3b01b6d1c48d | theirs 712ed763b6c9 | head 712ed763b6c9; changed by this side alone, the head holds its text: True
+    `fn a_credits_question` (base :41506): base 2bec853d4c1e | theirs 3f7c8730c2d2 | head 3f7c8730c2d2; changed by this side alone, the head holds its text: True
+## ours x theirs: 2 functions both changed
+  `fn new` (base src/tui/shell.rs:2423): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (5 and 3 edits)
+      base 7d71a080a6f3 | ours fcff772a9877 | theirs c5e1a295a080 | head 413b33ea1dbd
+  `fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting` (base src/tui/shell.rs:25895): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (0 and 1 edits)
+      base cc1ec2ce744f | ours cc1ec2ce744f | theirs f2ef95c2b1f6 | head f2ef95c2b1f6
+# 2 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (src/tui/worker.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 39 functions of src/tui/worker.rs changed against 32afd307; 37 hunks in no function (base lines 4, 33, 103 (an insertion after), 105-106, 2850, 4271-4273, 4276-4277, 4297 (an insertion after), 6584 (an insertion after), 7385 (an insertion after), 10178-10179, 17150-17171, ...)
+    `fn adopt` (base :2855): base dd6c96cdde80 | ours 2e0639042e2d | head 2e0639042e2d; changed by this side alone, the head holds its text: True
+    `fn catalog_event` (base :2953): base 7a72f9363514 | ours dfd6e66f3d84 | head dfd6e66f3d84; changed by this side alone, the head holds its text: True
+    `fn catalog_event_of` (base :3215): base e6d8528b98e4 | ours 4ca54aee2c79 | head 4ca54aee2c79; changed by this side alone, the head holds its text: True
+    `fn turn_loop` (base :3278): base 46ebb6f10754 | ours f19de926456a | head f19de926456a; changed by this side alone, the head holds its text: True
+    `fn telling` (base :4210): base 8e167a576138 | ours 98327822f4cf | head 98327822f4cf; changed by this side alone, the head holds its text: True
+    `fn told_event` (base :4237): base 689f315ca481 | ours 303fbea734e0 | head 303fbea734e0; changed by this side alone, the head holds its text: True
+    `fn ask_catalog` (base :4278): base c91f7da78971 | ours d1ccaada7247 | head d1ccaada7247; changed by this side alone, the head holds its text: True
+    `fn asked` (base :4415): base 043bc7fcb8f7 | ours 9322a8fe9f32 | head 9322a8fe9f32; changed by this side alone, the head holds its text: True
+    `fn asked_at` (base :4420): base 4ec17ca1030d | ours 59364aee1c1b | head 59364aee1c1b; changed by this side alone, the head holds its text: True
+    `fn refusal` (base :5885): base 609afc147cb9 | ours d90a5be6ae1d | head d90a5be6ae1d; changed by this side alone, the head holds its text: True
+    `fn one_turn` (base :6050): base ad0371a92360 | ours 49b9e7ef332a | head 49b9e7ef332a; changed by this side alone, the head holds its text: True
+    `fn a_hostile_session` (base :8708): base 760a8efcaeb0 | ours a5231a50a226 | head a5231a50a226; changed by this side alone, the head holds its text: True
+    `fn replayed_text` (base :8766): base fce3dfab1f34 | ours e92840c20222 | head e92840c20222; changed by this side alone, the head holds its text: True
+    `fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker` (base :8796): base 9ff244c75efd | ours fe3a82070125 | head 7b2b9598bc73; changed by another side too (below)
+    `fn recording` (base :10159): base e7b3a0cece45 | ours 039dd780ee2b | head 039dd780ee2b; changed by another side too (below)
+    `fn the_sessions_own_read_failing_mid_work_is_read_again_once_its_backoff_is_up` (base :11700): base 3930c5aab472 | ours 4be25874abb2 | head 4be25874abb2; changed by this side alone, the head holds its text: True
+    `fn a_prompt_inside_a_failed_catalogs_backoff_reads_nothing_and_one_after_it_reads_again` (base :17173): base 5958379bd1f1 | ours c7c4014c00cb | head c7c4014c00cb; changed by this side alone, the head holds its text: True
+    `fn the_menu_over_a_held_catalog_reads_it_again_five_seconds_on_and_tells_the_new_rows` (base :17220): base eb56bbb138cc | ours eb56bbb138cc | head eb56bbb138cc; changed by this side alone, the head holds its text: True
+    `fn a_prompt_over_a_held_catalog_reads_it_again_only_once_it_is_five_minutes_old` (base :17269): base a13e1583a1fc | ours 2c098cfc9bec | head 2c098cfc9bec; changed by this side alone, the head holds its text: True
+    `fn a_read_that_finds_no_runtime_tells_the_band_its_failure_and_is_read_again_past_its_backoff` (base :17325): base 8fd5d6836950 | ours e8eb4dbcc193 | head e8eb4dbcc193; changed by this side alone, the head holds its text: True
+    `fn a_read_asked_for_mid_work_that_finds_no_runtime_is_told_at_once_and_once` (base :17391): base dfb6501a0851 | ours 887f9d823bb2 | head 887f9d823bb2; changed by this side alone, the head holds its text: True
+    `fn fetch` (base :17453): base 3bfcf49d0d67 | ours 0a48fab1d08d | head 0a48fab1d08d; changed by this side alone, the head holds its text: True
+    `fn the_band_is_told_rows_are_due_again_five_minutes_after_their_read_began` (base :17463): base 01c825be53d2 | ours 01c825be53d2 | head 01c825be53d2; changed by this side alone, the head holds its text: True
+    `fn the_catalog_as_held_is_told_with_the_runtimes_clock` (base :17492): base 50c1bdad0452 | ours 76f9e6e84c92 | head 76f9e6e84c92; changed by this side alone, the head holds its text: True
+    `fn a_failed_refresh_is_due_again_when_the_runtimes_clock_says` (base :17534): base 7dd11c537fe7 | ours 186b1af4f611 | head 186b1af4f611; changed by this side alone, the head holds its text: True
+    `fn retrying_behind_failure_for_images` (base :17585): base ce96eb7cb05c | ours ce96eb7cb05c | head ce96eb7cb05c; changed by this side alone, the head holds its text: True
+    `fn the_image_route_waits_two_seconds_at_most_and_once_a_turn` (base :17636): base 74a82962af47 | ours 74a82962af47 | head 74a82962af47; changed by this side alone, the head holds its text: True
+    `fn a_prompts_images_wait_for_the_retry_behind_a_failed_catalog` (base :17687): base 3b8e074f25f0 | ours 3b8e074f25f0 | head 3b8e074f25f0; changed by this side alone, the head holds its text: True
+    `fn the_historys_images_wait_at_the_image_route_and_not_at_the_turns_start` (base :17745): base 8293d494f6b6 | ours 8293d494f6b6 | head 8293d494f6b6; changed by this side alone, the head holds its text: True
+    `fn a_turn_waits_two_seconds_at_most_for_the_retry_behind_a_failed_catalog` (base :17841): base 95e715c7dd2f | ours 95e715c7dd2f | head 95e715c7dd2f; changed by this side alone, the head holds its text: True
+    `fn retry_never_lands` (base :17911): base d29f050bd992 | ours be1f88fe99d0 | head be1f88fe99d0; changed by this side alone, the head holds its text: True
+    `fn first_of_two_and_a_stop` (base :17996): base 59759db7044a | ours 21ca1190e601 | head 21ca1190e601; changed by this side alone, the head holds its text: True
+    `fn a_stop_in_a_turns_catalog_wait_ends_it_at_once_and_the_next_start_keeps_its_number` (base :18055): base 737f47940541 | ours d59ce3ea8701 | head d59ce3ea8701; changed by this side alone, the head holds its text: True
+    `fn under_model` (base :18203): base 69ec268e9545 | ours 69ec268e9545 | head 69ec268e9545; changed by this side alone, the head holds its text: True
+    `fn waiting_in` (base :18233): base 9c452450bf51 | ours 97db8e1c083b | head 97db8e1c083b; changed by this side alone, the head holds its text: True
+    `fn a_stop_in_a_turns_catalog_wait_ends_it_as_a_stop_and_records_it_as_one` (base :18352): base cea00f15da0f | ours cfc6a73945e6 | head cfc6a73945e6; changed by this side alone, the head holds its text: True
+    `fn a_stop_in_the_catalog_wait_of_a_turn_that_would_ask_twenty_questions_ends_it_as_the_stop` (base :18549): base ed2c600d490d | ours e02bfd4b78b0 | head e02bfd4b78b0; changed by this side alone, the head holds its text: True
+    `fn sealed_on_llmux` (base :18767): base 59485216612b | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn a_stop_through_a_dropped_compaction_tells_it_once_and_leaves_the_history_notice_to_the_turn_that_runs` (base :19002): base 4ae398d398a6 | ours - | head -; changed by this side alone, the head holds its text: True
+# theirs: 36 functions of src/tui/worker.rs changed against 32afd307; 3 hunks in no function (base lines 1144 (an insertion after), 8518 (an insertion after), 10138 (an insertion after))
+    `fn spawn` (base :1161): base fe1a7e8b8f31 | theirs 1f16614857e7 | head 1f16614857e7; changed by this side alone, the head holds its text: True
+    `fn with_environment` (base :1773): base 000cf597647d | theirs cd91c78ecae7 | head cd91c78ecae7; changed by this side alone, the head holds its text: True
+    `fn a_reset_is_written_down_so_a_resume_does_not_bring_the_grants_back` (base :7550): base 93593739ca03 | theirs da63eb1763bc | head da63eb1763bc; changed by this side alone, the head holds its text: True
+    `fn the_runtime_thread_is_started_with_every_owned_signal_blocked` (base :8480): base 0e3afb20b824 | theirs 3c02b847905d | head 3c02b847905d; changed by this side alone, the head holds its text: True
+    `fn a_session_with_no_home_runs_unsaved_and_says_so` (base :8586): base 13267c5c2828 | theirs 22e979c161fc | head 22e979c161fc; changed by this side alone, the head holds its text: True
+    `fn a_runtime_that_was_asked_nothing_names_no_session_and_wrote_none` (base :8646): base 091a0082fe94 | theirs bdddb5eddcf8 | head bdddb5eddcf8; changed by this side alone, the head holds its text: True
+    `fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker` (base :8796): base 9ff244c75efd | theirs c73bdcec93a2 | head 7b2b9598bc73; changed by another side too (below)
+    `fn a_resumed_session_is_the_conversation_from_the_start_with_its_grants` (base :8850): base 07146a14dcb6 | theirs e7e7e309e0d5 | head e7e7e309e0d5; changed by this side alone, the head holds its text: True
+    `fn a_rename_before_any_prompt_opens_the_session_and_keeps_it_titled` (base :8896): base c934b93f5a49 | theirs 52edee9a67b0 | head 52edee9a67b0; changed by this side alone, the head holds its text: True
+    `fn a_rename_the_store_refuses_says_why_and_the_session_keeps_its_old_title` (base :8935): base c9a7bf232a48 | theirs 5c665ae39dbb | head 5c665ae39dbb; changed by this side alone, the head holds its text: True
+    `fn a_listing_leaves_out_the_session_this_one_is_in_and_the_ones_with_no_turn` (base :8974): base 54152d4eab84 | theirs f478981bd860 | head f478981bd860; changed by this side alone, the head holds its text: True
+    `fn resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once` (base :9010): base 9ac92f3ac768 | theirs 4eeee41587bf | head 4eeee41587bf; changed by this side alone, the head holds its text: True
+    `fn a_resume_writes_nothing_and_its_first_turn_writes_down_what_it_runs_under` (base :9088): base 67987777f735 | theirs 904d46faf3de | head 904d46faf3de; changed by this side alone, the head holds its text: True
+    `fn a_picker_resume_and_a_refused_first_turn_write_nothing_and_the_next_turn_writes_the_mode` (base :9199): base cf409f762f8e | theirs e0d6657defa1 | head e0d6657defa1; changed by this side alone, the head holds its text: True
+    `fn a_new_conversation_after_a_resume_starts_its_own_log_and_leaves_the_resumed_one` (base :9266): base 98dccf55b3a3 | theirs 57fd3af45c36 | head 57fd3af45c36; changed by this side alone, the head holds its text: True
+    `fn chosen_before_the_first_prompt` (base :9339): base a35a3f30b94c | theirs 59408ad9024c | head 59408ad9024c; changed by this side alone, the head holds its text: True
+    `fn a_resume_puts_back_the_first_saves_settings_and_nothing_it_does_not_restore` (base :9434): base 063381a4d441 | theirs 32acfcd30436 | head 32acfcd30436; changed by this side alone, the head holds its text: True
+    `fn a_rename_before_the_first_prompt_opens_the_log_with_the_settings_in_force` (base :9477): base 6b98e4b07b64 | theirs d8dd207d4a1b | head d8dd207d4a1b; changed by this side alone, the head holds its text: True
+    `fn rules_held_before_the_first_prompt_are_its_sessions_and_decide_its_first_call` (base :9544): base 27a1b9f38e59 | theirs 9f3232926a55 | head 9f3232926a55; changed by this side alone, the head holds its text: True
+    `fn a_rename_before_the_first_prompt_writes_the_rules_held_for_its_session` (base :9620): base 0c40df4031f1 | theirs 8453c40d248c | head 8453c40d248c; changed by this side alone, the head holds its text: True
+    `fn rules_held_for_a_session_the_store_refuses_go_with_the_next_one` (base :9651): base a80fb97b423f | theirs 23fc7b62b629 | head 23fc7b62b629; changed by this side alone, the head holds its text: True
+    `fn rules_held_past_what_a_store_may_hold_refuse_the_prompt_run_nothing_and_stay_held` (base :9750): base 1a0b79578b6d | theirs 4fc8e166c67a | head 4fc8e166c67a; changed by this side alone, the head holds its text: True
+    `fn a_new_conversation_after_a_resume_records_the_settings_it_carries` (base :9901): base 1f1ae7c7b893 | theirs adfb541ac3ff | head adfb541ac3ff; changed by this side alone, the head holds its text: True
+    `fn a_choice_made_after_a_resume_is_written_at_once_and_not_over_by_its_first_turn` (base :10003): base 0e8e09cded42 | theirs d11323e3c79d | head d11323e3c79d; changed by this side alone, the head holds its text: True
+    `fn recording` (base :10159): base e7b3a0cece45 | theirs 2161ad2394d5 | head 039dd780ee2b; changed by another side too (below)
+    `fn a_resume_puts_back_the_effort_and_the_speed_the_session_recorded` (base :13016): base 587d6f82393b | theirs 6a1f67b73ad2 | head 6a1f67b73ad2; changed by this side alone, the head holds its text: True
+    `fn a_restored_fast_binding_needs_the_provider_the_model_and_fast_the_session_ran_under` (base :13072): base d468647ea7f0 | theirs 1e8f7508a6b3 | head 1e8f7508a6b3; changed by this side alone, the head holds its text: True
+    `fn a_resume_never_restores_a_model_with_a_control_character_in_it` (base :13271): base c2c5376e0913 | theirs 9c299daa4410 | head 9c299daa4410; changed by this side alone, the head holds its text: True
+    `fn a_picker_resume_moves_the_runtime_to_the_recorded_provider_and_says_what_it_lacks` (base :13427): base d3db35673e8c | theirs 2fcb134a8da7 | head 2fcb134a8da7; changed by this side alone, the head holds its text: True
+    `fn answering_always` (base :14189): base ebe94e27556b | theirs 57b38df7a9cc | head 57b38df7a9cc; changed by this side alone, the head holds its text: True
+    `fn the_authority_decides_with_the_profiles_table_and_with_what_the_ui_puts_in_force` (base :14348): base 9d92dabe2679 | theirs 79075594d655 | head 79075594d655; changed by this side alone, the head holds its text: True
+    `fn the_session_spawn_names_at_launch_is_the_one_the_runtime_opens` (base :14695): base 00b866e400c9 | theirs e75b006f74e7 | head e75b006f74e7; changed by this side alone, the head holds its text: True
+    `fn two_writes` (base :15181): base 09c44dfcecd3 | theirs a693effc8b89 | head a693effc8b89; changed by this side alone, the head holds its text: True
+    `fn titled_runtime` (base :15832): base ba4d18066ab8 | theirs a430290b9209 | head a430290b9209; changed by this side alone, the head holds its text: True
+    `fn a_fork_is_offered_before_each_prompt_whose_turn_and_the_one_before_it_ended` (base :16617): base c94b202f7912 | theirs 68dc88404129 | head 68dc88404129; changed by this side alone, the head holds its text: True
+    `fn a_fork_before_the_first_prompt_is_listed_at_one_turn_and_named_at_the_exit` (base :17024): base 05636a08b025 | theirs eb75ace778bc | head eb75ace778bc; changed by this side alone, the head holds its text: True
+## ours x theirs: 2 functions both changed
+  `fn a_hostile_log_reaches_the_ui_inert_at_launch_and_from_the_picker` (base src/tui/worker.rs:8796): ours -> head is theirs's edits: True; theirs -> head is ours's edits: True (1 and 1 edits)
+      base 9ff244c75efd | ours fe3a82070125 | theirs c73bdcec93a2 | head 7b2b9598bc73
+  `fn recording` (base src/tui/worker.rs:10159): ours -> head is theirs's edits: False; theirs -> head is ours's edits: False (2 and 1 edits)
+      base e7b3a0cece45 | ours 039dd780ee2b | theirs 2161ad2394d5 | head 039dd780ee2b
+# 2 shared functions; 1 not kept both ways
+# exit 1
+## merge 849f5017 (tests/cli.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 6 functions of tests/cli.rs changed against 32afd307; 3 hunks in no function (base lines 18 (an insertion after), 158 (an insertion after), 810 (an insertion after))
+    `fn write_user_settings` (base :105): base 026d31f5556c | ours 114d24494627 | head 114d24494627; changed by this side alone, the head holds its text: True
+    `fn version_aliases_print_the_bare_package_version` (base :164): base 62490455bb78 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn status_json_is_a_single_newline_terminated_document` (base :386): base b36b17238002 | ours 1cbf0ad212ea | head 1cbf0ad212ea; changed by this side alone, the head holds its text: True
+    `fn an_unreadable_provider_poisons_the_turn_even_when_backend_is_readable` (base :1461): base a1749d577efb | ours 78628f97c95d | head 78628f97c95d; changed by this side alone, the head holds its text: True
+    `fn a_rejected_provider_from_newer_layer_poisons_at_binary_level` (base :1879): base ed48d60f3a4a | ours 83684895d4cd | head 83684895d4cd; changed by this side alone, the head holds its text: True
+    `fn ask_says_what_the_configuration_could_not_use_and_that_every_tool_is_refused` (base :1894): base 6cb1ea8c0ef4 | ours 63670a005dbb | head 63670a005dbb; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of tests/cli.rs changed against 32afd307; 2 hunks in no function (base lines 6 (an insertion after), 41-49)
+    `fn command` (base :74): base 6456874ccf96 | theirs ee634f957d31 | head ee634f957d31; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/gateway.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 3 functions of tests/gateway.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn a_tool_attempt_under` (base :2130): base 5e171eb54a0b | ours 9573ec3093e4 | head 9573ec3093e4; changed by this side alone, the head holds its text: True
+    `fn ask_with_a_permission_table_that_does_not_read_runs_no_tool` (base :2184): base a9a3e03ad736 | ours 36ba7afeef00 | head 36ba7afeef00; changed by this side alone, the head holds its text: True
+    `fn ask_help_advertises_only_the_implemented_flags` (base :2290): base 835b31c03dda | ours c03066b39939 | head c03066b39939; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of tests/gateway.rs changed against 32afd307; 2 hunks in no function (base lines 17, 38-57)
+    `fn run` (base :1483): base 0151da693e32 | theirs b9966447c183 | head b9966447c183; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/interactive.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 2 functions of tests/interactive.rs changed against 32afd307; 2 hunks in no function (base lines 29 (an insertion after), 170 (an insertion after))
+    `fn the_shell_opens_saying_what_the_configuration_could_not_use_and_what_it_means` (base :172): base b6d6a17c7d91 | ours 2beb42952be2 | head 2beb42952be2; changed by this side alone, the head holds its text: True
+    `fn slash_credits_with_an_unreadable_provider_asks_nobody_and_says_why` (base :553): base c225813bded1 | ours e72f97be1d38 | head e72f97be1d38; changed by this side alone, the head holds its text: True
+# theirs: 4 functions of tests/interactive.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn leave_the_terminal_in_raw_mode` (base :2528): base c343ea6db476 | theirs b4288d4024d6 | head b4288d4024d6; changed by this side alone, the head holds its text: True
+    `fn a_during_run_reading_sees_a_terminal_the_running_child_has_changed` (base :2616): base 8c4f601ec34d | theirs 7b1ebecfc7d1 | head 7b1ebecfc7d1; changed by this side alone, the head holds its text: True
+    `fn a_stop_a_resume_and_an_exit_are_three_states_the_harness_keeps_apart` (base :2646): base 1d72c55576bd | theirs 05e317724a27 | head 05e317724a27; changed by this side alone, the head holds its text: True
+    `fn an_early_exit_is_reported_and_the_status_survives_the_reading` (base :2693): base 6c8071d733c5 | theirs c90cf7bcd80e | head c90cf7bcd80e; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/sessions.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 10 functions of tests/sessions.rs changed against 32afd307; 3 hunks in no function (base lines 37-38, 1910 (an insertion after), 3239)
+    `fn ask_resume_never_adopts_a_model_with_a_control_character_or_prints_one` (base :1912): base 667afcceaef2 | ours 7c11a3c6c7a2 | head 7c11a3c6c7a2; changed by this side alone, the head holds its text: True
+    `fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire` (base :2876): base f92114d9d7c7 | ours b037c9cde88b | head b037c9cde88b; changed by this side alone, the head holds its text: True
+    `fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire` (base :2895): base 1c7d99a62e66 | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn responses_state_recorded_under_one_authority_is_never_sent_to_another` (base :2918): base 5ff42338a0be | ours f2d187efd896 | head f2d187efd896; changed by this side alone, the head holds its text: True
+    `fn a_wire_this_version_does_not_know_drops_rather_than_guessing` (base :2950): base d6d21561fa39 | ours f6e3ab3716db | head f6e3ab3716db; changed by this side alone, the head holds its text: True
+    `fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active` (base :2972): base b209c299b2d0 | ours dafef31b3b9d | head dafef31b3b9d; changed by this side alone, the head holds its text: True
+    `fn codex_responses_wire_replays_state_verbatim_under_codex` (base :2998): base 56899178ecde | ours 3da04071fc24 | head 3da04071fc24; changed by this side alone, the head holds its text: True
+    `fn grok_responses_wire_replays_state_verbatim_under_grok` (base :3023): base 70139c214eb0 | ours e5dd37b62380 | head e5dd37b62380; changed by this side alone, the head holds its text: True
+    `fn a_dropped_state_is_not_deleted_from_the_log` (base :3048): base 80d3350a0bed | ours 654784c753a2 | head 654784c753a2; changed by this side alone, the head holds its text: True
+    `fn a_batch_that_died_after_the_first_of_three_results_replays_neither_the_group_nor_its_sentence` (base :3152): base 31efb2a1bc03 | ours 13f8ca3293f3 | head 13f8ca3293f3; changed by this side alone, the head holds its text: True
+# theirs: 1 functions of tests/sessions.rs changed against 32afd307; 2 hunks in no function (base lines 26, 46)
+    `fn run_in` (base :1544): base fc86c44b2ec6 | theirs 040279f0f94e | head 040279f0f94e; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/support/mod.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 0 functions of tests/support/mod.rs changed against 32afd307; 1 hunks in no function (base lines 18 (an insertion after))
+# theirs: 0 functions of tests/support/mod.rs changed against 32afd307; 2 hunks in no function (base lines 18 (an insertion after), 23 (an insertion after))
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/support/sandbox.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 0 functions of tests/support/sandbox.rs changed against 32afd307; 1 hunks in no function (base lines 36)
+# theirs: 2 functions of tests/support/sandbox.rs changed against 32afd307; 2 hunks in no function (base lines 6-7, 18-29)
+    `fn command` (base :60): base 8e91c4b4eace | theirs 2091aa8fe47b | head 2091aa8fe47b; changed by this side alone, the head holds its text: True
+    `fn apply_env` (base :71): base a12a32577a31 | theirs 0921a84e8648 | head 0921a84e8648; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/tool_loop.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 1 functions of tests/tool_loop.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn a_resumed_session_replays_the_same_order_with_no_orphan_calls` (base :2519): base ca8f59615a9a | ours 83eb10c05111 | head 83eb10c05111; changed by this side alone, the head holds its text: True
+# theirs: 3 functions of tests/tool_loop.rs changed against 32afd307; 2 hunks in no function (base lines 21, 55-64)
+    `fn mkfifo` (base :115): base acd21deadc84 | theirs c815fd5a66ad | head c815fd5a66ad; changed by this side alone, the head holds its text: True
+    `fn run` (base :3631): base 0151da693e32 | theirs b9966447c183 | head b9966447c183; changed by this side alone, the head holds its text: True
+    `fn on_path` (base :3989): base 2ba668ef3518 | theirs 92e3f9d1e70e | head 92e3f9d1e70e; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 849f5017 (tests/tui.rs): base 32afd307, ours e8b004a5, theirs 7c3f6c1e
+# ours: 8 functions of tests/tui.rs changed against 32afd307; 5 hunks in no function (base lines 21 (an insertion after), 591, 1062 (an insertion after), 2404, 3407 (an insertion after))
+    `fn a_live_theme_notification_repaints_the_band_without_losing_the_draft` (base :2422): base 4cdea1c34e31 | ours 23f0ba12d3b2 | head 23f0ba12d3b2; changed by this side alone, the head holds its text: True
+    `fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal` (base :3124): base 8eb3ccceb27b | ours 3212d865ef41 | head 3212d865ef41; changed by this side alone, the head holds its text: True
+    `fn a_paste_whose_end_marker_shares_a_read_with_enter_is_kept_and_submits_nothing` (base :3362): base 7e0c0c2467f7 | ours 264334adc36d | head 264334adc36d; changed by this side alone, the head holds its text: True
+    `fn an_unreadable_provider_sends_the_key_nowhere_beside_the_turn_it_refuses` (base :6151): base 725b927f4e1e | ours b2237a4f9a47 | head b2237a4f9a47; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows` (base :9174): base 6a63b593b97c | ours e06becb85e98 | head e06becb85e98; changed by this side alone, the head holds its text: True
+    `fn a_switch_off_llmux_sends_its_text_and_calls_and_leaves_the_signed_thinking_behind` (base :9588): base 2ac305b63b46 | ours 23118f9cedfb | head 23118f9cedfb; changed by this side alone, the head holds its text: True
+    `fn after_a_model_change_on_llmux_no_block_the_earlier_model_signed_is_sent` (base :9729): base ad5546186da2 | ours 506366750950 | head 506366750950; changed by this side alone, the head holds its text: True
+    `fn a_session_that_switched_provider_resumes_on_the_provider_it_recorded_whatever_the_profile_says` (base :9893): base d384bcce6d2d | ours 6cca84d751a2 | head 6cca84d751a2; changed by this side alone, the head holds its text: True
+# theirs: 5 functions of tests/tui.rs changed against 32afd307; 0 hunks in no function (base lines )
+    `fn shell_output_from_before_the_launch_is_still_readable_afterwards` (base :2079): base d22ca651037e | theirs cb6754547880 | head cb6754547880; changed by this side alone, the head holds its text: True
+    `fn a_line_the_shell_did_not_end_is_pushed_with_the_rows_above_it` (base :2153): base 0211823647c9 | theirs c23e96d19483 | head c23e96d19483; changed by this side alone, the head holds its text: True
+    `fn with_startup_scrollback_off_the_launch_starts_under_the_shells_output` (base :2201): base 882353d221d5 | theirs 8aceb0912ba5 | head 8aceb0912ba5; changed by this side alone, the head holds its text: True
+    `fn a_session_with_no_credential_is_told_so_before_it_spends_a_prompt` (base :2914): base ca763bfda600 | theirs e2d2a28b3fa1 | head e2d2a28b3fa1; changed by this side alone, the head holds its text: True
+    `fn quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log` (base :7907): base a1e7893bfb61 | theirs 48579be0b333 | head 48579be0b333; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 71787971 (src/tui/approval_amendment.rs): base df45025c, ours dd2ac93d, theirs ca496c10
+# ours: 4 functions of src/tui/approval_amendment.rs changed against df45025c; 10 hunks in no function (base lines 7-8, 20-23, 25, 27-33, 47, 94-97, 100, 113-114, 118-119, 136-175)
+    `fn default` (base :104): base 8cfd4f38b2dd | ours 16536e15cc7b | head 16536e15cc7b; changed by this side alone, the head holds its text: True
+    `fn insert` (base :123): base 359d6f45c9d5 | ours 45e81baf48cf | head 45e81baf48cf; changed by this side alone, the head holds its text: True
+    `fn edit` (base :411): base 9c15f9cd4447 | ours f3ddb3daab3d | head f3ddb3daab3d; changed by this side alone, the head holds its text: True
+    `fn undo_redo_and_yank_work_inside_a_draft` (base :528): base 7870d24eb878 | ours - | head -; changed by this side alone, the head holds its text: True
+# theirs: 6 functions of src/tui/approval_amendment.rs changed against df45025c; 6 hunks in no function (base lines 43 (an insertion after), 56 (an insertion after), 211-213, 245-248, 258 (an insertion after), 622 (an insertion after))
+    `fn apply` (base :143): base 811481471ec9 | theirs 82a79de04c84 | head d852ed327d22; changed by this side alone, the head holds its text: False
+    `fn byte` (base :232): base 0aa62833612f | theirs b1ec52c10edc | head b1ec52c10edc; changed by this side alone, the head holds its text: True
+    `fn finish` (base :249): base 2af3a550c07d | theirs ad59d56c4968 | head ad59d56c4968; changed by this side alone, the head holds its text: True
+    `fn a_bracketed_paste_becomes_draft_text_and_never_an_entity` (base :585): base 45fa64a85480 | theirs 29f5f9716254 | head 29f5f9716254; changed by this side alone, the head holds its text: True
+    `fn a_multibyte_paste_is_not_cut_mid_character` (base :686): base 04c8f5cefcf7 | theirs 46416e5f30e7 | head 46416e5f30e7; changed by this side alone, the head holds its text: True
+    `fn super_up_and_down_are_the_whole_drafts_edges` (base :809): base 694ad40f3e20 | theirs 06ca4008e9d8 | head 06ca4008e9d8; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 1 not kept both ways
+# exit 1
+## merge 71787971 (src/tui/shell.rs): base df45025c, ours dd2ac93d, theirs ca496c10
+# ours: 53 functions of src/tui/shell.rs changed against df45025c; 54 hunks in no function (base lines 171-174, 240-242, 245, 252-253, 1309 (an insertion after), 1526-1528, 1538, 1540-1542, 1544, 1546-1547, 3603-3609, 3615-3616, ...)
+    `fn welcome_line` (base :175): base c874495b858c | ours 24726ff41b74 | head 24726ff41b74; changed by this side alone, the head holds its text: True
+    `fn new` (base :2520): base 86a7c954d8d0 | ours 413b33ea1dbd | head 413b33ea1dbd; changed by this side alone, the head holds its text: True
+    `fn band_rows` (base :2832): base fd0bd791ba25 | ours f1ab3b305afb | head f1ab3b305afb; changed by this side alone, the head holds its text: True
+    `fn anchor_at` (base :3617): base beb4582378cb | ours a5d1c0c89ec5 | head a5d1c0c89ec5; changed by this side alone, the head holds its text: True
+    `fn file_picker_column` (base :3730): base 2bf11a49cca6 | ours c35f1606d833 | head c35f1606d833; changed by this side alone, the head holds its text: True
+    `fn modal` (base :5361): base 99595c5da54e | ours 26adf3aca12b | head 26adf3aca12b; changed by this side alone, the head holds its text: True
+    `fn skills_landed` (base :5886): base fb3e1114c783 | ours 14d4defaded1 | head 14d4defaded1; changed by this side alone, the head holds its text: True
+    `fn offer_to_settings` (base :6254): base 85cfa552a828 | ours c4d376122484 | head c4d376122484; changed by this side alone, the head holds its text: True
+    `fn offer_to_files` (base :6358): base 47430f9463b9 | ours 0d880d5c4301 | head 0d880d5c4301; changed by this side alone, the head holds its text: True
+    `fn complete_file` (base :6997): base 91a8901aa49e | ours fb7e90a779c8 | head fb7e90a779c8; changed by this side alone, the head holds its text: True
+    `fn refresh_file_picker` (base :7028): base b17794692b9c | ours cd00b84d3aa2 | head cd00b84d3aa2; changed by this side alone, the head holds its text: True
+    `fn column_rows` (base :7308): base a96449288194 | ours 7aceafe3eb4e | head 7aceafe3eb4e; changed by this side alone, the head holds its text: True
+    `fn offer_to_column` (base :7363): base 8afd239805c0 | ours 43280654f82e | head 43280654f82e; changed by this side alone, the head holds its text: True
+    `fn offer_to_rule_confirm` (base :7840): base 2ddc6b32ee18 | ours b27b0d9042a2 | head b27b0d9042a2; changed by this side alone, the head holds its text: True
+    `fn adopt_workspace` (base :8580): base 5f252559d570 | ours a2f264844241 | head a2f264844241; changed by this side alone, the head holds its text: True
+    `fn settle_files` (base :8793): base 1077351f17e9 | ours 8ed24160cb67 | head 8ed24160cb67; changed by this side alone, the head holds its text: True
+    `fn offer_to_picker` (base :8814): base 36b8841fa006 | ours 5a60e6a31f10 | head 5a60e6a31f10; changed by this side alone, the head holds its text: True
+    `fn reconcile_picker` (base :9062): base 40406ce04289 | ours f4bc05144eab | head f4bc05144eab; changed by this side alone, the head holds its text: True
+    `fn reconcile_mcp_args` (base :9241): base 49857cb695b2 | ours cea741f1bced | head cea741f1bced; changed by this side alone, the head holds its text: True
+    `fn offer_to_mcp_args` (base :9294): base 752141c0f566 | ours f67fd9613295 | head f67fd9613295; changed by this side alone, the head holds its text: True
+    `fn decide` (base :9636): base 303f0e0defa7 | ours 25c7b22d9405 | head 25c7b22d9405; changed by another side too (below)
+    `fn settle_band` (base :10863): base e87bff237cd7 | ours ba5b26717591 | head ba5b26717591; changed by this side alone, the head holds its text: True
+    `fn consume_inputs` (base :12307): base 0c88c6343b20 | ours 3044936af4d2 | head 3044936af4d2; changed by this side alone, the head holds its text: True
+    `fn act` (base :12724): base 124388d71682 | ours b809f180945b | head b809f180945b; changed by this side alone, the head holds its text: True
+    `fn cancel_turn` (base :13218): base 7f023bdb8d40 | ours a6816c4a9fe3 | head a6816c4a9fe3; changed by this side alone, the head holds its text: True
+    `fn submit` (base :13417): base c3a1bc3d97c0 | ours 87dd825a0a91 | head 87dd825a0a91; changed by this side alone, the head holds its text: True
+    `fn version` (base :14590): base ecfa8f571ca5 | ours 51185d90e941 | head 51185d90e941; changed by this side alone, the head holds its text: True
+    `fn recall` (base :16535): base 4ca2e11f9bbc | ours 904be0c7d602 | head 904be0c7d602; changed by this side alone, the head holds its text: True
+    `fn fit` (base :16750): base a210d09bdad6 | ours 7e3579818014 | head 7e3579818014; changed by this side alone, the head holds its text: True
+    `fn an_enter_another_surface_took_counts_for_the_held_rule` (base :18647): base ef3181728dd7 | ours 30205d787b1d | head 30205d787b1d; changed by this side alone, the head holds its text: True
+    `fn a_slash_completion_is_a_boundary_and_never_a_half_undo` (base :21007): base cfe04a08fb98 | ours cd588bab6729 | head cd588bab6729; changed by this side alone, the head holds its text: True
+    `fn asking` (base :22299): base b12788b9c3e5 | ours cb34efb43e62 | head cb34efb43e62; changed by this side alone, the head holds its text: True
+    `fn enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it` (base :22805): base 7ca315ccae93 | ours 16b8a483dfef | head 16b8a483dfef; changed by this side alone, the head holds its text: True
+    `fn a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown` (base :24090): base b795a6f61436 | ours da8ee1ad8c0c | head da8ee1ad8c0c; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half` (base :25473): base 2a3f4a2b460c | ours 6b717ff6628c | head 6b717ff6628c; changed by this side alone, the head holds its text: True
+    `fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation` (base :25786): base 54fdbb93398e | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn a_command_is_not_echoed_and_its_answer_is_upstreams_notice` (base :27616): base 00a5a476a62f | ours 0fcf606b2400 | head 0fcf606b2400; changed by this side alone, the head holds its text: True
+    `fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing` (base :28096): base 066677e12fef | ours 88972400c237 | head 88972400c237; changed by this side alone, the head holds its text: True
+    `fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it` (base :28298): base 68df46775d7d | ours 5e7d54963177 | head 5e7d54963177; changed by this side alone, the head holds its text: True
+    `fn a_status` (base :28328): base 6ff9f83163c4 | ours 1da2ffdd5cf5 | head 1da2ffdd5cf5; changed by this side alone, the head holds its text: True
+    `fn a_bare_permissions_opens_upstreams_panel_and_changes_nothing` (base :28418): base 8e27c8eb5d53 | ours 0ef5212b9d44 | head 0ef5212b9d44; changed by this side alone, the head holds its text: True
+    `fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting` (base :28707): base cc1ec2ce744f | ours f2ef95c2b1f6 | head f2ef95c2b1f6; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_confirmation_silently_and_two_says_cancelled` (base :29593): base f80d689775ec | ours f2650da57852 | head f2650da57852; changed by this side alone, the head holds its text: True
+    `fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing` (base :29772): base bcd8d8fea08a | ours 3a49eee5ffba | head 3a49eee5ffba; changed by this side alone, the head holds its text: True
+    `fn tab_completes_the_marked_command_and_the_menu_follows_the_word` (base :37157): base 7e95bc9d1c04 | ours 70ae0202db70 | head 70ae0202db70; changed by this side alone, the head holds its text: True
+    `fn a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose` (base :37772): base caef3f935d3b | ours 11122e00d066 | head 11122e00d066; changed by this side alone, the head holds its text: True
+    `fn a_directory_choice_keeps_the_list_up_on_that_directory` (base :37832): base 3b84ebe76835 | ours 7163a1243d33 | head 7163a1243d33; changed by this side alone, the head holds its text: True
+    `fn enter_under_the_full_transcript_goes_on_to_the_composer` (base :38075): base 53402c0c5001 | ours 71eb9fb3f4cc | head 71eb9fb3f4cc; changed by this side alone, the head holds its text: True
+    `fn mcp_args_shell` (base :39292): base 1ca283be0ce3 | ours 946ae1677c19 | head 946ae1677c19; changed by this side alone, the head holds its text: True
+    `fn an_argument_that_names_no_item_is_upstreams_usage_error` (base :40633): base 026536cadd78 | ours 2af8e1a74eaf | head 2af8e1a74eaf; changed by this side alone, the head holds its text: True
+    `fn a_notice_written_while_a_line_streams_lands_above_it_and_leaves_it_whole` (base :43238): base 6a6601893cea | ours 3768aed6aad1 | head 3768aed6aad1; changed by this side alone, the head holds its text: True
+    `fn a_pasted_fifo_named_like_an_image_is_words_and_the_terminal_never_waits` (base :44797): base 3b01b6d1c48d | ours 712ed763b6c9 | head 712ed763b6c9; changed by this side alone, the head holds its text: True
+    `fn a_credits_question` (base :46041): base 2bec853d4c1e | ours 3f7c8730c2d2 | head 3f7c8730c2d2; changed by this side alone, the head holds its text: True
+# theirs: 3 functions of src/tui/shell.rs changed against df45025c; 1 hunks in no function (base lines 41760 (an insertion after))
+    `fn decide` (base :9636): base 303f0e0defa7 | theirs d43571d55a48 | head 25c7b22d9405; changed by another side too (below)
+    `fn super_left_right_and_the_draft_edges_in_an_amendment_are_fxs` (base :25244): base 458f2f2a9ad6 | theirs 5db4e0a732e4 | head 5db4e0a732e4; changed by this side alone, the head holds its text: True
+    `fn a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one` (base :44004): base 4b5f9e640cad | theirs 7ed6722787fb | head 7ed6722787fb; changed by this side alone, the head holds its text: True
+## ours x theirs: 1 functions both changed
+  `fn decide` (base src/tui/shell.rs:9636): ours -> head is theirs's edits: False; theirs -> head is ours's edits: False (4 and 1 edits)
+      base 303f0e0defa7 | ours 25c7b22d9405 | theirs d43571d55a48 | head 25c7b22d9405
+# 1 shared functions; 1 not kept both ways
+# exit 1
+## merge 1bce5348 (src/tui/input.rs): base df45025c, ours 71787971, theirs 6d94fbc0
+# ours: 1 functions of src/tui/input.rs changed against df45025c; 2 hunks in no function (base lines 411, 414-415)
+    `fn captured_ctrl_c_d_u_tilde_chords_decode_to_the_bound_control_actions` (base :2209): base 79a4c7bdd75a | ours b9cd1cd04a2f | head b9cd1cd04a2f; changed by this side alone, the head holds its text: True
+# theirs: 18 functions of src/tui/input.rs changed against df45025c; 13 hunks in no function (base lines 35 (an insertion after), 51 (an insertion after), 607-612, 738 (an insertion after), 1007-1011, 1102-1103, 1182-1183, 1516, 1796, 1835-1839, 2016-2017, 2020-2022, ...)
+    `fn feed` (base :922): base 508482558da3 | theirs dfb44f15531c | head dfb44f15531c; changed by this side alone, the head holds its text: True
+    `fn flush` (base :1012): base c52f5ddadc65 | theirs c8c1ebe214c4 | head c8c1ebe214c4; changed by this side alone, the head holds its text: True
+    `fn ground` (base :1077): base b3a2971d0c85 | theirs 784380943696 | head 784380943696; changed by this side alone, the head holds its text: True
+    `fn after_escape` (base :1103): base f59a5cf805d8 | theirs a3b27c247602 | head a3b27c247602; changed by this side alone, the head holds its text: True
+    `fn in_csi` (base :1183): base de0cf1da0248 | theirs f80fe6b10fa3 | head f80fe6b10fa3; changed by this side alone, the head holds its text: True
+    `fn in_osc` (base :1251): base 920c99674e99 | theirs 797573c7226d | head 797573c7226d; changed by this side alone, the head holds its text: True
+    `fn csi` (base :1459): base d0b7f9831521 | theirs 69fede3d2462 | head 69fede3d2462; changed by this side alone, the head holds its text: True
+    `fn report` (base :1567): base 8b8b12a07a01 | theirs 908eae0d5656 | head 908eae0d5656; changed by this side alone, the head holds its text: True
+    `fn tilde_report` (base :1614): base 2047b5573b15 | theirs 48ae6bc4cf7d | head 48ae6bc4cf7d; changed by this side alone, the head holds its text: True
+    `fn kitty_key` (base :1839): base 583f622ddd13 | theirs 784514756b38 | head 784514756b38; changed by this side alone, the head holds its text: True
+    `fn modifier` (base :2023): base 5840a186d474 | theirs dce6cb44bdfd | head dce6cb44bdfd; changed by this side alone, the head holds its text: True
+    `fn ss3` (base :2040): base 45abb3349494 | theirs 4e72ec18f56a | head 4e72ec18f56a; changed by this side alone, the head holds its text: True
+    `fn csi` (base :2098): base 4b305ccb648b | theirs 1ab6e372125f | head 1ab6e372125f; changed by this side alone, the head holds its text: True
+    `fn a_sequence_is_a_key_only_in_the_exact_shapes_a_terminal_sends_one` (base :3573): base e535f49301b1 | theirs c09481decaad | head c09481decaad; changed by this side alone, the head holds its text: True
+    `fn every_modifier_on_left_right_home_and_end_is_upstreams_move` (base :3721): base 50b2835514df | theirs e234b326a0d9 | head e234b326a0d9; changed by this side alone, the head holds its text: True
+    `fn modified_arrow_action` (base :3829): base c99e6195f208 | theirs 08aaba2de1ab | head 08aaba2de1ab; changed by this side alone, the head holds its text: True
+    `fn tilde_home_end` (base :3879): base d4e171796633 | theirs 04448ff47ac5 | head 04448ff47ac5; changed by this side alone, the head holds its text: True
+    `fn spelled` (base :3896): base 3877100c97d8 | theirs 8e979960165e | head 8e979960165e; changed by this side alone, the head holds its text: True
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
+## merge 1bce5348 (src/tui/shell.rs): base df45025c, ours 71787971, theirs 6d94fbc0
+# ours: 55 functions of src/tui/shell.rs changed against df45025c; 55 hunks in no function (base lines 171-174, 240-242, 245, 252-253, 1309 (an insertion after), 1526-1528, 1538, 1540-1542, 1544, 1546-1547, 3603-3609, 3615-3616, ...)
+    `fn welcome_line` (base :175): base c874495b858c | ours 24726ff41b74 | head 24726ff41b74; changed by this side alone, the head holds its text: True
+    `fn new` (base :2520): base 86a7c954d8d0 | ours 413b33ea1dbd | head 413b33ea1dbd; changed by this side alone, the head holds its text: True
+    `fn band_rows` (base :2832): base fd0bd791ba25 | ours f1ab3b305afb | head f1ab3b305afb; changed by this side alone, the head holds its text: True
+    `fn anchor_at` (base :3617): base beb4582378cb | ours a5d1c0c89ec5 | head a5d1c0c89ec5; changed by this side alone, the head holds its text: True
+    `fn file_picker_column` (base :3730): base 2bf11a49cca6 | ours c35f1606d833 | head c35f1606d833; changed by this side alone, the head holds its text: True
+    `fn modal` (base :5361): base 99595c5da54e | ours 26adf3aca12b | head 26adf3aca12b; changed by this side alone, the head holds its text: True
+    `fn skills_landed` (base :5886): base fb3e1114c783 | ours 14d4defaded1 | head 14d4defaded1; changed by this side alone, the head holds its text: True
+    `fn offer_to_settings` (base :6254): base 85cfa552a828 | ours c4d376122484 | head c4d376122484; changed by this side alone, the head holds its text: True
+    `fn offer_to_files` (base :6358): base 47430f9463b9 | ours 0d880d5c4301 | head 0d880d5c4301; changed by this side alone, the head holds its text: True
+    `fn complete_file` (base :6997): base 91a8901aa49e | ours fb7e90a779c8 | head fb7e90a779c8; changed by this side alone, the head holds its text: True
+    `fn refresh_file_picker` (base :7028): base b17794692b9c | ours cd00b84d3aa2 | head cd00b84d3aa2; changed by this side alone, the head holds its text: True
+    `fn column_rows` (base :7308): base a96449288194 | ours 7aceafe3eb4e | head 7aceafe3eb4e; changed by this side alone, the head holds its text: True
+    `fn offer_to_column` (base :7363): base 8afd239805c0 | ours 43280654f82e | head 43280654f82e; changed by this side alone, the head holds its text: True
+    `fn offer_to_rule_confirm` (base :7840): base 2ddc6b32ee18 | ours b27b0d9042a2 | head b27b0d9042a2; changed by this side alone, the head holds its text: True
+    `fn adopt_workspace` (base :8580): base 5f252559d570 | ours a2f264844241 | head a2f264844241; changed by this side alone, the head holds its text: True
+    `fn settle_files` (base :8793): base 1077351f17e9 | ours 8ed24160cb67 | head 8ed24160cb67; changed by this side alone, the head holds its text: True
+    `fn offer_to_picker` (base :8814): base 36b8841fa006 | ours 5a60e6a31f10 | head 5a60e6a31f10; changed by this side alone, the head holds its text: True
+    `fn reconcile_picker` (base :9062): base 40406ce04289 | ours f4bc05144eab | head f4bc05144eab; changed by this side alone, the head holds its text: True
+    `fn reconcile_mcp_args` (base :9241): base 49857cb695b2 | ours cea741f1bced | head cea741f1bced; changed by this side alone, the head holds its text: True
+    `fn offer_to_mcp_args` (base :9294): base 752141c0f566 | ours f67fd9613295 | head f67fd9613295; changed by this side alone, the head holds its text: True
+    `fn decide` (base :9636): base 303f0e0defa7 | ours 25c7b22d9405 | head 25c7b22d9405; changed by this side alone, the head holds its text: True
+    `fn settle_band` (base :10863): base e87bff237cd7 | ours ba5b26717591 | head ba5b26717591; changed by this side alone, the head holds its text: True
+    `fn consume_inputs` (base :12307): base 0c88c6343b20 | ours 3044936af4d2 | head 3044936af4d2; changed by this side alone, the head holds its text: True
+    `fn act` (base :12724): base 124388d71682 | ours b809f180945b | head b809f180945b; changed by this side alone, the head holds its text: True
+    `fn cancel_turn` (base :13218): base 7f023bdb8d40 | ours a6816c4a9fe3 | head a6816c4a9fe3; changed by this side alone, the head holds its text: True
+    `fn submit` (base :13417): base c3a1bc3d97c0 | ours 87dd825a0a91 | head 87dd825a0a91; changed by this side alone, the head holds its text: True
+    `fn version` (base :14590): base ecfa8f571ca5 | ours 51185d90e941 | head 51185d90e941; changed by this side alone, the head holds its text: True
+    `fn recall` (base :16535): base 4ca2e11f9bbc | ours 904be0c7d602 | head 904be0c7d602; changed by this side alone, the head holds its text: True
+    `fn fit` (base :16750): base a210d09bdad6 | ours 7e3579818014 | head 7e3579818014; changed by this side alone, the head holds its text: True
+    `fn an_enter_another_surface_took_counts_for_the_held_rule` (base :18647): base ef3181728dd7 | ours 30205d787b1d | head 30205d787b1d; changed by this side alone, the head holds its text: True
+    `fn a_slash_completion_is_a_boundary_and_never_a_half_undo` (base :21007): base cfe04a08fb98 | ours cd588bab6729 | head cd588bab6729; changed by this side alone, the head holds its text: True
+    `fn asking` (base :22299): base b12788b9c3e5 | ours cb34efb43e62 | head cb34efb43e62; changed by this side alone, the head holds its text: True
+    `fn enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it` (base :22805): base 7ca315ccae93 | ours 16b8a483dfef | head 16b8a483dfef; changed by this side alone, the head holds its text: True
+    `fn a_vertical_spelling_and_enter_in_one_read_answer_the_choice_shown` (base :24090): base b795a6f61436 | ours da8ee1ad8c0c | head da8ee1ad8c0c; changed by this side alone, the head holds its text: True
+    `fn super_left_right_and_the_draft_edges_in_an_amendment_are_fxs` (base :25244): base 458f2f2a9ad6 | ours 5db4e0a732e4 | head 5db4e0a732e4; changed by this side alone, the head holds its text: True
+    `fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half` (base :25473): base 2a3f4a2b460c | ours 6b717ff6628c | head 6b717ff6628c; changed by this side alone, the head holds its text: True
+    `fn a_history_notice_the_screen_takes_is_painted_after_a_stop_and_dropped_only_with_its_conversation` (base :25786): base 54fdbb93398e | ours - | head -; changed by this side alone, the head holds its text: True
+    `fn a_command_is_not_echoed_and_its_answer_is_upstreams_notice` (base :27616): base 00a5a476a62f | ours 0fcf606b2400 | head 0fcf606b2400; changed by this side alone, the head holds its text: True
+    `fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing` (base :28096): base 066677e12fef | ours 88972400c237 | head 88972400c237; changed by this side alone, the head holds its text: True
+    `fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it` (base :28298): base 68df46775d7d | ours 5e7d54963177 | head 5e7d54963177; changed by this side alone, the head holds its text: True
+    `fn a_status` (base :28328): base 6ff9f83163c4 | ours 1da2ffdd5cf5 | head 1da2ffdd5cf5; changed by this side alone, the head holds its text: True
+    `fn a_bare_permissions_opens_upstreams_panel_and_changes_nothing` (base :28418): base 8e27c8eb5d53 | ours 0ef5212b9d44 | head 0ef5212b9d44; changed by this side alone, the head holds its text: True
+    `fn a_saved_rule_store_that_turns_into_a_fifo_closes_the_panel_without_waiting` (base :28707): base cc1ec2ce744f | ours f2ef95c2b1f6 | head f2ef95c2b1f6; changed by this side alone, the head holds its text: True
+    `fn escape_closes_the_confirmation_silently_and_two_says_cancelled` (base :29593): base f80d689775ec | ours f2650da57852 | head f2650da57852; changed by this side alone, the head holds its text: True
+    `fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing` (base :29772): base bcd8d8fea08a | ours 3a49eee5ffba | head 3a49eee5ffba; changed by this side alone, the head holds its text: True
+    `fn tab_completes_the_marked_command_and_the_menu_follows_the_word` (base :37157): base 7e95bc9d1c04 | ours 70ae0202db70 | head 70ae0202db70; changed by this side alone, the head holds its text: True
+    `fn a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose` (base :37772): base caef3f935d3b | ours 11122e00d066 | head 11122e00d066; changed by this side alone, the head holds its text: True
+    `fn a_directory_choice_keeps_the_list_up_on_that_directory` (base :37832): base 3b84ebe76835 | ours 7163a1243d33 | head 7163a1243d33; changed by this side alone, the head holds its text: True
+    `fn enter_under_the_full_transcript_goes_on_to_the_composer` (base :38075): base 53402c0c5001 | ours 71eb9fb3f4cc | head 71eb9fb3f4cc; changed by this side alone, the head holds its text: True
+    `fn mcp_args_shell` (base :39292): base 1ca283be0ce3 | ours 946ae1677c19 | head 946ae1677c19; changed by this side alone, the head holds its text: True
+    `fn an_argument_that_names_no_item_is_upstreams_usage_error` (base :40633): base 026536cadd78 | ours 2af8e1a74eaf | head 2af8e1a74eaf; changed by this side alone, the head holds its text: True
+    `fn a_notice_written_while_a_line_streams_lands_above_it_and_leaves_it_whole` (base :43238): base 6a6601893cea | ours 3768aed6aad1 | head 3768aed6aad1; changed by this side alone, the head holds its text: True
+    `fn a_page_key_held_with_a_modifier_moves_nothing_at_a_question_as_the_bare_one` (base :44004): base 4b5f9e640cad | ours 7ed6722787fb | head 7ed6722787fb; changed by this side alone, the head holds its text: True
+    `fn a_pasted_fifo_named_like_an_image_is_words_and_the_terminal_never_waits` (base :44797): base 3b01b6d1c48d | ours 712ed763b6c9 | head 712ed763b6c9; changed by this side alone, the head holds its text: True
+    `fn a_credits_question` (base :46041): base 2bec853d4c1e | ours 3f7c8730c2d2 | head 3f7c8730c2d2; changed by this side alone, the head holds its text: True
+# theirs: 0 functions of src/tui/shell.rs changed against df45025c; 2 hunks in no function (base lines 23781 (an insertion after), 27287 (an insertion after))
+## ours x theirs: 0 functions both changed
+# 0 shared functions; 0 not kept both ways
+# exit 0
